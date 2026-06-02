@@ -1,5 +1,6 @@
 package io.dockistry.platform.model
 
+import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.FetchType
@@ -27,7 +28,11 @@ class User(
     @Id
     lateinit var id: UUID
 
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @OneToOne(
+        fetch = FetchType.LAZY,
+        optional = false,
+        cascade = [CascadeType.PERSIST]
+    )
     @JoinColumn(name = "id")
     @MapsId
     lateinit var principal: Principal
