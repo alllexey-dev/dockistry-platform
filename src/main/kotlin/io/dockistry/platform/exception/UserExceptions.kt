@@ -9,14 +9,12 @@ class UserAlreadyExistsException(
 )
 
 class UserForAuthenticationNotFoundException(
-    message: String = "Such user couldn't be found",
+    message: String = "User not found for authentication",
     code: String = "user_for_authentication_not_found"
-) :
-    UnauthorizedException(message, code)
+) : UnauthorizedException(message, code)
 
 
 class AuthenticatedUserNotFoundException(
     message: String = "Authenticated user doesn't exist",
     code: String = "authenticated_user_not_found"
-) :
-    UnauthorizedException(message, code)
+) : UnauthorizedException(message, code)

@@ -6,7 +6,7 @@ class InvalidTokenException(
 ) : UnauthorizedException(message, code)
 
 class TokenNotFoundException(
-    message: String = "Couldn't find token with such id",
+    message: String = "Token with provided ID not found",
     code: String = "token_not_found"
 ) : UnauthorizedException(message, code)
 

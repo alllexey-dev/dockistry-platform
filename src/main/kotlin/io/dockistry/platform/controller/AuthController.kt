@@ -1,15 +1,21 @@
 package io.dockistry.platform.controller
 
 import io.dockistry.platform.dto.ApiResponse
+import io.dockistry.platform.dto.AuthResponse
+import io.dockistry.platform.dto.LoginRequest
+import io.dockistry.platform.dto.RefreshRequest
+import io.dockistry.platform.dto.RegisterRequest
 import io.dockistry.platform.model.Principal
 import io.dockistry.platform.model.PrincipalType
 import io.dockistry.platform.model.User
+import io.dockistry.platform.security.CurrentUserProvider
 import io.dockistry.platform.service.TokenManagementService
 import io.dockistry.platform.service.UserService
 import org.springframework.security.authentication.AuthenticationManager
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.userdetails.UserDetails
 import org.springframework.security.crypto.password.PasswordEncoder
+import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
@@ -21,7 +27,8 @@ class AuthController(
     private val userService: UserService,
     private val authenticationManager: AuthenticationManager,
     private val passwordEncoder: PasswordEncoder,
-    private val tokenManagementService: TokenManagementService
+    private val tokenManagementService: TokenManagementService,
+    private val currentUserProvider: CurrentUserProvider
 ) {
 
     @PostMapping("/login")
@@ -71,24 +78,12 @@ class AuthController(
             )
         )
     }
+
+    // helpful endpoints for testing
+    @GetMapping("/api/public/hello")
+    fun helloPublic() = "Hello, world!"
+
+    @GetMapping("/api/private/hello")
+    fun helloPrivate() = "Hello, ${currentUserProvider.getUser().username}!"
+
 }
-
-data class LoginRequest(
-    val username: String,
-    val password: String
-)
-
-data class RegisterRequest(
-    val email: String,
-    val username: String,
-    val password: String
-)
-
-data class RefreshRequest(
-    val refreshToken: String
-)
-
-data class AuthResponse(
-    val accessToken: String,
-    val refreshToken: String
-)

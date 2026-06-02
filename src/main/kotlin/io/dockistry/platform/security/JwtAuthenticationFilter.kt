@@ -39,7 +39,7 @@ class JwtAuthenticationFilter(
             val userId = try {
                 UUID.fromString(tokenProvider.getUserIdFromToken(token))
             } catch (_: RuntimeException) {
-                return responseUnauthorized(request, response, "couldn't parse user ID")
+                return responseUnauthorized(request, response, "Couldn't parse user ID")
             }
             user = userRepository.findUserById(userId)
 
@@ -49,12 +49,12 @@ class JwtAuthenticationFilter(
                 )
                 SecurityContextHolder.getContext().authentication = authentication
             } else {
-                return responseUnauthorized(request, response, "user doesn't exist")
+                return responseUnauthorized(request, response, "User doesn't exist")
             }
 
         } else {
             SecurityContextHolder.clearContext()
-            return responseUnauthorized(request, response, "token is invalid or of wrong type")
+            return responseUnauthorized(request, response, "Token is invalid or of wrong type")
         }
         filterChain.doFilter(request, response)
     }

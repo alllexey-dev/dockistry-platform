@@ -26,13 +26,13 @@ class TokenManagementService(
 ) {
     @Transactional
     fun issueTokenPair(username: String): TokenPair {
-        val user = userRepository.findUserByUsername(username) ?: throw UserForAuthenticationNotFoundException("user with username $username not found")
+        val user = userRepository.findUserByUsername(username) ?: throw UserForAuthenticationNotFoundException("User with username $username not found")
         return issueTokenPair(user)
     }
 
     @Transactional
     fun issueTokenPair(userId: UUID): TokenPair {
-        val user = userRepository.findUserById(userId) ?: throw UserForAuthenticationNotFoundException("user with ID $userId not found")
+        val user = userRepository.findUserById(userId) ?: throw UserForAuthenticationNotFoundException("User with ID $userId not found")
         return issueTokenPair(user)
     }
 
@@ -71,7 +71,7 @@ class TokenManagementService(
     @Transactional
     fun refreshToken(token: String): TokenPair {
         if (!tokenProvider.validateToken(token) || !tokenProvider.isRefreshToken(token)) {
-            throw InvalidTokenException("token is invalid or of wrong type")
+            throw InvalidTokenException("Token is invalid or of wrong type")
         }
 
         var userId: UUID
@@ -82,7 +82,7 @@ class TokenManagementService(
             userId = UUID.fromString(tokenProvider.getUserIdFromToken(token))
         } catch (_: RuntimeException) {
             // NullPointerException or IllegalArgumentException
-            throw InvalidTokenException("couldn't parse user/token UUID")
+            throw InvalidTokenException("Couldn't parse user/token UUID")
         }
 
         revokeRefreshToken(tokenId, userId)
@@ -101,7 +101,7 @@ class TokenManagementService(
             ?: throw TokenNotFoundException()
 
         if (refreshToken.user.id != userId) {
-            throw InvalidTokenException("token user mismatch")
+            throw InvalidTokenException("Token user mismatch")
         }
 
         if (refreshToken.revokedAt != null) {
