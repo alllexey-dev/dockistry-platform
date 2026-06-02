@@ -66,7 +66,7 @@ class JwtAccessTokenExpirationIntegrationTests {
         assertApiError(
             result = expiredTokenResult,
             expectedCode = "authentication_required",
-            expectedMessage = "token is invalid or of wrong type"
+            expectedMessage = "Token is invalid or of wrong type"
         )
     }
 
