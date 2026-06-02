@@ -1,13 +1,16 @@
 package io.dockistry.platform.exception
 
-sealed class TokenException(
-    message: String
-) : RuntimeException(message)
-
 class InvalidTokenException(
-    message: String
-) : TokenException(message)
+    message: String = "The token is invalid",
+    code: String = "invalid_token"
+) : UnauthorizedException(message, code)
 
-class TokenNotFoundException : TokenException("couldn't find token with such id")
+class TokenNotFoundException(
+    message: String = "Couldn't find token with such id",
+    code: String = "token_not_found"
+) : UnauthorizedException(message, code)
 
-class TokenRevokedException : TokenException("token has been already revoked")
+class TokenRevokedException(
+    message: String = "Token has been already revoked",
+    code: String = "token_revoked"
+) : UnauthorizedException(message, code)

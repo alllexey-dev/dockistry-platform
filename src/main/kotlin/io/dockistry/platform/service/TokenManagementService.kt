@@ -4,9 +4,9 @@ import io.dockistry.platform.config.JwtConfig
 import io.dockistry.platform.exception.InvalidTokenException
 import io.dockistry.platform.exception.TokenNotFoundException
 import io.dockistry.platform.exception.TokenRevokedException
-import io.dockistry.platform.exception.UserNotFoundException
+import io.dockistry.platform.exception.UserForAuthenticationNotFoundException
 import io.dockistry.platform.model.RefreshToken
-import io.dockistry.platform.model.TokenPair
+import io.dockistry.platform.dto.TokenPair
 import io.dockistry.platform.model.User
 import io.dockistry.platform.repository.RefreshTokenRepository
 import io.dockistry.platform.repository.UserRepository
@@ -26,13 +26,13 @@ class TokenManagementService(
 ) {
     @Transactional
     fun issueTokenPair(username: String): TokenPair {
-        val user = userRepository.findUserByUsername(username) ?: throw UserNotFoundException("user with username $username not found")
+        val user = userRepository.findUserByUsername(username) ?: throw UserForAuthenticationNotFoundException("user with username $username not found")
         return issueTokenPair(user)
     }
 
     @Transactional
     fun issueTokenPair(userId: UUID): TokenPair {
-        val user = userRepository.findUserById(userId) ?: throw UserNotFoundException("user with ID $userId not found")
+        val user = userRepository.findUserById(userId) ?: throw UserForAuthenticationNotFoundException("user with ID $userId not found")
         return issueTokenPair(user)
     }
 
@@ -100,7 +100,7 @@ class TokenManagementService(
         val refreshToken = refreshTokenRepository.findRefreshTokenById(tokenId)
             ?: throw TokenNotFoundException()
 
-        if (refreshToken.user?.id != userId) {
+        if (refreshToken.user.id != userId) {
             throw InvalidTokenException("token user mismatch")
         }
 

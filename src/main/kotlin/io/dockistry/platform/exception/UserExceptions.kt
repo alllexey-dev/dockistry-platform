@@ -1,12 +1,22 @@
 package io.dockistry.platform.exception
 
-sealed class UserException(
-    message: String
-) : RuntimeException(message)
-
 class UserAlreadyExistsException(
     field: String,
     value: String
-) : UserException("User with $field = $value already exists")
+) : ConflictException(
+    message = "User with $field = $value already exists",
+    code = "user_already_exists"
+)
 
-class UserNotFoundException(message: String) : UserException(message)
+class UserForAuthenticationNotFoundException(
+    message: String = "Such user couldn't be found",
+    code: String = "user_for_authentication_not_found"
+) :
+    UnauthorizedException(message, code)
+
+
+class AuthenticatedUserNotFoundException(
+    message: String = "Authenticated user doesn't exist",
+    code: String = "authenticated_user_not_found"
+) :
+    UnauthorizedException(message, code)

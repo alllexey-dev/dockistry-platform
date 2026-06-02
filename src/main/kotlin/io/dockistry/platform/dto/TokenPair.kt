@@ -1,4 +1,4 @@
-package io.dockistry.platform.model
+package io.dockistry.platform.dto
 
 data class TokenPair(
     val refreshToken: String,

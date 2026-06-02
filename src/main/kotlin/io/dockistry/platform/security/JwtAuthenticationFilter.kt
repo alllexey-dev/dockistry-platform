@@ -6,16 +6,19 @@ import io.dockistry.platform.service.JwtTokenProvider
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import org.springframework.security.authentication.BadCredentialsException
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.web.AuthenticationEntryPoint
 import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
 import java.util.UUID
 
 @Component
 class JwtAuthenticationFilter(
-    val tokenProvider: JwtTokenProvider,
-    val userRepository: UserRepository
+    private val tokenProvider: JwtTokenProvider,
+    private val userRepository: UserRepository,
+    private val authenticationEntryPoint: AuthenticationEntryPoint
 ) : OncePerRequestFilter() {
 
     override fun doFilterInternal(
@@ -33,13 +36,12 @@ class JwtAuthenticationFilter(
         if (tokenProvider.validateToken(token) && tokenProvider.isAccessToken(token)) {
             var user: User?
 
-            try {
-                user = userRepository.findUserById(
-                    UUID.fromString(tokenProvider.getUserIdFromToken(token))
-                )
+            val userId = try {
+                UUID.fromString(tokenProvider.getUserIdFromToken(token))
             } catch (_: RuntimeException) {
-                return responseUnauthorized(response, "couldn't parse user ID")
+                return responseUnauthorized(request, response, "couldn't parse user ID")
             }
+            user = userRepository.findUserById(userId)
 
             if (user != null) {
                 val authentication = UsernamePasswordAuthenticationToken(
@@ -47,26 +49,22 @@ class JwtAuthenticationFilter(
                 )
                 SecurityContextHolder.getContext().authentication = authentication
             } else {
-                return responseUnauthorized(response, "user doesn't exist")
+                return responseUnauthorized(request, response, "user doesn't exist")
             }
 
         } else {
             SecurityContextHolder.clearContext()
-            return responseUnauthorized(response, "token is invalid or of wrong type")
+            return responseUnauthorized(request, response, "token is invalid or of wrong type")
         }
         filterChain.doFilter(request, response)
     }
 
-    fun responseUnauthorized(
+    private fun responseUnauthorized(
+        request: HttpServletRequest,
         response: HttpServletResponse,
         message: String
     ) {
-
-        response.status = HttpServletResponse.SC_UNAUTHORIZED
-        response.contentType = "application/json"
-        response.writer.write("""
-            {"message":"$message"}
-            """.trimIndent())
+        authenticationEntryPoint.commence(request, response, BadCredentialsException(message))
     }
 
     fun getTokenFromRequest(request: HttpServletRequest): String? {

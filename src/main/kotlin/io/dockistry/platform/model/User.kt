@@ -23,7 +23,7 @@ class User(
     val email: String,
 
     @Column(nullable = false)
-    val passwordHash: String
+    var passwordHash: String
 ) {
     @Id
     lateinit var id: UUID

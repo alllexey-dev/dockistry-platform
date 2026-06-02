@@ -1,5 +1,6 @@
-package io.dockistry.platform
+package io.dockistry.platform.controller
 
+import io.dockistry.platform.dto.ApiResponse
 import io.dockistry.platform.model.Principal
 import io.dockistry.platform.model.PrincipalType
 import io.dockistry.platform.model.User
@@ -24,12 +25,12 @@ class AuthController(
 ) {
 
     @PostMapping("/login")
-    fun login(@RequestBody loginRequest: LoginRequest): AuthResponse {
+    fun login(@RequestBody loginRequest: LoginRequest): ApiResponse<AuthResponse> {
         return authenticateAndGenerateToken(loginRequest.username, loginRequest.password)
     }
 
     @PostMapping("/register")
-    fun register(@RequestBody registerRequest: RegisterRequest): AuthResponse {
+    fun register(@RequestBody registerRequest: RegisterRequest): ApiResponse<AuthResponse> {
         userService.insertUser(
             User(
                 email = registerRequest.email,
@@ -45,15 +46,17 @@ class AuthController(
     }
 
     @PostMapping("/refresh")
-    fun refreshToken(@RequestBody refreshRequest: RefreshRequest): AuthResponse {
+    fun refreshToken(@RequestBody refreshRequest: RefreshRequest): ApiResponse<AuthResponse> {
         val tokenPair = tokenManagementService.refreshToken(refreshRequest.refreshToken)
-        return AuthResponse(
-            refreshToken = tokenPair.refreshToken,
-            accessToken = tokenPair.accessToken
+        return ApiResponse(
+            AuthResponse(
+                refreshToken = tokenPair.refreshToken,
+                accessToken = tokenPair.accessToken
+            )
         )
     }
 
-    fun authenticateAndGenerateToken(username: String, password: String): AuthResponse {
+    fun authenticateAndGenerateToken(username: String, password: String): ApiResponse<AuthResponse> {
         val authentication = authenticationManager.authenticate(
             UsernamePasswordAuthenticationToken(username, password)
         )
@@ -61,9 +64,11 @@ class AuthController(
         val userDetails = authentication.principal as UserDetails
         val tokenPair = tokenManagementService.issueTokenPair(userDetails.username)
 
-        return AuthResponse(
-            refreshToken = tokenPair.refreshToken,
-            accessToken = tokenPair.accessToken
+        return ApiResponse(
+            AuthResponse(
+                refreshToken = tokenPair.refreshToken,
+                accessToken = tokenPair.accessToken
+            )
         )
     }
 }

@@ -1,5 +1,6 @@
 package io.dockistry.platform.exception
 
+import io.dockistry.platform.dto.ApiResponse
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.authentication.BadCredentialsException
@@ -9,35 +10,38 @@ import org.springframework.web.bind.annotation.RestControllerAdvice
 @RestControllerAdvice
 class GlobalExceptionHandler {
 
-    @ExceptionHandler(UserAlreadyExistsException::class)
-    fun handleUserAlreadyExists(exception: UserAlreadyExistsException) : ResponseEntity<ApiError> {
+    @ExceptionHandler(ServiceException::class)
+    fun handleServiceException(exception: ServiceException): ResponseEntity<ApiResponse<Nothing>> {
+        val status = when (exception) {
+            is ConflictException -> HttpStatus.CONFLICT
+            is ForbiddenException -> HttpStatus.FORBIDDEN
+            is UnauthorizedException -> HttpStatus.UNAUTHORIZED
+            is NotFoundException -> HttpStatus.NOT_FOUND
+            is BadRequestException -> HttpStatus.BAD_REQUEST
+        }
+
         return ResponseEntity
-            .status(HttpStatus.CONFLICT)
-            .body(ApiError(exception.message ?: "User already exists"))
+            .status(status)
+            .body(
+                ApiResponse(
+                    errorMessage = exception.message ?: "Service error",
+                    errorCode = exception.code
+                )
+            )
     }
 
+    /* This handler is added for catching exceptions from AuthenticationManager
+    when authorizing through Spring Security's built-in username/password auth manager.
+     */
     @ExceptionHandler(BadCredentialsException::class)
-    fun handleUserAlreadyExists(exception: BadCredentialsException) : ResponseEntity<ApiError> {
+    fun handleInvalidUsernameOrPassword(exception: BadCredentialsException): ResponseEntity<ApiResponse<Nothing>> {
         return ResponseEntity
             .status(HttpStatus.UNAUTHORIZED)
-            .body(ApiError(exception.message ?: "Invalid username/password"))
-    }
-
-    @ExceptionHandler(TokenException::class)
-    fun handleInvalidToken(exception: TokenException): ResponseEntity<ApiError> {
-        return ResponseEntity
-            .status(HttpStatus.UNAUTHORIZED)
-            .body(ApiError(exception.message ?: "Invalid token"))
-    }
-
-    @ExceptionHandler(UserNotFoundException::class)
-    fun handleInvalidToken(exception: UserNotFoundException): ResponseEntity<ApiError> {
-        return ResponseEntity
-            .status(HttpStatus.UNAUTHORIZED)
-            .body(ApiError(exception.message ?: "User doesn't exist anymore"))
+            .body(
+                ApiResponse(
+                    errorMessage = exception.message ?: "Invalid username/password",
+                    errorCode = "invalid_username_or_password"
+                )
+            )
     }
 }
-
-data class ApiError(
-    val message: String
-)
