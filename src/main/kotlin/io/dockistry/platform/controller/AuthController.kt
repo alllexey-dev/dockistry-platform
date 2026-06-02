@@ -5,6 +5,7 @@ import io.dockistry.platform.dto.AuthResponse
 import io.dockistry.platform.dto.LoginRequest
 import io.dockistry.platform.dto.RefreshRequest
 import io.dockistry.platform.dto.RegisterRequest
+import io.dockistry.platform.dto.TokenPair
 import io.dockistry.platform.model.Principal
 import io.dockistry.platform.model.PrincipalType
 import io.dockistry.platform.model.User
@@ -55,12 +56,7 @@ class AuthController(
     @PostMapping("/refresh")
     fun refreshToken(@RequestBody refreshRequest: RefreshRequest): ApiResponse<AuthResponse> {
         val tokenPair = tokenManagementService.refreshToken(refreshRequest.refreshToken)
-        return ApiResponse(
-            AuthResponse(
-                refreshToken = tokenPair.refreshToken,
-                accessToken = tokenPair.accessToken
-            )
-        )
+        return ApiResponse(tokenPair.toAuthResponse())
     }
 
     fun authenticateAndGenerateToken(username: String, password: String): ApiResponse<AuthResponse> {
@@ -71,11 +67,15 @@ class AuthController(
         val userDetails = authentication.principal as UserDetails
         val tokenPair = tokenManagementService.issueTokenPair(userDetails.username)
 
-        return ApiResponse(
-            AuthResponse(
-                refreshToken = tokenPair.refreshToken,
-                accessToken = tokenPair.accessToken
-            )
+        return ApiResponse(tokenPair.toAuthResponse())
+    }
+
+    private fun TokenPair.toAuthResponse(): AuthResponse {
+        return AuthResponse(
+            refreshToken = refreshToken,
+            refreshExpiresAt = refreshExpiresAt,
+            accessToken = accessToken,
+            accessExpiresAt = accessExpiresAt
         )
     }
 

@@ -16,11 +16,15 @@ data class RefreshRequest(
 )
 
 data class AuthResponse(
+    val refreshToken: String,
+    val refreshExpiresAt: Long,
     val accessToken: String,
-    val refreshToken: String
+    val accessExpiresAt: Long
 )
 
 data class TokenPair(
     val refreshToken: String,
-    val accessToken: String
+    val refreshExpiresAt: Long,
+    val accessToken: String,
+    val accessExpiresAt: Long
 )

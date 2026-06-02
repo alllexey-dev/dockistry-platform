@@ -40,6 +40,7 @@ class TokenManagementService(
         val refreshTokenId = UUID.randomUUID()
         val now = clock.instant()
         val refreshExpiresAt = now.plusMillis(jwtConfig.refreshExpiration)
+        val accessExpiresAt = now.plusMillis(jwtConfig.accessExpiration)
 
         val refreshToken = tokenProvider.generateRefreshToken(
             userId = user.id,
@@ -48,7 +49,7 @@ class TokenManagementService(
         )
         val accessToken = tokenProvider.generateAccessToken(
             userId = user.id,
-            expiresAt = now.plusMillis(jwtConfig.accessExpiration)
+            expiresAt = accessExpiresAt
         )
 
         refreshTokenRepository.save(
@@ -63,7 +64,9 @@ class TokenManagementService(
 
         return TokenPair(
             refreshToken = refreshToken,
-            accessToken = accessToken
+            refreshExpiresAt = refreshExpiresAt.toEpochMilli(),
+            accessToken = accessToken,
+            accessExpiresAt = accessExpiresAt.toEpochMilli()
         )
     }
 
