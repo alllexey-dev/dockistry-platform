@@ -1,6 +1,6 @@
 package io.dockistry.platform.security
 
-import io.dockistry.platform.dto.ApiResponse
+import io.dockistry.platform.shared.api.ApiResponse
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.http.MediaType

@@ -1,8 +1,8 @@
 package io.dockistry.platform.security
 
-import io.dockistry.platform.model.User
-import io.dockistry.platform.repository.UserRepository
-import io.dockistry.platform.service.JwtTokenProvider
+import io.dockistry.platform.iam.domain.User
+import io.dockistry.platform.iam.infrastructure.UserRepository
+import io.dockistry.platform.auth.application.JwtTokenProvider
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse

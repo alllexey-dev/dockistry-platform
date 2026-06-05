@@ -1,8 +1,9 @@
 package io.dockistry.platform.service
 
-import io.dockistry.platform.exception.UserAlreadyExistsException
-import io.dockistry.platform.model.User
-import io.dockistry.platform.repository.UserRepository
+import io.dockistry.platform.auth.domain.UserAlreadyExistsException
+import io.dockistry.platform.iam.application.UserService
+import io.dockistry.platform.iam.domain.User
+import io.dockistry.platform.iam.infrastructure.UserRepository
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.mockito.Mock

@@ -1,5 +1,14 @@
 package io.dockistry.platform.model
 
+import io.dockistry.platform.iam.domain.Group
+import io.dockistry.platform.iam.domain.Permission
+import io.dockistry.platform.iam.domain.Principal
+import io.dockistry.platform.iam.domain.PrincipalType
+import io.dockistry.platform.iam.domain.Role
+import io.dockistry.platform.iam.domain.RoleBinding
+import io.dockistry.platform.iam.domain.Scope
+import io.dockistry.platform.iam.domain.ScopeType
+import io.dockistry.platform.iam.domain.User
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
 import org.junit.jupiter.api.Test

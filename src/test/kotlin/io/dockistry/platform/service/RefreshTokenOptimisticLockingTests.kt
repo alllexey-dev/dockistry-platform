@@ -1,11 +1,11 @@
 package io.dockistry.platform.service
 
-import io.dockistry.platform.model.Principal
-import io.dockistry.platform.model.PrincipalType
-import io.dockistry.platform.model.RefreshToken
-import io.dockistry.platform.model.User
-import io.dockistry.platform.repository.RefreshTokenRepository
-import io.dockistry.platform.repository.UserRepository
+import io.dockistry.platform.iam.domain.Principal
+import io.dockistry.platform.iam.domain.PrincipalType
+import io.dockistry.platform.auth.domain.RefreshToken
+import io.dockistry.platform.iam.domain.User
+import io.dockistry.platform.auth.infrastructure.RefreshTokenRepository
+import io.dockistry.platform.iam.infrastructure.UserRepository
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest

@@ -1,19 +1,16 @@
 package io.dockistry.platform.config
 
-import io.dockistry.platform.dto.ApiResponse
+import io.dockistry.platform.shared.api.ApiResponse
 import jakarta.servlet.DispatcherType
 import jakarta.servlet.RequestDispatcher
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
-import org.springframework.context.annotation.Import
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.MvcResult
 import org.springframework.test.web.servlet.get
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.ObjectMapper
 import tools.jackson.module.kotlin.readValue
 import kotlin.test.assertEquals
@@ -23,7 +20,6 @@ import kotlin.test.assertTrue
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(SecurityConfigTests.TestController::class)
 class SecurityConfigTests {
 
     @Autowired
@@ -67,15 +63,6 @@ class SecurityConfigTests {
         }.andExpect {
             status { isNotFound() }
         }
-    }
-
-    @RestController
-    class TestController {
-        @GetMapping("/api/public/ping")
-        fun publicPing() = "pong"
-
-        @GetMapping("/api/private/ping")
-        fun privatePing() = "pong"
     }
 
     private fun assertApiError(

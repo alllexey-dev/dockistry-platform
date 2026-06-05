@@ -1,7 +1,7 @@
 package io.dockistry.platform.security
 
 import io.dockistry.platform.TestClockConfig
-import io.dockistry.platform.dto.ApiResponse
+import io.dockistry.platform.shared.api.ApiResponse
 import io.dockistry.platform.testsupport.MutableClock
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertNotNull

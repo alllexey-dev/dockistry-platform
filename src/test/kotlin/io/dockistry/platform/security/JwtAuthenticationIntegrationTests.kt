@@ -1,6 +1,6 @@
 package io.dockistry.platform.security
 
-import io.dockistry.platform.dto.ApiResponse
+import io.dockistry.platform.shared.api.ApiResponse
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertNotNull
 import org.springframework.beans.factory.annotation.Autowired

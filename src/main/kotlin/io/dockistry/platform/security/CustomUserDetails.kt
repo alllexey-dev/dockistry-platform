@@ -1,6 +1,6 @@
 package io.dockistry.platform.security
 
-import io.dockistry.platform.model.User
+import io.dockistry.platform.iam.domain.User
 import org.springframework.security.core.GrantedAuthority
 import org.springframework.security.core.userdetails.UserDetails
 
