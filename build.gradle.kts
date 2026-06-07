@@ -33,6 +33,9 @@ dependencies {
 	implementation("tools.jackson.module:jackson-module-kotlin")
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 
+	implementation("org.springframework.boot:spring-boot-starter-flyway")
+	runtimeOnly("org.flywaydb:flyway-database-postgresql")
+
 	runtimeOnly("org.postgresql:postgresql")
 	runtimeOnly("com.h2database:h2")
 
