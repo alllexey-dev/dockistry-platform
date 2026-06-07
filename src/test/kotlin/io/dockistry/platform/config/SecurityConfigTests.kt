@@ -1,5 +1,6 @@
 package io.dockistry.platform.config
 
+import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.shared.api.ApiResponse
 import jakarta.servlet.DispatcherType
 import jakarta.servlet.RequestDispatcher
@@ -7,10 +8,12 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
+import org.springframework.context.annotation.Import
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.MvcResult
 import org.springframework.test.web.servlet.get
+import org.testcontainers.junit.jupiter.Testcontainers
 import tools.jackson.databind.ObjectMapper
 import tools.jackson.module.kotlin.readValue
 import kotlin.test.assertEquals
@@ -20,6 +23,8 @@ import kotlin.test.assertTrue
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@Import(TestcontainersConfig::class)
+@Testcontainers
 class SecurityConfigTests {
 
     @Autowired

@@ -6,13 +6,16 @@ import io.dockistry.platform.auth.domain.RefreshToken
 import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.auth.infrastructure.RefreshTokenRepository
 import io.dockistry.platform.iam.infrastructure.UserRepository
+import io.dockistry.platform.TestcontainersConfig
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.context.annotation.Import
 import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
+import org.testcontainers.junit.jupiter.Testcontainers
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -20,6 +23,8 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 
 @SpringBootTest
+@Import(TestcontainersConfig::class)
+@Testcontainers
 class RefreshTokenOptimisticLockingTests {
 
     @Autowired

@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dockistry_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-dockistry}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dockistry}
+    ports:
+      - "5432:5432"
+    volumes:
+      - dockistry_postgres_data:/var/lib/postgresql
+
+volumes:
+  dockistry_postgres_data:
