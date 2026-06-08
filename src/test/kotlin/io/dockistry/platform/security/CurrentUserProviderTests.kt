@@ -2,6 +2,7 @@ package io.dockistry.platform.security
 
 import io.dockistry.platform.shared.api.ApiResponse
 import io.dockistry.platform.iam.application.CurrentUserProvider
+import io.dockistry.platform.TestcontainersConfig
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
@@ -12,6 +13,7 @@ import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
+import org.testcontainers.junit.jupiter.Testcontainers
 import tools.jackson.databind.ObjectMapper
 import tools.jackson.module.kotlin.readValue
 import java.util.UUID
@@ -21,7 +23,11 @@ import kotlin.test.assertNotNull
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(CurrentUserProviderTests.CurrentUserTestController::class)
+@Import(
+    CurrentUserProviderTests.CurrentUserTestController::class,
+    TestcontainersConfig::class
+)
+@Testcontainers
 class CurrentUserProviderTests {
     @Autowired
     private lateinit var mockMvc: MockMvc

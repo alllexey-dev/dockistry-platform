@@ -9,14 +9,19 @@ import io.dockistry.platform.iam.domain.RoleBinding
 import io.dockistry.platform.iam.domain.Scope
 import io.dockistry.platform.iam.domain.ScopeType
 import io.dockistry.platform.iam.domain.User
+import io.dockistry.platform.TestcontainersConfig
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
 import org.junit.jupiter.api.Test
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest
+import org.springframework.context.annotation.Import
+import org.testcontainers.junit.jupiter.Testcontainers
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
 @DataJpaTest
+@Import(TestcontainersConfig::class)
+@Testcontainers
 class ModelPersistenceTests {
 
     @PersistenceContext

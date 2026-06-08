@@ -3,6 +3,7 @@ package io.dockistry.platform.security
 import io.dockistry.platform.TestClockConfig
 import io.dockistry.platform.shared.api.ApiResponse
 import io.dockistry.platform.testsupport.MutableClock
+import io.dockistry.platform.TestcontainersConfig
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertNotNull
 import org.springframework.beans.factory.annotation.Autowired
@@ -15,6 +16,7 @@ import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.MvcResult
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
+import org.testcontainers.junit.jupiter.Testcontainers
 import tools.jackson.databind.ObjectMapper
 import tools.jackson.module.kotlin.readValue
 import java.util.UUID
@@ -31,7 +33,11 @@ import kotlin.time.toJavaDuration
     ]
 )
 @AutoConfigureMockMvc
-@Import(TestClockConfig::class)
+@Import(
+    TestClockConfig::class,
+    TestcontainersConfig::class
+)
+@Testcontainers
 class JwtAccessTokenExpirationIntegrationTests {
 
     @Autowired
