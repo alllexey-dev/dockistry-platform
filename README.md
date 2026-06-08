@@ -12,7 +12,7 @@
 | Компонент      | Версия / технология                                                       |
 |----------------|---------------------------------------------------------------------------|
 | Язык           | Kotlin 2.3.20                                                             |
-| Runtime        | JDK 17 (Gradle toolchain)                                                 |
+| Runtime        | JDK 21 (Gradle toolchain)                                                 |
 | Фреймворк      | Spring Boot 4.0.6 (Web MVC, Security, Data JPA/JDBC, Thymeleaf, Actuator) |
 | База данных    | PostgreSQL 18.4                                                           |
 | Миграции       | Flyway                                                                    |
@@ -22,7 +22,7 @@
 
 ## Предварительные требования
 
-- **JDK 17+** — нужен для запуска Gradle. Сам проект собирается под Java 17 (toolchain
+- **JDK 21+** — нужен для запуска Gradle. Сам проект собирается под Java 21 (toolchain
   при необходимости скачает нужную версию автоматически).
 - **Docker** + **Docker Compose** — для локальной БД PostgreSQL и для интеграционных
   тестов (Testcontainers поднимает контейнер с Postgres).
