@@ -122,6 +122,18 @@ curl http://localhost:8080/api/public/ping
 ./gradlew test --tests "*JwtAuthentication*"
 ```
 
+> **Colima вместо Docker Desktop.** Если Docker запущен через Colima, Testcontainers
+> может не найти сокет (ошибка `Could not find a valid Docker environment`), так как
+> он не читает контексты Docker CLI. Перед запуском тестов задайте:
+>
+> ```bash
+> export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+> export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE="/var/run/docker.sock"
+> ```
+>
+> `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE` нужен для контейнера-reaper'а Ryuk — это путь
+> сокета внутри Colima-VM. Чтобы не задавать каждый раз, добавьте обе строки в `~/.zshrc`.
+
 HTML-отчёт о прогоне: `build/reports/tests/test/index.html`.
 
 ## Полезные команды Gradle
