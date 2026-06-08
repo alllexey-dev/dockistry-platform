@@ -17,6 +17,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest
 import org.springframework.context.annotation.Import
 import org.testcontainers.junit.jupiter.Testcontainers
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 
 @DataJpaTest
@@ -66,7 +67,7 @@ class ModelPersistenceTests {
         val principal = Principal(PrincipalType.USER)
         val scope = Scope(ScopeType.PROJECT)
         val permission = Permission("deploy.release", "Deploy a release")
-        val role = Role("deployer", "Can deploy releases", false).apply {
+        val role = Role("deployer", "Can deploy releases", true).apply {
             permissions += permission
         }
         entityManager.persist(principal)
@@ -74,11 +75,7 @@ class ModelPersistenceTests {
         entityManager.persist(permission)
         entityManager.persist(role)
 
-        val roleBinding = RoleBinding().apply {
-            subjectPrincipal = principal
-            this.scope = scope
-            this.role = role
-        }
+        val roleBinding = RoleBinding(principal, scope, role)
         entityManager.persist(roleBinding)
         entityManager.flush()
 
@@ -99,5 +96,15 @@ class ModelPersistenceTests {
         assertEquals(roleId, savedBinding.role.id)
         assertEquals(principalId, savedBinding.subjectPrincipal.id)
         assertEquals(setOf(bindingId), savedPrincipal.roleBindings.map { it.id }.toSet())
+    }
+
+    @Test
+    fun `database allows only one global scope`() {
+        entityManager.persist(Scope(ScopeType.GLOBAL))
+        entityManager.persist(Scope(ScopeType.GLOBAL))
+
+        assertFailsWith<RuntimeException> {
+            entityManager.flush()
+        }
     }
 }
