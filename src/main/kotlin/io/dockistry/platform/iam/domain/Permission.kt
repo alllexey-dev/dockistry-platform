@@ -12,8 +12,10 @@ import java.util.UUID
 @Entity
 @Table(name = "permissions")
 class Permission(
-    @Column(name = "permission_key")
+    @Column(name = "permission_key", unique = true, nullable = false)
     val key: String,
+
+    @Column(nullable = false)
     val description: String
 ) {
     @Id

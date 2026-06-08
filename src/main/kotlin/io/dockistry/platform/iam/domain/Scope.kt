@@ -1,6 +1,7 @@
 package io.dockistry.platform.iam.domain
 
 import jakarta.persistence.CascadeType
+import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
 import jakarta.persistence.Enumerated
@@ -15,6 +16,7 @@ import java.util.UUID
 @Table(name = "iam_scopes")
 class Scope(
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     val scopeType: ScopeType
 ) {
     @Id

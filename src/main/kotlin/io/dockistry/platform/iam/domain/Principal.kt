@@ -7,6 +7,7 @@ import java.util.*
 @Table(name = "iam_principals")
 class Principal(
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     val principalType: PrincipalType
 ) {
     @Id
