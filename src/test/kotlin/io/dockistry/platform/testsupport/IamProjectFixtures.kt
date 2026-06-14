@@ -139,6 +139,12 @@ class IamProjectFixtures(
     }
 
     fun grant(principal: Principal, scope: Scope, vararg permissionKeys: String): RoleBinding {
+        val permissions = permissionKeys.map { permission(it) }.toSet()
+        val role = role(permissions = permissions)
+        return bind(principal, scope, role)
+    }
+
+    fun grantSystemPermission(principal: Principal, scope: Scope, vararg permissionKeys: String): RoleBinding {
         val permissions = permissionKeys.map { systemPermission(it) }.toSet()
         val role = role(permissions = permissions)
         return bind(principal, scope, role)

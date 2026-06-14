@@ -4,7 +4,6 @@ import io.dockistry.platform.TestClockConfig
 import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.RoleBinding
-import io.dockistry.platform.iam.domain.Scope
 import io.dockistry.platform.iam.domain.ScopeType
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.iam.domain.SystemRoleNames
@@ -54,7 +53,7 @@ class ProjectServiceIntegrationTests {
     fun `create persists project and owner admin binding`() {
         val fixtures = fixtures()
         val owner = fixtures.principal()
-        fixtures.grant(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
         fixtures.flush()
 
         val project = projectService.create(
@@ -103,7 +102,7 @@ class ProjectServiceIntegrationTests {
     fun `create throws internal data integrity exception when project admin role is missing`() {
         val fixtures = fixtures()
         val owner = fixtures.principal()
-        fixtures.grant(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
         val projectAdmin = roleRepository.findByName(SystemRoleNames.PROJECT_ADMIN)
             ?: throw AssertionError("Expected project admin role to be bootstrapped")
         projectAdmin.permissions.clear()
@@ -123,7 +122,7 @@ class ProjectServiceIntegrationTests {
     fun `create converts invalid slug validation failure to invalid project slug exception`() {
         val fixtures = fixtures()
         val owner = fixtures.principal()
-        fixtures.grant(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
         fixtures.flush()
 
         assertFailsWith<InvalidProjectSlugException> {
@@ -139,7 +138,7 @@ class ProjectServiceIntegrationTests {
     fun `create converts duplicate name or slug to project already exists exception`() {
         val fixtures = fixtures()
         val owner = fixtures.principal()
-        fixtures.grant(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
         fixtures.flush()
         projectService.create(
             name = "Duplicate Project",
@@ -351,7 +350,7 @@ class ProjectServiceIntegrationTests {
         val firstProject = fixtures.project(name = "First ${fixtures.unique()}", slug = "first-${fixtures.unique()}")
         val secondProject = fixtures.project(name = "Second ${fixtures.unique()}", slug = "second-${fixtures.unique()}")
         val principal = fixtures.principal()
-        fixtures.grant(principal, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(principal, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
         val projects = projectService.list(principal)
@@ -378,7 +377,7 @@ class ProjectServiceIntegrationTests {
     fun `list throws internal data integrity exception when project scope has no project`() {
         val fixtures = fixtures()
         val principal = fixtures.principal()
-        fixtures.grant(principal, fixtures.scope(ScopeType.PROJECT), SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(principal, fixtures.scope(ScopeType.PROJECT), SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
         assertFailsWith<InternalDataIntegrityException> {
@@ -394,7 +393,7 @@ class ProjectServiceIntegrationTests {
         vararg extraPermissionKeys: String
     ): RoleBinding {
         val permissionKeys = listOf(SystemPermissionNames.PROJECT_READ) + extraPermissionKeys
-        return grant(projectReader, project.scope, *permissionKeys.toTypedArray())
+        return grantSystemPermission(projectReader, project.scope, *permissionKeys.toTypedArray())
     }
 
     private fun ownerAdminBindingCount(ownerPrincipalId: UUID, scopeId: UUID): Long {

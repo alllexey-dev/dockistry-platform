@@ -33,7 +33,7 @@ class PermissionCheckServiceIntegrationTests {
     fun `has global permission returns true only for matching permission on global scope`() {
         val fixtures = IamProjectFixtures(entityManager)
         val principal = fixtures.principal()
-        fixtures.grant(principal, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(principal, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
         fixtures.flush()
 
         assertTrue(permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_CREATE, principal.id))
@@ -44,7 +44,7 @@ class PermissionCheckServiceIntegrationTests {
     fun `has global permission ignores project scoped binding`() {
         val fixtures = IamProjectFixtures(entityManager)
         val principal = fixtures.principal()
-        fixtures.grant(principal, fixtures.scope(ScopeType.PROJECT), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(principal, fixtures.scope(ScopeType.PROJECT), SystemPermissionNames.PROJECT_CREATE)
         fixtures.flush()
 
         assertFalse(permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_CREATE, principal.id))
@@ -55,7 +55,7 @@ class PermissionCheckServiceIntegrationTests {
         val fixtures = IamProjectFixtures(entityManager)
         val principal = fixtures.principal()
         val projectScope = fixtures.scope(ScopeType.PROJECT)
-        fixtures.grant(principal, projectScope, SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(principal, projectScope, SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
         assertTrue(permissionCheckService.hasPermission(
@@ -70,7 +70,7 @@ class PermissionCheckServiceIntegrationTests {
         val fixtures = IamProjectFixtures(entityManager)
         val principal = fixtures.principal()
         val projectScope = fixtures.scope(ScopeType.PROJECT)
-        fixtures.grant(principal, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(principal, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
         assertTrue(permissionCheckService.hasPermission(
@@ -86,7 +86,7 @@ class PermissionCheckServiceIntegrationTests {
         val principal = fixtures.principal()
         val grantedScope = fixtures.scope(ScopeType.PROJECT)
         val otherScope = fixtures.scope(ScopeType.PROJECT)
-        fixtures.grant(principal, grantedScope, SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(principal, grantedScope, SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
         assertFalse(permissionCheckService.hasPermission(

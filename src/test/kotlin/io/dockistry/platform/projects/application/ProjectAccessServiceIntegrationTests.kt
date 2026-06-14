@@ -31,8 +31,8 @@ class ProjectAccessServiceIntegrationTests {
         val fixtures = IamProjectFixtures(entityManager)
         val globalCreator = fixtures.principal()
         val projectScopedCreator = fixtures.principal()
-        fixtures.grant(globalCreator, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
-        fixtures.grant(projectScopedCreator, fixtures.scope(ScopeType.PROJECT), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(globalCreator, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(projectScopedCreator, fixtures.scope(ScopeType.PROJECT), SystemPermissionNames.PROJECT_CREATE)
         fixtures.flush()
 
         assertTrue(projectAccessService.canCreate(globalCreator))
@@ -46,8 +46,8 @@ class ProjectAccessServiceIntegrationTests {
         val projectReader = fixtures.principal()
         val globalReader = fixtures.principal()
         val noAccess = fixtures.principal()
-        fixtures.grant(projectReader, project.scope, SystemPermissionNames.PROJECT_READ)
-        fixtures.grant(globalReader, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(projectReader, project.scope, SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(globalReader, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
         assertTrue(projectAccessService.canRead(project.scope, projectReader))
@@ -62,7 +62,7 @@ class ProjectAccessServiceIntegrationTests {
         val group = fixtures.group()
         val user = fixtures.user()
         user.groups += group
-        fixtures.grant(group.principal, project.scope, SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(group.principal, project.scope, SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
         assertTrue(projectAccessService.canRead(project.scope, user.principal))
@@ -74,13 +74,13 @@ class ProjectAccessServiceIntegrationTests {
         val project = fixtures.project()
         val updater = fixtures.principal()
         val updateWithoutRead = fixtures.principal()
-        fixtures.grant(
+        fixtures.grantSystemPermission(
             updater,
             project.scope,
             SystemPermissionNames.PROJECT_READ,
             SystemPermissionNames.PROJECT_UPDATE
         )
-        fixtures.grant(updateWithoutRead, project.scope, SystemPermissionNames.PROJECT_UPDATE)
+        fixtures.grantSystemPermission(updateWithoutRead, project.scope, SystemPermissionNames.PROJECT_UPDATE)
         fixtures.flush()
 
         assertTrue(projectAccessService.canUpdate(project.scope, updater))
@@ -93,13 +93,13 @@ class ProjectAccessServiceIntegrationTests {
         val project = fixtures.project()
         val archiver = fixtures.principal()
         val archiveWithoutRead = fixtures.principal()
-        fixtures.grant(
+        fixtures.grantSystemPermission(
             archiver,
             project.scope,
             SystemPermissionNames.PROJECT_READ,
             SystemPermissionNames.PROJECT_ARCHIVE
         )
-        fixtures.grant(archiveWithoutRead, project.scope, SystemPermissionNames.PROJECT_ARCHIVE)
+        fixtures.grantSystemPermission(archiveWithoutRead, project.scope, SystemPermissionNames.PROJECT_ARCHIVE)
         fixtures.flush()
 
         assertTrue(projectAccessService.canArchive(project.scope, archiver))
@@ -112,13 +112,13 @@ class ProjectAccessServiceIntegrationTests {
         val project = fixtures.project()
         val deleter = fixtures.principal()
         val deleteWithoutRead = fixtures.principal()
-        fixtures.grant(
+        fixtures.grantSystemPermission(
             deleter,
             project.scope,
             SystemPermissionNames.PROJECT_READ,
             SystemPermissionNames.PROJECT_DELETE
         )
-        fixtures.grant(deleteWithoutRead, project.scope, SystemPermissionNames.PROJECT_DELETE)
+        fixtures.grantSystemPermission(deleteWithoutRead, project.scope, SystemPermissionNames.PROJECT_DELETE)
         fixtures.flush()
 
         assertTrue(projectAccessService.canDelete(project.scope, deleter))
