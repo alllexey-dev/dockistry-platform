@@ -9,6 +9,7 @@ import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.iam.domain.SystemRoleNames
 import io.dockistry.platform.iam.infrastructure.PrincipalRepository
 import io.dockistry.platform.iam.infrastructure.RoleRepository
+import io.dockistry.platform.iam.infrastructure.ScopeQueryRepository
 import io.dockistry.platform.projects.domain.InsufficientPermissionException
 import io.dockistry.platform.projects.domain.InvalidProjectSlugException
 import io.dockistry.platform.projects.domain.Project
@@ -31,7 +32,8 @@ class ProjectService(
     private val projectAccessService: ProjectAccessService,
     private val roleRepository: RoleRepository,
     private val principalRepository: PrincipalRepository,
-    private val permissionCheckService: PermissionCheckService
+    private val permissionCheckService: PermissionCheckService,
+    private val scopeQueryRepository: ScopeQueryRepository
 ) {
     @Transactional
     fun create(
@@ -163,15 +165,12 @@ class ProjectService(
             return projectRepository.findAll()
         }
 
-        return principal.roleBindings.filter { binding ->
-            binding.scope.scopeType == ScopeType.PROJECT
-                    && projectAccessService.canRead(binding.scope, principal)
-        }
-            .distinctBy { binding -> binding.scope.id }
-            .map { binding ->
-                projectRepository.findByScope(binding.scope)
-                    ?: throw InternalDataIntegrityException("No project could be found by Scope ${binding.scope.id} with ScopeType = PROJECT")
-            }
-            .toList()
+        return projectRepository.findAllByScopeIdIn(
+            scopeQueryRepository.effectiveScopeIds(
+                principal.id,
+                SystemPermissionNames.PROJECT_READ,
+                ScopeType.PROJECT
+            )
+        )
     }
 }

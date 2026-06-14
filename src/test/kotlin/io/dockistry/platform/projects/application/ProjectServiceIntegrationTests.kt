@@ -361,7 +361,8 @@ class ProjectServiceIntegrationTests {
     @Test
     fun `list returns distinct project scoped readable projects only`() {
         val fixtures = fixtures()
-        val readableProject = fixtures.project(name = "Readable ${fixtures.unique()}", slug = "readable-${fixtures.unique()}")
+        val readableProject =
+            fixtures.project(name = "Readable ${fixtures.unique()}", slug = "readable-${fixtures.unique()}")
         fixtures.project(name = "Unreadable ${fixtures.unique()}", slug = "unreadable-${fixtures.unique()}")
         val principal = fixtures.principal()
         fixtures.grant(projectReader = principal, project = readableProject)
@@ -374,15 +375,32 @@ class ProjectServiceIntegrationTests {
     }
 
     @Test
-    fun `list throws internal data integrity exception when project scope has no project`() {
+    fun `list ignores readable project scope ids that do not belong to projects`() {
         val fixtures = fixtures()
         val principal = fixtures.principal()
         fixtures.grantSystemPermission(principal, fixtures.scope(ScopeType.PROJECT), SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
-        assertFailsWith<InternalDataIntegrityException> {
-            projectService.list(principal)
-        }
+        assertEquals(listOf(), projectService.list(principal))
+    }
+
+    @Test
+    fun `list returns projects visible only through group`() {
+        val fixtures = fixtures()
+        val readableProject = fixtures.project(
+            name = "Readable ${fixtures.unique()}",
+            slug = "readable-${fixtures.unique()}"
+        )
+
+        val user = fixtures.user()
+        val group = fixtures.group()
+        user.groups += group
+        fixtures.grant(projectReader = group.principal, project = readableProject)
+
+        fixtures.flush()
+
+        val projectsVisible = projectService.list(user.principal)
+        assertEquals(listOf(readableProject), projectsVisible)
     }
 
     private fun fixtures(): IamProjectFixtures = IamProjectFixtures(entityManager)
