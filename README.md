@@ -85,8 +85,8 @@ set -a && source .env && set +a
 ```
 
 Приложение стартует на [http://localhost:8080](http://localhost:8080).
-При старте Flyway автоматически применит миграции из
-`src/main/resources/db/migration` (схема `V1__init_schema.sql`).
+При старте Flyway автоматически применит все миграции из
+`src/main/resources/db/migration`.
 
 ### Альтернатива: сборка и запуск JAR
 
@@ -120,6 +120,9 @@ curl http://localhost:8080/api/public/ping
 
 # По шаблону имени
 ./gradlew test --tests "*JwtAuthentication*"
+
+# Benchmark-like тесты, исключённые из обычного ./gradlew test
+./gradlew benchmarkTest
 ```
 
 > **Colima вместо Docker Desktop.** Если Docker запущен через Colima, Testcontainers
