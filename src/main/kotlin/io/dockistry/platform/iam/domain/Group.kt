@@ -1,5 +1,6 @@
 package io.dockistry.platform.iam.domain
 
+import jakarta.persistence.CascadeType
 import jakarta.persistence.Entity
 import jakarta.persistence.FetchType
 import jakarta.persistence.Id
@@ -16,7 +17,7 @@ class Group(val name: String) {
     @Id
     lateinit var id: UUID
 
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @OneToOne(fetch = FetchType.LAZY, optional = false, cascade = [CascadeType.PERSIST])
     @JoinColumn(name = "id")
     @MapsId
     lateinit var principal: Principal

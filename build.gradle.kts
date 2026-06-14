@@ -11,7 +11,7 @@ version = "0.0.1-SNAPSHOT"
 
 java {
 	toolchain {
-		languageVersion = JavaLanguageVersion.of(17)
+		languageVersion = JavaLanguageVersion.of(21)
 	}
 }
 
@@ -32,6 +32,10 @@ dependencies {
 	implementation("org.thymeleaf.extras:thymeleaf-extras-springsecurity6")
 	implementation("tools.jackson.module:jackson-module-kotlin")
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
+	implementation("org.springframework.boot:spring-boot-starter-validation")
+
+	implementation("com.github.slugify:slugify:4.0.0")
+	implementation("com.ibm.icu:icu4j:78.3")
 
 	implementation("org.springframework.boot:spring-boot-starter-flyway")
 	runtimeOnly("org.flywaydb:flyway-database-postgresql")
@@ -54,7 +58,7 @@ dependencies {
 }
 
 kotlin {
-	jvmToolchain(17)
+	jvmToolchain(21)
 
 	compilerOptions {
 		freeCompilerArgs.addAll("-Xjsr305=strict", "-Xannotation-default-target=param-property")
@@ -67,6 +71,27 @@ allOpen {
 	annotation("jakarta.persistence.Embeddable")
 }
 
-tasks.withType<Test> {
-	useJUnitPlatform()
+tasks.test {
+	useJUnitPlatform {
+		excludeTags("benchmark")
+	}
+}
+
+tasks.register<Test>("benchmarkTest") {
+	description = "Runs benchmark-like tests"
+	group = "verification"
+	testClassesDirs = sourceSets.test.get().output.classesDirs
+	classpath = sourceSets.test.get().runtimeClasspath
+
+	useJUnitPlatform {
+		includeTags("benchmark")
+	}
+
+	testLogging {
+		showStandardStreams = true
+		events("passed", "skipped", "failed", "standardOut", "standardError")
+	}
+
+	// Useful for benchmarks, otherwise Gradle may say UP-TO-DATE and not run it.
+	outputs.upToDateWhen { false }
 }

@@ -12,7 +12,7 @@
 | Компонент      | Версия / технология                                                       |
 |----------------|---------------------------------------------------------------------------|
 | Язык           | Kotlin 2.3.20                                                             |
-| Runtime        | JDK 17 (Gradle toolchain)                                                 |
+| Runtime        | JDK 21 (Gradle toolchain)                                                 |
 | Фреймворк      | Spring Boot 4.0.6 (Web MVC, Security, Data JPA/JDBC, Thymeleaf, Actuator) |
 | База данных    | PostgreSQL 18.4                                                           |
 | Миграции       | Flyway                                                                    |
@@ -22,7 +22,7 @@
 
 ## Предварительные требования
 
-- **JDK 17+** — нужен для запуска Gradle. Сам проект собирается под Java 17 (toolchain
+- **JDK 21+** — нужен для запуска Gradle. Сам проект собирается под Java 21 (toolchain
   при необходимости скачает нужную версию автоматически).
 - **Docker** + **Docker Compose** — для локальной БД PostgreSQL и для интеграционных
   тестов (Testcontainers поднимает контейнер с Postgres).
@@ -85,8 +85,8 @@ set -a && source .env && set +a
 ```
 
 Приложение стартует на [http://localhost:8080](http://localhost:8080).
-При старте Flyway автоматически применит миграции из
-`src/main/resources/db/migration` (схема `V1__init_schema.sql`).
+При старте Flyway автоматически применит все миграции из
+`src/main/resources/db/migration`.
 
 ### Альтернатива: сборка и запуск JAR
 
@@ -120,6 +120,9 @@ curl http://localhost:8080/api/public/ping
 
 # По шаблону имени
 ./gradlew test --tests "*JwtAuthentication*"
+
+# Benchmark-like тесты, исключённые из обычного ./gradlew test
+./gradlew benchmarkTest
 ```
 
 > **Colima вместо Docker Desktop.** Если Docker запущен через Colima, Testcontainers

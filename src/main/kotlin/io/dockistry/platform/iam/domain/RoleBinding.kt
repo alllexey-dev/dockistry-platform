@@ -12,29 +12,29 @@ import java.util.UUID
 
 @Entity
 @Table(name = "role_bindings")
-class RoleBinding {
-    @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    lateinit var id: UUID
-
+class RoleBinding(
     @ManyToOne(
         optional = false,
         fetch = FetchType.LAZY
     )
     @JoinColumn(name = "subject_principal_id")
-    lateinit var subjectPrincipal: Principal
+    val subjectPrincipal: Principal,
 
     @ManyToOne(
         optional = false,
         fetch = FetchType.LAZY
     )
     @JoinColumn(name = "scope_id")
-    lateinit var scope: Scope
+    val scope: Scope,
 
     @ManyToOne(
         optional = false,
         fetch = FetchType.LAZY
     )
     @JoinColumn(name = "role_id")
-    lateinit var role: Role
+    val role: Role
+) {
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    lateinit var id: UUID
 }

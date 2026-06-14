@@ -14,17 +14,21 @@ CREATE TABLE groups
 
 CREATE TABLE iam_principals
 (
-    id             UUID NOT NULL,
-    principal_type VARCHAR(255),
+    id             UUID         NOT NULL,
+    principal_type VARCHAR(255) NOT NULL,
     CONSTRAINT pk_iam_principals PRIMARY KEY (id)
 );
 
 CREATE TABLE iam_scopes
 (
-    id         UUID NOT NULL,
-    scope_type VARCHAR(255),
+    id         UUID         NOT NULL,
+    scope_type VARCHAR(255) NOT NULL,
     CONSTRAINT pk_iam_scopes PRIMARY KEY (id)
 );
+
+CREATE UNIQUE INDEX iam_scopes_global_unique_idx
+    ON iam_scopes (scope_type)
+    WHERE scope_type = 'GLOBAL';
 
 CREATE TABLE permissions
 (
@@ -32,6 +36,19 @@ CREATE TABLE permissions
     permission_key VARCHAR(255) NOT NULL,
     description    VARCHAR(255) NOT NULL,
     CONSTRAINT pk_permissions PRIMARY KEY (id)
+);
+
+CREATE TABLE projects
+(
+    id                 UUID                        NOT NULL,
+    name               VARCHAR(255)                NOT NULL,
+    slug               VARCHAR(255)                NOT NULL,
+    description        VARCHAR(255),
+    owner_principal_id UUID                        NOT NULL,
+    status             VARCHAR(255)                NOT NULL,
+    created_at         TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    scope_id           UUID                        NOT NULL,
+    CONSTRAINT pk_projects PRIMARY KEY (id)
 );
 
 CREATE TABLE refresh_tokens
@@ -67,6 +84,7 @@ CREATE TABLE roles
     name        VARCHAR(255) NOT NULL,
     description VARCHAR(255) NOT NULL,
     is_system   BOOLEAN      NOT NULL,
+    project_id  UUID,
     CONSTRAINT pk_roles PRIMARY KEY (id)
 );
 
@@ -79,6 +97,15 @@ CREATE TABLE users
     CONSTRAINT pk_users PRIMARY KEY (id)
 );
 
+ALTER TABLE permissions
+    ADD CONSTRAINT uc_permissions_permission_key UNIQUE (permission_key);
+
+ALTER TABLE projects
+    ADD CONSTRAINT uc_projects_name UNIQUE (name);
+
+ALTER TABLE projects
+    ADD CONSTRAINT uc_projects_slug UNIQUE (slug);
+
 ALTER TABLE users
     ADD CONSTRAINT uc_users_email UNIQUE (email);
 
@@ -88,8 +115,20 @@ ALTER TABLE users
 ALTER TABLE groups
     ADD CONSTRAINT FK_GROUPS_ON_ID FOREIGN KEY (id) REFERENCES iam_principals (id);
 
+ALTER TABLE projects
+    ADD CONSTRAINT FK_PROJECTS_ON_OWNERPRINCIPAL FOREIGN KEY (owner_principal_id) REFERENCES iam_principals (id);
+
+ALTER TABLE projects
+    ADD CONSTRAINT uc_projects_scope UNIQUE (scope_id);
+
+ALTER TABLE projects
+    ADD CONSTRAINT FK_PROJECTS_ON_SCOPE FOREIGN KEY (scope_id) REFERENCES iam_scopes (id);
+
 ALTER TABLE refresh_tokens
     ADD CONSTRAINT FK_REFRESH_TOKENS_ON_USER FOREIGN KEY (user_id) REFERENCES users (id);
+
+ALTER TABLE roles
+    ADD CONSTRAINT FK_ROLES_ON_PROJECT FOREIGN KEY (project_id) REFERENCES projects (id);
 
 ALTER TABLE role_bindings
     ADD CONSTRAINT FK_ROLE_BINDINGS_ON_ROLE FOREIGN KEY (role_id) REFERENCES roles (id);

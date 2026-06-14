@@ -44,4 +44,16 @@ class GlobalExceptionHandler {
                 )
             )
     }
+
+    @ExceptionHandler(RuntimeException::class)
+    fun handleGenericRuntimeException(exception: RuntimeException): ResponseEntity<ApiResponse<Nothing>> {
+        return ResponseEntity
+            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body(
+                ApiResponse(
+                    errorMessage = "Internal server error",
+                    errorCode = "internal_server_error"
+                )
+            )
+    }
 }
