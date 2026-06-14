@@ -71,6 +71,27 @@ allOpen {
 	annotation("jakarta.persistence.Embeddable")
 }
 
-tasks.withType<Test> {
-	useJUnitPlatform()
+tasks.test {
+	useJUnitPlatform {
+		excludeTags("benchmark")
+	}
+}
+
+tasks.register<Test>("benchmarkTest") {
+	description = "Runs benchmark-like tests"
+	group = "verification"
+	testClassesDirs = sourceSets.test.get().output.classesDirs
+	classpath = sourceSets.test.get().runtimeClasspath
+
+	useJUnitPlatform {
+		includeTags("benchmark")
+	}
+
+	testLogging {
+		showStandardStreams = true
+		events("passed", "skipped", "failed", "standardOut", "standardError")
+	}
+
+	// Useful for benchmarks, otherwise Gradle may say UP-TO-DATE and not run it.
+	outputs.upToDateWhen { false }
 }
