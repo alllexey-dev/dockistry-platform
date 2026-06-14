@@ -56,6 +56,19 @@ class ProjectAccessServiceIntegrationTests {
     }
 
     @Test
+    fun `can read accepts project scoped permission granted through user group`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val project = fixtures.project()
+        val group = fixtures.group()
+        val user = fixtures.user()
+        user.groups += group
+        fixtures.grant(group.principal, project.scope, SystemPermissionNames.PROJECT_READ)
+        fixtures.flush()
+
+        assertTrue(projectAccessService.canRead(project.scope, user.principal))
+    }
+
+    @Test
     fun `can update requires read and update permissions`() {
         val fixtures = IamProjectFixtures(entityManager)
         val project = fixtures.project()

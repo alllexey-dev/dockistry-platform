@@ -1,5 +1,6 @@
 package io.dockistry.platform.testsupport
 
+import io.dockistry.platform.iam.domain.Group
 import io.dockistry.platform.iam.domain.Permission
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.PrincipalType
@@ -7,6 +8,7 @@ import io.dockistry.platform.iam.domain.Role
 import io.dockistry.platform.iam.domain.RoleBinding
 import io.dockistry.platform.iam.domain.Scope
 import io.dockistry.platform.iam.domain.ScopeType
+import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.projects.domain.Project
 import jakarta.persistence.EntityManager
 import java.time.Instant
@@ -18,7 +20,57 @@ class IamProjectFixtures(
     fun principal(type: PrincipalType = PrincipalType.USER): Principal {
         val principal = Principal(type)
         entityManager.persist(principal)
+
+        when (type) {
+            PrincipalType.USER -> persistUser(principal)
+            PrincipalType.GROUP -> persistGroup(principal)
+        }
+
         return principal
+    }
+
+    fun user(
+        principal: Principal = Principal(PrincipalType.USER),
+        username: String = "test-user-${unique()}",
+        email: String = "$username@dockistry.io",
+        passwordHash: String = "hashed-password"
+    ): User {
+        return persistUser(principal, username, email, passwordHash)
+    }
+
+    fun group(
+        principal: Principal = Principal(PrincipalType.GROUP),
+        name: String = "test-group-${unique()}",
+    ): Group {
+        val group = Group(name).apply {
+            this.principal = principal
+        }
+        entityManager.persist(group)
+        return group
+    }
+
+    private fun persistUser(
+        principal: Principal,
+        username: String = "test-user-${unique()}",
+        email: String = "$username@dockistry.io",
+        passwordHash: String = "hashed-password"
+    ): User {
+        val user = User(username, email, passwordHash).apply {
+            this.principal = principal
+        }
+        entityManager.persist(user)
+        return user
+    }
+
+    private fun persistGroup(
+        principal: Principal,
+        name: String = "test-group-${unique()}",
+    ): Group {
+        val group = Group(name).apply {
+            this.principal = principal
+        }
+        entityManager.persist(group)
+        return group
     }
 
     fun globalScope(): Scope {

@@ -58,7 +58,11 @@ class PermissionCheckServiceIntegrationTests {
         fixtures.grant(principal, projectScope, SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
-        assertTrue(permissionCheckService.hasPermission(SystemPermissionNames.PROJECT_READ, projectScope.id, principal.id))
+        assertTrue(permissionCheckService.hasPermission(
+            SystemPermissionNames.PROJECT_READ,
+            principal.id,
+            projectScope.id
+        ))
     }
 
     @Test
@@ -69,7 +73,11 @@ class PermissionCheckServiceIntegrationTests {
         fixtures.grant(principal, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
-        assertTrue(permissionCheckService.hasPermission(SystemPermissionNames.PROJECT_READ, projectScope.id, principal.id))
+        assertTrue(permissionCheckService.hasPermission(
+            SystemPermissionNames.PROJECT_READ,
+            principal.id,
+            projectScope.id
+        ))
     }
 
     @Test
@@ -81,8 +89,16 @@ class PermissionCheckServiceIntegrationTests {
         fixtures.grant(principal, grantedScope, SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
-        assertFalse(permissionCheckService.hasPermission(SystemPermissionNames.PROJECT_READ, otherScope.id, principal.id))
-        assertFalse(permissionCheckService.hasPermission(SystemPermissionNames.PROJECT_UPDATE, grantedScope.id, principal.id))
+        assertFalse(permissionCheckService.hasPermission(
+            SystemPermissionNames.PROJECT_READ,
+            principal.id,
+            otherScope.id
+        ))
+        assertFalse(permissionCheckService.hasPermission(
+            SystemPermissionNames.PROJECT_UPDATE,
+            principal.id,
+            grantedScope.id
+        ))
     }
 
     @Test
