@@ -53,7 +53,7 @@ class PermissionCheckServiceBenchmarkTests {
     @Autowired
     lateinit var entityManagerFactory: EntityManagerFactory
 
-    // Assigned in test TODO: probably do it differently
+    // Initialized per benchmark run after the transactional EntityManager is available
     private lateinit var fixtures: IamProjectFixtures
 
     // Targets for benchmarking permission check

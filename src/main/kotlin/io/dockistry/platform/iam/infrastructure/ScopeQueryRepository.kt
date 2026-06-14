@@ -33,5 +33,5 @@ interface ScopeQueryRepository : JpaRepository<RoleBinding, UUID> {
 
         @Param("scopeType")
         scopeType: ScopeType
-    ): MutableSet<UUID>
+    ): Set<UUID>
 }
