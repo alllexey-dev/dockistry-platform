@@ -21,6 +21,7 @@ import org.springframework.context.annotation.Import
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.util.UUID
 import kotlin.test.Test
+import kotlin.test.assertTrue
 
 @Tag("benchmark")
 @SpringBootTest(
@@ -72,10 +73,12 @@ class PermissionCheckServiceBenchmarkTests {
             entityManager.clear()
             stats.clear()
 
-            permissionCheckService.hasPermission(
-                targetPermissionKey,
-                user.principal.id,
-                targetBinding.scope.id
+            assertTrue(
+                permissionCheckService.hasPermission(
+                    targetPermissionKey,
+                    user.principal.id,
+                    targetBinding.scope.id
+                )
             )
 
             statementsCounts.add(stats.prepareStatementCount)
