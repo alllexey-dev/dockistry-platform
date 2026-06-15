@@ -31,3 +31,10 @@ jobs:
 
       - name: Build project and run tests
         run: ./gradlew clean build
+
+      - name: Upload jar artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v5
+        with:
+          name: app-jar
+          path: build/libs/*.jar
