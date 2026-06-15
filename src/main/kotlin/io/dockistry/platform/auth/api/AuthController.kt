@@ -12,6 +12,7 @@ import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.PrincipalType
 import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.shared.api.ApiResponse
+import jakarta.validation.Valid
 import org.springframework.security.authentication.AuthenticationManager
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.userdetails.UserDetails
@@ -32,12 +33,12 @@ class AuthController(
 ) {
 
     @PostMapping("/login")
-    fun login(@RequestBody loginRequest: LoginRequest): ApiResponse<AuthResponse> {
+    fun login(@RequestBody @Valid loginRequest: LoginRequest): ApiResponse<AuthResponse> {
         return authenticateAndGenerateToken(loginRequest.username, loginRequest.password)
     }
 
     @PostMapping("/register")
-    fun register(@RequestBody registerRequest: RegisterRequest): ApiResponse<AuthResponse> {
+    fun register(@RequestBody @Valid registerRequest: RegisterRequest): ApiResponse<AuthResponse> {
         userService.insertUser(
             User(
                 email = registerRequest.email,
@@ -53,7 +54,7 @@ class AuthController(
     }
 
     @PostMapping("/refresh")
-    fun refreshToken(@RequestBody refreshRequest: RefreshRequest): ApiResponse<AuthResponse> {
+    fun refreshToken(@RequestBody @Valid refreshRequest: RefreshRequest): ApiResponse<AuthResponse> {
         val tokenPair = tokenManagementService.refreshToken(refreshRequest.refreshToken)
         return ApiResponse(tokenPair.toAuthResponse())
     }

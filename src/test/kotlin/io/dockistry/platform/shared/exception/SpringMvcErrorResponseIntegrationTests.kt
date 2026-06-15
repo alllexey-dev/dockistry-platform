@@ -87,12 +87,14 @@ class SpringMvcErrorResponseIntegrationTests {
 
     @Test
     fun `unsupported media type returns api error response`() {
+        val suffix = UUID.randomUUID().toString().take(8)
+
         val result = mockMvc.post("/api/auth/register") {
             contentType = MediaType.TEXT_PLAIN
             content = objectMapper.writeValueAsString(
                 RegisterUserRequest(
-                    email = "unsupported-media-${UUID.randomUUID()}@dockistry.io",
-                    username = "unsupported-media-${UUID.randomUUID()}",
+                    email = "unsupported-$suffix@dockistry.io",
+                    username = "unsupported-$suffix",
                     password = "password-123"
                 )
             )
@@ -134,7 +136,7 @@ class SpringMvcErrorResponseIntegrationTests {
     }
 
     private fun registerUserAndGetAccessToken(): String {
-        val suffix = UUID.randomUUID()
+        val suffix = UUID.randomUUID().toString().take(8)
 
         val result = mockMvc.post("/api/auth/register") {
             contentType = MediaType.APPLICATION_JSON

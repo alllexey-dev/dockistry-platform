@@ -37,8 +37,8 @@ class CurrentUserProviderTests {
 
     @Test
     fun `current user provider correctly returns current user on authenticated request`() {
-        val userId = UUID.randomUUID()
-        val tokens = registerUser(userId)
+        val username = "username-${UUID.randomUUID().toString().take(8)}"
+        val tokens = registerUser(username)
 
         val mvcResult = mockMvc.get("/my_username") {
             header("Authorization", "Bearer ${tokens.accessToken}")
@@ -48,17 +48,17 @@ class CurrentUserProviderTests {
 
         val responseBody = mvcResult.response.contentAsString
 
-        assertEquals("username-$userId", responseBody)
+        assertEquals(username, responseBody)
     }
 
-    private fun registerUser(userId: UUID): Tokens {
+    private fun registerUser(username: String): Tokens {
         val mvcResult = mockMvc.post("/api/auth/register") {
             contentType = MediaType.APPLICATION_JSON
             content = objectMapper.writeValueAsString(
                 RegisterUserRequest(
-                    email = "username-$userId@dockistry.io",
-                    username = "username-$userId",
-                    password = "pass123"
+                    email = "$username@dockistry.io",
+                    username = username,
+                    password = "password-123"
                 )
             )
         }

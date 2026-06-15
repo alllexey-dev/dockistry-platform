@@ -78,7 +78,7 @@ class SuggestSlugControllerTests {
     }
 
     private fun registerUserAndGetAccessToken(): String {
-        val suffix = UUID.randomUUID()
+        val suffix = UUID.randomUUID().toString().take(8)
 
         val result = mockMvc.post("/api/auth/register") {
             contentType = MediaType.APPLICATION_JSON

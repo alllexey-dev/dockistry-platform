@@ -114,7 +114,7 @@ class JwtAuthenticationIntegrationTests {
 
     @Test
     fun `duplicate user registration returns api error response`() {
-        val suffix = UUID.randomUUID()
+        val suffix = UUID.randomUUID().toString().take(8)
         val request = RegisterUserRequest(
             email = "duplicate-$suffix@dockistry.io",
             username = "duplicate-$suffix",
@@ -145,7 +145,7 @@ class JwtAuthenticationIntegrationTests {
     }
 
     private fun registerUser(): Tokens {
-        val suffix = UUID.randomUUID()
+        val suffix = UUID.randomUUID().toString().take(8)
 
         val result = mockMvc.post("/api/auth/register") {
             contentType = MediaType.APPLICATION_JSON
