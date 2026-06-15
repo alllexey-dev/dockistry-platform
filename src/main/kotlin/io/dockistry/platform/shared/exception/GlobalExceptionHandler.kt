@@ -1,6 +1,8 @@
 package io.dockistry.platform.shared.exception
 
 import io.dockistry.platform.shared.api.ApiResponse
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.HttpStatusCode
@@ -15,12 +17,18 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @RestControllerAdvice
 class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
 
+    companion object {
+        private val handlerLogger: Logger = LoggerFactory.getLogger(GlobalExceptionHandler::class.java)
+    }
+
     override fun createResponseEntity(
         body: Any?,
         headers: HttpHeaders,
         statusCode: HttpStatusCode,
         request: WebRequest
     ): ResponseEntity<Any> {
+        handlerLogger.warn("Request error with body (status {}): {}", statusCode, body)
+
         val problem = body as? ProblemDetail
         val status = HttpStatus.resolve(statusCode.value())
 
@@ -53,6 +61,8 @@ class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
             is BadRequestException -> HttpStatus.BAD_REQUEST
         }
 
+        handlerLogger.warn("Service error (status {}): {}", status, exception.message, exception)
+
         return ResponseEntity
             .status(status)
             .body(
@@ -68,6 +78,8 @@ class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
      */
     @ExceptionHandler(BadCredentialsException::class)
     fun handleInvalidUsernameOrPassword(exception: BadCredentialsException): ResponseEntity<ApiResponse<Nothing>> {
+        handlerLogger.warn("Invalid username/password error: {}", exception.message, exception)
+
         return ResponseEntity
             .status(HttpStatus.UNAUTHORIZED)
             .body(
@@ -80,6 +92,8 @@ class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
 
     @ExceptionHandler(RuntimeException::class)
     fun handleGenericRuntimeException(exception: RuntimeException): ResponseEntity<ApiResponse<Nothing>> {
+        handlerLogger.warn("Runtime error: {}", exception.message, exception)
+
         return ResponseEntity
             .status(HttpStatus.INTERNAL_SERVER_ERROR)
             .body(
