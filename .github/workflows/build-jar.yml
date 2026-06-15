@@ -1,0 +1,36 @@
+name: Build Spring Boot JAR
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-jar:
+    name: Build JAR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Pull source code
+        uses: actions/checkout@v6
+
+      - name: Setup JDK environment
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Build Spring Boot JAR
+        run: ./gradlew bootJar
+
+      - name: Upload jar artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: app-jar
+          path: build/libs/*.jar
