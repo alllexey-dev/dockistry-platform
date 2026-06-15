@@ -1,14 +1,47 @@
 package io.dockistry.platform.shared.exception
 
 import io.dockistry.platform.shared.api.ApiResponse
+import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
+import org.springframework.http.HttpStatusCode
+import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
 import org.springframework.security.authentication.BadCredentialsException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.context.request.WebRequest
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler
 
 @RestControllerAdvice
-class GlobalExceptionHandler {
+class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
+
+    override fun createResponseEntity(
+        body: Any?,
+        headers: HttpHeaders,
+        statusCode: HttpStatusCode,
+        request: WebRequest
+    ): ResponseEntity<Any> {
+        val problem = body as? ProblemDetail
+        val status = HttpStatus.resolve(statusCode.value())
+
+        val apiResponse = ApiResponse<Nothing>(
+            errorMessage = problem?.detail
+                ?: problem?.title
+                ?: status?.reasonPhrase
+                ?: "Unexpected request error",
+            errorCode = errorCodeFor(problem, statusCode)
+        )
+
+        return ResponseEntity(apiResponse, headers, statusCode)
+    }
+
+    private fun errorCodeFor(problem: ProblemDetail?, statusCode: HttpStatusCode): String {
+        return problem?.title
+            ?.trim()
+            ?.lowercase()
+            ?.replace(Regex("\\s+"), "_")
+            ?: "http_${statusCode.value()}"
+    }
 
     @ExceptionHandler(ServiceException::class)
     fun handleServiceException(exception: ServiceException): ResponseEntity<ApiResponse<Nothing>> {
