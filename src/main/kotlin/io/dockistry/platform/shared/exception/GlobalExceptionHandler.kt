@@ -92,7 +92,7 @@ class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
 
     @ExceptionHandler(RuntimeException::class)
     fun handleGenericRuntimeException(exception: RuntimeException): ResponseEntity<ApiResponse<Nothing>> {
-        handlerLogger.warn("Runtime error: {}", exception.message, exception)
+        handlerLogger.error("Runtime error: {}", exception.message, exception)
 
         return ResponseEntity
             .status(HttpStatus.INTERNAL_SERVER_ERROR)
