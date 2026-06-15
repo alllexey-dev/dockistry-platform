@@ -8,9 +8,9 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/api/util/suggest_slug")
 class SuggestSlugController(private val slugify: Slugify) {
-    @GetMapping("/suggest_slug")
+    @GetMapping("")
     fun suggestSlug(@RequestParam toSlug: String): ApiResponse<String> {
         return ApiResponse(slugify.slugify(toSlug))
     }
