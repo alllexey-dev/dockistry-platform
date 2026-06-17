@@ -97,6 +97,21 @@ CREATE TABLE users
     CONSTRAINT pk_users PRIMARY KEY (id)
 );
 
+CREATE TABLE email_verification_requests
+(
+    id                UUID                        NOT NULL,
+    user_id           UUID                        NOT NULL,
+    email             VARCHAR(255) UNIQUE         NOT NULL,
+    link_code_hash    VARCHAR(255)                NOT NULL,
+    number_code_hash  VARCHAR(255)                NOT NULL,
+    link_expires_at   TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    number_expires_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    consumed_at       TIMESTAMP WITHOUT TIME ZONE,
+    attempts_count    INTEGER                     NOT NULL,
+    created_at        TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    CONSTRAINT pk_email_verification_requests PRIMARY KEY (id)
+);
+
 ALTER TABLE permissions
     ADD CONSTRAINT uc_permissions_permission_key UNIQUE (permission_key);
 
@@ -153,3 +168,6 @@ ALTER TABLE role_permissions
 
 ALTER TABLE role_permissions
     ADD CONSTRAINT fk_role_permissions_on_role FOREIGN KEY (role_id) REFERENCES roles (id);
+
+ALTER TABLE email_verification_requests
+    ADD CONSTRAINT FK_EMAIL_VERIFICATION_REQUESTS_ON_USER FOREIGN KEY (user_id) REFERENCES users (id);
