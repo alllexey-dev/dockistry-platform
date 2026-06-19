@@ -1,8 +1,12 @@
 package io.dockistry.platform.security
 
-import io.dockistry.platform.shared.api.ApiResponse
+import io.dockistry.platform.TestEmailSenderConfig
 import io.dockistry.platform.iam.application.CurrentUserProvider
 import io.dockistry.platform.TestcontainersConfig
+import io.dockistry.platform.auth.domain.dto.AuthResponse
+import io.dockistry.platform.email.application.EmailSendJobProcessor
+import io.dockistry.platform.testsupport.AuthTestClient
+import io.dockistry.platform.testsupport.InMemoryRawEmailSender
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
@@ -15,17 +19,16 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
 import org.testcontainers.junit.jupiter.Testcontainers
 import tools.jackson.databind.ObjectMapper
-import tools.jackson.module.kotlin.readValue
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @Import(
     CurrentUserProviderTests.CurrentUserTestController::class,
-    TestcontainersConfig::class
+    TestcontainersConfig::class,
+    TestEmailSenderConfig::class
 )
 @Testcontainers
 class CurrentUserProviderTests {
@@ -34,6 +37,12 @@ class CurrentUserProviderTests {
 
     @Autowired
     private lateinit var objectMapper: ObjectMapper
+
+    @Autowired
+    private lateinit var emailSender: InMemoryRawEmailSender
+
+    @Autowired
+    private lateinit var emailSendJobProcessor: EmailSendJobProcessor
 
     @Test
     fun `current user provider correctly returns current user on authenticated request`() {
@@ -51,26 +60,16 @@ class CurrentUserProviderTests {
         assertEquals(username, responseBody)
     }
 
-    private fun registerUser(username: String): Tokens {
-        val mvcResult = mockMvc.post("/api/auth/register") {
-            contentType = MediaType.APPLICATION_JSON
-            content = objectMapper.writeValueAsString(
-                RegisterUserRequest(
-                    email = "$username@dockistry.io",
-                    username = username,
-                    password = "password-123"
-                )
-            )
-        }
-            .andExpect {
-                status { isOk() }
-                content { contentType(MediaType.APPLICATION_JSON) }
-            }
-            .andReturn()
-
-        val apiResponse = objectMapper.readValue<ApiResponse<Tokens>>(mvcResult.response.contentAsString)
-        assertNotNull(apiResponse.data)
-        return apiResponse.data
+    private fun registerUser(username: String): AuthResponse {
+        return AuthTestClient(
+            mockMvc = mockMvc,
+            objectMapper = objectMapper,
+            emailSender = emailSender,
+            emailSendJobProcessor = emailSendJobProcessor
+        ).registerAndVerifyUser(
+            email = "$username@dockistry.io",
+            username = username
+        )
     }
 
     @RestController
@@ -83,14 +82,4 @@ class CurrentUserProviderTests {
         }
     }
 
-    private data class Tokens(
-        val refreshToken: String,
-        val accessToken: String
-    )
-
-    private data class RegisterUserRequest(
-        val email: String,
-        val username: String,
-        val password: String
-    )
 }

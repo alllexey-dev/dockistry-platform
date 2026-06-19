@@ -9,7 +9,10 @@ import org.junit.jupiter.api.extension.ExtendWith
 import org.mockito.Mock
 import org.mockito.Mockito
 import org.mockito.junit.jupiter.MockitoExtension
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
+import org.springframework.security.crypto.password.PasswordEncoder
 import kotlin.test.assertFailsWith
 
 @ExtendWith(MockitoExtension::class)
@@ -17,6 +20,14 @@ class UserServiceTests {
 
     @Mock
     private lateinit var userRepository: UserRepository
+
+    private val unusedPasswordEncoder = object : PasswordEncoder {
+        override fun encode(rawPassword: CharSequence?) =
+            error("PasswordEncoder should not be used in this test")
+
+        override fun matches(rawPassword: CharSequence?, encodedPassword: String?) =
+            error("PasswordEncoder should not be used in this test")
+    }
 
     @Test
     fun `insert user converts duplicate username database race to user conflict`() {
@@ -34,7 +45,7 @@ class UserServiceTests {
             .thenThrow(DataIntegrityViolationException("duplicate username"))
 
         assertFailsWith<UserAlreadyExistsException> {
-            UserService(userRepository).insertUser(user)
+            UserService(userRepository, unusedPasswordEncoder).insertUser(user)
         }
     }
 
@@ -54,7 +65,7 @@ class UserServiceTests {
             .thenThrow(DataIntegrityViolationException("duplicate email"))
 
         assertFailsWith<UserAlreadyExistsException> {
-            UserService(userRepository).insertUser(user)
+            UserService(userRepository, unusedPasswordEncoder).insertUser(user)
         }
     }
 }

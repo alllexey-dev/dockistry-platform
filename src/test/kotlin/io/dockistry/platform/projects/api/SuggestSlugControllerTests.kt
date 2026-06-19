@@ -1,8 +1,10 @@
 package io.dockistry.platform.projects.api
 
+import io.dockistry.platform.TestEmailSenderConfig
 import io.dockistry.platform.TestcontainersConfig
-import io.dockistry.platform.auth.domain.dto.AuthResponse
-import io.dockistry.platform.shared.api.ApiResponse
+import io.dockistry.platform.email.application.EmailSendJobProcessor
+import io.dockistry.platform.testsupport.AuthTestClient
+import io.dockistry.platform.testsupport.InMemoryRawEmailSender
 import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -13,17 +15,13 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
 import org.testcontainers.junit.jupiter.Testcontainers
 import tools.jackson.databind.ObjectMapper
-import tools.jackson.module.kotlin.readValue
 import java.util.UUID
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(TestcontainersConfig::class)
+@Import(TestcontainersConfig::class, TestEmailSenderConfig::class)
 @Testcontainers
 class SuggestSlugControllerTests {
 
@@ -32,6 +30,12 @@ class SuggestSlugControllerTests {
 
     @Autowired
     private lateinit var objectMapper: ObjectMapper
+
+    @Autowired
+    private lateinit var emailSender: InMemoryRawEmailSender
+
+    @Autowired
+    private lateinit var emailSendJobProcessor: EmailSendJobProcessor
 
     @Test
     fun `suggest slug returns slugified value`() {
@@ -80,29 +84,14 @@ class SuggestSlugControllerTests {
     private fun registerUserAndGetAccessToken(): String {
         val suffix = UUID.randomUUID().toString().take(8)
 
-        val result = mockMvc.post("/api/auth/register") {
-            contentType = MediaType.APPLICATION_JSON
-            content = objectMapper.writeValueAsString(
-                RegisterUserRequest(
-                    email = "suggest-slug-$suffix@dockistry.io",
-                    username = "suggest-slug-$suffix",
-                    password = "password-123"
-                )
-            )
-        }.andExpect {
-            status { isOk() }
-        }.andReturn()
-
-        val response = objectMapper.readValue<ApiResponse<AuthResponse>>(result.response.contentAsString)
-        val tokens = assertNotNull(response.data)
-
-        assertTrue(tokens.accessToken.isNotBlank())
-        return tokens.accessToken
+        return AuthTestClient(
+            mockMvc = mockMvc,
+            objectMapper = objectMapper,
+            emailSender = emailSender,
+            emailSendJobProcessor = emailSendJobProcessor
+        ).registerAndVerifyUser(
+            email = "suggest-slug-$suffix@dockistry.io",
+            username = "suggest-slug-$suffix"
+        ).accessToken
     }
-
-    private data class RegisterUserRequest(
-        val email: String,
-        val username: String,
-        val password: String
-    )
 }
