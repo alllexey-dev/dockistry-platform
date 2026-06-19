@@ -47,22 +47,23 @@ class JwtAuthenticationIntegrationTests {
     private lateinit var emailSendJobProcessor: EmailSendJobProcessor
 
     @Test
-    fun `access token allows authenticated actuator health request`() {
-        val tokens = registerUser()
+    fun `access token allows authenticated private ping request`() {
+        val user = registerUser()
 
-        mockMvc.get("/actuator/health") {
-            header(HttpHeaders.AUTHORIZATION, "Bearer ${tokens.accessToken}")
+        mockMvc.get("/api/private/ping") {
+            header(HttpHeaders.AUTHORIZATION, "Bearer ${user.tokens.accessToken}")
         }.andExpect {
             status { isOk() }
+            content { string("pong to ${user.username}") }
         }
     }
 
     @Test
-    fun `refresh token cannot authenticate actuator health request`() {
-        val tokens = registerUser()
+    fun `refresh token cannot authenticate private ping request`() {
+        val user = registerUser()
 
-        val result = mockMvc.get("/actuator/health") {
-            header(HttpHeaders.AUTHORIZATION, "Bearer ${tokens.refreshToken}")
+        val result = mockMvc.get("/api/private/ping") {
+            header(HttpHeaders.AUTHORIZATION, "Bearer ${user.tokens.refreshToken}")
         }.andExpect {
             status { isUnauthorized() }
             content { contentType(MediaType.APPLICATION_JSON) }
@@ -78,21 +79,22 @@ class JwtAuthenticationIntegrationTests {
 
     @Test
     fun `refresh endpoint rotates refresh token and returns a usable access token`() {
-        val originalTokens = registerUser()
+        val user = registerUser()
 
-        val refreshedTokens = refresh(originalTokens.refreshToken)
+        val refreshedTokens = refresh(user.tokens.refreshToken)
 
-        assertNotEquals(originalTokens.refreshToken, refreshedTokens.refreshToken)
+        assertNotEquals(user.tokens.refreshToken, refreshedTokens.refreshToken)
 
-        mockMvc.get("/actuator/health") {
+        mockMvc.get("/api/private/ping") {
             header(HttpHeaders.AUTHORIZATION, "Bearer ${refreshedTokens.accessToken}")
         }.andExpect {
             status { isOk() }
+            content { string("pong to ${user.username}") }
         }
 
         val revokedTokenResult = mockMvc.post("/api/auth/refresh") {
             contentType = MediaType.APPLICATION_JSON
-            content = objectMapper.writeValueAsString(RefreshTokenRequest(originalTokens.refreshToken))
+            content = objectMapper.writeValueAsString(RefreshTokenRequest(user.tokens.refreshToken))
         }.andExpect {
             status { isUnauthorized() }
             content { contentType(MediaType.APPLICATION_JSON) }
@@ -107,8 +109,8 @@ class JwtAuthenticationIntegrationTests {
     }
 
     @Test
-    fun `invalid bearer token is rejected before reaching actuator health`() {
-        val result = mockMvc.get("/actuator/health") {
+    fun `invalid bearer token is rejected before reaching private ping`() {
+        val result = mockMvc.get("/api/private/ping") {
             header(HttpHeaders.AUTHORIZATION, "Bearer not-a-valid-jwt")
         }.andExpect {
             status { isUnauthorized() }
@@ -235,18 +237,21 @@ class JwtAuthenticationIntegrationTests {
         )
     }
 
-    private fun registerUser(): AuthResponse {
+    private fun registerUser(): RegisteredUser {
         val suffix = UUID.randomUUID().toString().take(8)
+        val username = "jwt-$suffix"
 
-        return AuthTestClient(
+        val tokens = AuthTestClient(
             mockMvc = mockMvc,
             objectMapper = objectMapper,
             emailSender = emailSender,
             emailSendJobProcessor = emailSendJobProcessor
         ).registerAndVerifyUser(
             email = "jwt-$suffix@dockistry.io",
-            username = "jwt-$suffix"
+            username = username
         )
+
+        return RegisteredUser(username, tokens)
     }
 
     private fun refresh(refreshToken: String): AuthResponse {
@@ -287,5 +292,10 @@ class JwtAuthenticationIntegrationTests {
 
     private data class RefreshTokenRequest(
         val refreshToken: String
+    )
+
+    private data class RegisteredUser(
+        val username: String,
+        val tokens: AuthResponse
     )
 }

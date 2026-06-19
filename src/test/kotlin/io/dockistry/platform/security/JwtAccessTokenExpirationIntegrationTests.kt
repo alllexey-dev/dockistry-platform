@@ -59,19 +59,20 @@ class JwtAccessTokenExpirationIntegrationTests {
     private lateinit var emailSendJobProcessor: EmailSendJobProcessor
 
     @Test
-    fun `access token allows health before expiry and rejects it after expiry`() {
-        val accessToken = registerUserAndGetAccessToken()
+    fun `access token allows private ping before expiry and rejects it after expiry`() {
+        val user = registerUserAndGetAccessToken()
 
-        mockMvc.get("/actuator/health") {
-            header(HttpHeaders.AUTHORIZATION, "Bearer $accessToken")
+        mockMvc.get("/api/private/ping") {
+            header(HttpHeaders.AUTHORIZATION, "Bearer ${user.accessToken}")
         }.andExpect {
             status { isOk() }
+            content { string("pong to ${user.username}") }
         }
 
         clock.advance(4.seconds.toJavaDuration())
 
-        val expiredTokenResult = mockMvc.get("/actuator/health") {
-            header(HttpHeaders.AUTHORIZATION, "Bearer $accessToken")
+        val expiredTokenResult = mockMvc.get("/api/private/ping") {
+            header(HttpHeaders.AUTHORIZATION, "Bearer ${user.accessToken}")
         }.andExpect {
             status { isUnauthorized() }
             content { contentType(MediaType.APPLICATION_JSON) }
@@ -85,8 +86,9 @@ class JwtAccessTokenExpirationIntegrationTests {
         )
     }
 
-    private fun registerUserAndGetAccessToken(): String {
+    private fun registerUserAndGetAccessToken(): RegisteredAccessToken {
         val suffix = UUID.randomUUID().toString().take(8)
+        val username = "jwt-expiry-$suffix"
 
         val tokens = AuthTestClient(
             mockMvc = mockMvc,
@@ -95,10 +97,10 @@ class JwtAccessTokenExpirationIntegrationTests {
             emailSendJobProcessor = emailSendJobProcessor
         ).registerAndVerifyUser(
             email = "jwt-expiry-$suffix@dockistry.io",
-            username = "jwt-expiry-$suffix"
+            username = username
         )
 
-        return tokens.accessToken
+        return RegisteredAccessToken(username, tokens.accessToken)
     }
 
     private fun assertApiError(
@@ -112,5 +114,10 @@ class JwtAccessTokenExpirationIntegrationTests {
         assertEquals(expectedCode, response.errorCode)
         assertEquals(expectedMessage, response.errorMessage)
     }
+
+    private data class RegisteredAccessToken(
+        val username: String,
+        val accessToken: String
+    )
 
 }
