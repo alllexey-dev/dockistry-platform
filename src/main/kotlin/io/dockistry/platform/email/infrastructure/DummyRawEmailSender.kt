@@ -1,8 +1,8 @@
-package io.dockistry.platform.auth.infrastructure
+package io.dockistry.platform.email.infrastructure
 
-import io.dockistry.platform.auth.application.ports.EmailSenderService
+import io.dockistry.platform.email.application.ports.RawEmailSender
 
-class DummyEmailSenderService : EmailSenderService {
+class DummyRawEmailSender : RawEmailSender {
     override fun sendEmail(email: String, subject: String, text: String) {
         val message = """
             Sent-to: $email

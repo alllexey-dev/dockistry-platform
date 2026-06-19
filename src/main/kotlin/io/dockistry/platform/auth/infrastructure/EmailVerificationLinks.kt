@@ -9,11 +9,11 @@ class EmailVerificationLinks(
     private val appConfig: AppConfig,
     private val properties: EmailVerificationProperties
 ) {
-    fun buildVerificationLink(tokenCode: String): String {
+    fun buildVerificationLink(linkCode: String): String {
         return UriComponentsBuilder
             .fromUriString(appConfig.publicBaseUrl)
             .path(properties.linkPath)
-            .pathSegment(tokenCode)
+            .pathSegment(linkCode)
             .build()
             .toUriString()
     }

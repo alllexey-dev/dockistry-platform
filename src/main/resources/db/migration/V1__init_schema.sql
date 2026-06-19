@@ -90,26 +90,52 @@ CREATE TABLE roles
 
 CREATE TABLE users
 (
-    id            UUID         NOT NULL,
-    username      VARCHAR(255) NOT NULL,
-    email         VARCHAR(255) NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    id                UUID         NOT NULL,
+    username          VARCHAR(255) NOT NULL,
+    email             VARCHAR(255) NOT NULL,
+    password_hash     VARCHAR(255) NOT NULL,
+    email_verified_at TIMESTAMP WITHOUT TIME ZONE,
     CONSTRAINT pk_users PRIMARY KEY (id)
 );
 
-CREATE TABLE email_verification_requests
+CREATE TABLE email_verification_challenges
 (
     id                UUID                        NOT NULL,
     user_id           UUID                        NOT NULL,
-    email             VARCHAR(255) UNIQUE         NOT NULL,
     link_code_hash    VARCHAR(255)                NOT NULL,
     number_code_hash  VARCHAR(255)                NOT NULL,
     link_expires_at   TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     number_expires_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     consumed_at       TIMESTAMP WITHOUT TIME ZONE,
-    attempts_count    INTEGER                     NOT NULL,
+    superseded_at     TIMESTAMP WITHOUT TIME ZONE,
     created_at        TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-    CONSTRAINT pk_email_verification_requests PRIMARY KEY (id)
+    reason            VARCHAR(255)                NOT NULL,
+    CONSTRAINT pk_email_verification_challenges PRIMARY KEY (id)
+);
+
+CREATE TABLE email_send_jobs
+(
+    id              UUID                        NOT NULL,
+    job_type        VARCHAR(255)                NOT NULL,
+    job_context     JSONB                       NOT NULL,
+    status          VARCHAR(255)                NOT NULL,
+    attempts_count  INTEGER                     NOT NULL,
+    created_at      TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    next_attempt_at TIMESTAMP WITHOUT TIME ZONE,
+    sent_at         TIMESTAMP WITHOUT TIME ZONE,
+    locked_at       TIMESTAMP WITHOUT TIME ZONE,
+    locked_until    TIMESTAMP WITHOUT TIME ZONE,
+    last_error      TEXT,
+    CONSTRAINT pk_email_send_jobs PRIMARY KEY (id)
+);
+
+CREATE TABLE email_verification_throttles
+(
+    id            UUID                        NOT NULL,
+    user_id       UUID                        NOT NULL,
+    blocked_until TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    created_at    TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    CONSTRAINT pk_email_verification_throttles PRIMARY KEY (id)
 );
 
 ALTER TABLE permissions
@@ -169,5 +195,8 @@ ALTER TABLE role_permissions
 ALTER TABLE role_permissions
     ADD CONSTRAINT fk_role_permissions_on_role FOREIGN KEY (role_id) REFERENCES roles (id);
 
-ALTER TABLE email_verification_requests
-    ADD CONSTRAINT FK_EMAIL_VERIFICATION_REQUESTS_ON_USER FOREIGN KEY (user_id) REFERENCES users (id);
+ALTER TABLE email_verification_challenges
+    ADD CONSTRAINT FK_EMAIL_VERIFICATION_CHALLENGES_ON_USER FOREIGN KEY (user_id) REFERENCES users (id);
+
+ALTER TABLE email_verification_throttles
+    ADD CONSTRAINT FK_EMAIL_VERIFICATION_THROTTLES_ON_USER FOREIGN KEY (user_id) REFERENCES users (id);
