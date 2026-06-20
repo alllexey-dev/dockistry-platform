@@ -2,6 +2,7 @@ package io.dockistry.platform.security
 
 import io.dockistry.platform.TestClockConfig
 import io.dockistry.platform.TestEmailSenderConfig
+import io.dockistry.platform.auth.infrastructure.JwtConfig
 import io.dockistry.platform.email.application.EmailSendJobProcessor
 import io.dockistry.platform.testsupport.MutableClock
 import io.dockistry.platform.TestcontainersConfig
@@ -25,7 +26,7 @@ import tools.jackson.module.kotlin.readValue
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.toJavaDuration
 
 
@@ -58,6 +59,9 @@ class JwtAccessTokenExpirationIntegrationTests {
     @Autowired
     private lateinit var emailSendJobProcessor: EmailSendJobProcessor
 
+    @Autowired
+    private lateinit var jwtConfig: JwtConfig
+
     @Test
     fun `access token allows private ping before expiry and rejects it after expiry`() {
         val user = registerUserAndGetAccessToken()
@@ -69,7 +73,7 @@ class JwtAccessTokenExpirationIntegrationTests {
             content { string("pong to ${user.username}") }
         }
 
-        clock.advance(4.seconds.toJavaDuration())
+        clock.advance((jwtConfig.accessExpiration + 1).milliseconds.toJavaDuration())
 
         val expiredTokenResult = mockMvc.get("/api/private/ping") {
             header(HttpHeaders.AUTHORIZATION, "Bearer ${user.accessToken}")
