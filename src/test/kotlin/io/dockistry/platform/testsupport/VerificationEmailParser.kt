@@ -6,17 +6,16 @@ object VerificationEmailParser {
         option = RegexOption.IGNORE_CASE
     )
 
-    private val linkCodeRegex = Regex(
-        pattern = """/api/auth/email-verification/link/([A-Za-z0-9_-]+)"""
-    )
-
     fun numberCode(email: SentEmail): String {
         return requireNotNull(numberCodeRegex.find(email.text)?.groupValues?.get(1)) {
             "Verification number code not found in email body"
         }
     }
 
-    fun linkCode(email: SentEmail): String {
+    fun linkCode(email: SentEmail, linkPath: String): String {
+        val linkCodeRegex = Regex(
+            pattern = "${Regex.escape(linkPath)}/([A-Za-z0-9_-]+)"
+        )
         return requireNotNull(linkCodeRegex.find(email.text)?.groupValues?.get(1)) {
             "Verification link code not found in email body"
         }

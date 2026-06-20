@@ -113,7 +113,10 @@ class EmailVerificationIntegrationTests {
         val user = newUser("expired-codes")
         val verificationEmail = registerAndSendVerificationEmail(user)
         val numberCode = VerificationEmailParser.numberCode(verificationEmail)
-        val linkCode = VerificationEmailParser.linkCode(verificationEmail)
+        val linkCode = VerificationEmailParser.linkCode(
+            verificationEmail,
+            emailVerificationProperties.linkPath
+        )
 
         advancePast(
             maxOf(
@@ -152,7 +155,10 @@ class EmailVerificationIntegrationTests {
     fun `link code verification returns tokens that allow private ping`() {
         val user = newUser("link-code")
         val verificationEmail = registerAndSendVerificationEmail(user)
-        val linkCode = VerificationEmailParser.linkCode(verificationEmail)
+        val linkCode = VerificationEmailParser.linkCode(
+            verificationEmail,
+            emailVerificationProperties.linkPath
+        )
 
         val tokens = verifyLinkCode(linkCode)
 
@@ -333,7 +339,7 @@ class EmailVerificationIntegrationTests {
     }
 
     private fun verifyLinkCode(linkCode: String): AuthResponse {
-        val result = mockMvc.post("/api/auth/email-verification/link/$linkCode") {
+        val result = mockMvc.post(verificationLinkPath(linkCode)) {
             contentType = MediaType.APPLICATION_JSON
         }.andExpect {
             status { isOk() }
@@ -359,12 +365,16 @@ class EmailVerificationIntegrationTests {
     }
 
     private fun verifyLinkCodeExpectingForbidden(linkCode: String): MvcResult {
-        return mockMvc.post("/api/auth/email-verification/link/$linkCode") {
+        return mockMvc.post(verificationLinkPath(linkCode)) {
             contentType = MediaType.APPLICATION_JSON
         }.andExpect {
             status { isForbidden() }
             content { contentType(MediaType.APPLICATION_JSON) }
         }.andReturn()
+    }
+
+    private fun verificationLinkPath(linkCode: String): String {
+        return "${emailVerificationProperties.linkPath}/$linkCode"
     }
 
     private fun login(username: String, password: String): AuthResponse {
