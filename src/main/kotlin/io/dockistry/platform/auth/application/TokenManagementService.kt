@@ -11,6 +11,8 @@ import io.dockistry.platform.auth.infrastructure.RefreshTokenRepository
 import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.iam.infrastructure.UserRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -25,6 +27,12 @@ class TokenManagementService(
     private val refreshTokenRepository: RefreshTokenRepository,
     private val clock: Clock
 ) {
+
+    companion object {
+        private val logger: Logger =
+            LoggerFactory.getLogger(TokenManagementService::class.java)
+    }
+
     @Transactional
     fun issueTokenPair(username: String): TokenPair {
         val user = userRepository.findUserByUsername(username) ?: throw UserForAuthenticationNotFoundException("User with username $username not found")
@@ -95,6 +103,17 @@ class TokenManagementService(
 
         revokeRefreshToken(refreshToken)
         flushRefreshTokenRevocation()
+    }
+
+    @Transactional
+    fun revokeAllRefreshTokens(user: User) {
+        refreshTokenRepository.findByUserAndRevokedAtNull(user).forEach {
+            try {
+                revokeRefreshToken(it)
+            } catch (_: TokenRevokedException) {
+                logger.warn("${it.id} refresh token was revoked in parallel with logout-all operation on user ${user.id}")
+            }
+        }
     }
 
     private fun parseRefreshToken(token: String): ParsedRefreshToken {
