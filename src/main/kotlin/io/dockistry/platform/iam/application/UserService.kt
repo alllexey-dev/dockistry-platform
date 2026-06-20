@@ -45,13 +45,20 @@ class UserService(
         val user = userRepository.findUserById(userId)
             ?: throw InternalDataIntegrityException("User ID $userId was passed for updating, but User couldn't be found in DB")
 
+        throwIfUserUpdateConflicts(userId, username, email)
+
         user.username = username
         user.email = email
         user.passwordHash = requireNotNull(passwordEncoder.encode(password)) {
             "Password Encoder returned null for non-null password"
         }
 
-        return user
+        return try {
+            userRepository.saveAndFlush(user)
+        } catch (exception: DataIntegrityViolationException) {
+            throwIfUserUpdateConflicts(userId, username, email)
+            throw exception
+        }
     }
 
     fun insertUser(user: User) {
@@ -83,6 +90,18 @@ class UserService(
             throw UserAlreadyExistsException("username", user.username)
         } else if (userRepository.existsUserByEmail(user.email)) {
             throw UserAlreadyExistsException("email", user.email)
+        }
+    }
+
+    private fun throwIfUserUpdateConflicts(userId: UUID, username: String, email: String) {
+        val usernameOwner = userRepository.findUserByUsername(username)
+        if (usernameOwner != null && usernameOwner.id != userId) {
+            throw UserAlreadyExistsException("username", username)
+        }
+
+        val emailOwner = userRepository.findByEmail(email)
+        if (emailOwner != null && emailOwner.id != userId) {
+            throw UserAlreadyExistsException("email", email)
         }
     }
 }

@@ -273,6 +273,48 @@ class EmailVerificationIntegrationTests {
         assertPrivatePing(tokens.accessToken, updatedUser.username)
     }
 
+    @Test
+    fun `duplicate unverified registration with taken username returns conflict`() {
+        val suffix = UUID.randomUUID().toString().take(8)
+        val takenUsername = "taken-$suffix"
+        val email = "duplicate-unverified-taken-$suffix@dockistry.io"
+
+        register(
+            TestUser(
+                email = "taken-$suffix@dockistry.io",
+                username = takenUsername,
+                password = "password-123"
+            )
+        )
+        register(
+            TestUser(
+                email = email,
+                username = "original-$suffix",
+                password = "password-123"
+            )
+        )
+
+        val result = mockMvc.post("/api/auth/register") {
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                RegisterRequest(
+                    email = email,
+                    username = takenUsername,
+                    password = "password-123"
+                )
+            )
+        }.andExpect {
+            status { isConflict() }
+            content { contentType(MediaType.APPLICATION_JSON) }
+        }.andReturn()
+
+        assertApiError(
+            result = result,
+            expectedCode = "user_already_exists",
+            expectedMessage = "User with username = $takenUsername already exists"
+        )
+    }
+
     private fun registerAndSendVerificationEmail(user: TestUser): SentEmail {
         register(user)
         processEmailJobs()
