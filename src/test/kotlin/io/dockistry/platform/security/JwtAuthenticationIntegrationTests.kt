@@ -2,13 +2,14 @@ package io.dockistry.platform.security
 
 import io.dockistry.platform.TestEmailSenderConfig
 import io.dockistry.platform.TestcontainersConfig
+import io.dockistry.platform.auth.application.JwtTokenProvider
 import io.dockistry.platform.auth.domain.dto.AuthResponse
+import io.dockistry.platform.auth.infrastructure.RefreshTokenRepository
 import io.dockistry.platform.email.application.EmailSendJobProcessor
 import io.dockistry.platform.shared.api.ApiResponse
 import io.dockistry.platform.testsupport.AuthTestClient
 import io.dockistry.platform.testsupport.InMemoryRawEmailSender
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertNotNull
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
@@ -25,6 +26,7 @@ import tools.jackson.module.kotlin.readValue
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -45,6 +47,12 @@ class JwtAuthenticationIntegrationTests {
 
     @Autowired
     private lateinit var emailSendJobProcessor: EmailSendJobProcessor
+
+    @Autowired
+    private lateinit var tokenProvider: JwtTokenProvider
+
+    @Autowired
+    private lateinit var refreshTokenRepository: RefreshTokenRepository
 
     @Test
     fun `access token allows authenticated private ping request`() {
@@ -237,6 +245,81 @@ class JwtAuthenticationIntegrationTests {
         )
     }
 
+    @Test
+    fun `logout rejects invalid refresh token and access token`() {
+        val user = registerUser()
+
+        logoutExpectingUnauthorized("not-a-valid-refresh-token")
+        logoutExpectingUnauthorized(user.tokens.accessToken)
+    }
+
+    @Test
+    fun `logout revokes refresh token so it cannot be used to refresh`() {
+        val user = registerUser()
+
+        mockMvc.post("/api/auth/logout") {
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(RefreshTokenRequest(user.tokens.refreshToken))
+        }.andExpect {
+            status { isOk() }
+            content { contentType(MediaType.APPLICATION_JSON) }
+        }
+
+        val revokedTokenResult = refreshExpectingUnauthorized(user.tokens.refreshToken)
+        assertApiError(
+            result = revokedTokenResult,
+            expectedCode = "token_revoked",
+            expectedMessage = "Token has been already revoked"
+        )
+    }
+
+    @Test
+    fun `logout all requires authentication`() {
+        val result = mockMvc.post("/api/auth/logout-all") {
+            contentType = MediaType.APPLICATION_JSON
+        }.andExpect {
+            status { isUnauthorized() }
+            content { contentType(MediaType.APPLICATION_JSON) }
+        }.andReturn()
+
+        assertApiError(
+            result = result,
+            expectedCode = "authentication_required",
+            expectedMessage = "Full authentication is required to access this resource"
+        )
+    }
+
+    @Test
+    fun `logout all revokes every active refresh token for authenticated user`() {
+        val user = registerUser()
+        val tokenPairs = buildList {
+            add(user.tokens)
+            repeat(4) {
+                add(login(user.username))
+            }
+        }
+
+        tokenPairs.forEach {
+            assertRefreshTokenActive(it.refreshToken)
+        }
+
+        mockMvc.post("/api/auth/logout-all") {
+            header(HttpHeaders.AUTHORIZATION, "Bearer ${user.tokens.accessToken}")
+        }.andExpect {
+            status { isOk() }
+            content { contentType(MediaType.APPLICATION_JSON) }
+        }
+
+        tokenPairs.forEach {
+            val revokedTokenResult = refreshExpectingUnauthorized(it.refreshToken)
+            assertApiError(
+                result = revokedTokenResult,
+                expectedCode = "token_revoked",
+                expectedMessage = "Token has been already revoked"
+            )
+        }
+    }
+
     private fun registerUser(): RegisteredUser {
         val suffix = UUID.randomUUID().toString().take(8)
         val username = "jwt-$suffix"
@@ -252,6 +335,22 @@ class JwtAuthenticationIntegrationTests {
         )
 
         return RegisteredUser(username, tokens)
+    }
+
+    private fun login(username: String): AuthResponse {
+        val result = mockMvc.post("/api/auth/login") {
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                LoginUserRequest(
+                    username = username,
+                    password = "password-123"
+                )
+            )
+        }.andExpect {
+            status { isOk() }
+        }.andReturn()
+
+        return responseData(result)
     }
 
     private fun refresh(refreshToken: String): AuthResponse {
@@ -272,6 +371,44 @@ class JwtAuthenticationIntegrationTests {
         return tokens
     }
 
+    private fun refreshExpectingUnauthorized(refreshToken: String): MvcResult {
+        return mockMvc.post("/api/auth/refresh") {
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(RefreshTokenRequest(refreshToken))
+        }.andExpect {
+            status { isUnauthorized() }
+            content { contentType(MediaType.APPLICATION_JSON) }
+        }.andReturn()
+    }
+
+    private fun logoutExpectingUnauthorized(refreshToken: String): MvcResult {
+        return mockMvc.post("/api/auth/logout") {
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(RefreshTokenRequest(refreshToken))
+        }.andExpect {
+            status { isUnauthorized() }
+            content { contentType(MediaType.APPLICATION_JSON) }
+        }.andReturn()
+    }
+
+    private fun assertRefreshTokenActive(refreshToken: String) {
+        assertTrue(tokenProvider.validateToken(refreshToken))
+        assertTrue(tokenProvider.isRefreshToken(refreshToken))
+
+        val tokenId = UUID.fromString(tokenProvider.getTokenIdFromToken(refreshToken))
+        val tokenEntity = assertNotNull(refreshTokenRepository.findRefreshTokenById(tokenId))
+        assertNull(tokenEntity.revokedAt)
+    }
+
+    private fun responseData(result: MvcResult): AuthResponse {
+        val tokensResponse = objectMapper.readValue<ApiResponse<AuthResponse>>(result.response.contentAsString)
+        val tokens = assertNotNull(tokensResponse.data)
+
+        assertTrue(tokens.accessToken.isNotBlank())
+        assertTrue(tokens.refreshToken.isNotBlank())
+        return tokens
+    }
+
     private fun assertApiError(
         result: MvcResult,
         expectedCode: String,
@@ -286,6 +423,11 @@ class JwtAuthenticationIntegrationTests {
 
     private data class RegisterUserRequest(
         val email: String,
+        val username: String,
+        val password: String
+    )
+
+    private data class LoginUserRequest(
         val username: String,
         val password: String
     )

@@ -97,6 +97,17 @@ class AuthValidationIntegrationTests {
     }
 
     @Test
+    fun `logout rejects missing refresh token`() {
+        mockMvc.post("/api/auth/logout") {
+            contentType = MediaType.APPLICATION_JSON
+            content = "{}"
+        }.andExpect {
+            status { isBadRequest() }
+            content { contentTypeCompatibleWith(MediaType.APPLICATION_JSON) }
+        }
+    }
+
+    @Test
     fun `email verification code rejects invalid dto fields`() {
         val result = mockMvc.post("/api/auth/email-verification/code") {
             contentType = MediaType.APPLICATION_JSON
