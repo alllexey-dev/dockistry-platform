@@ -9,9 +9,9 @@ import io.dockistry.platform.auth.domain.dto.RegisterRequest
 import io.dockistry.platform.auth.domain.dto.ResendEmailVerificationRequest
 import io.dockistry.platform.auth.domain.dto.VerifyEmailByNumberCodeRequest
 import io.dockistry.platform.auth.infrastructure.EmailVerificationProperties
+import io.dockistry.platform.auth.infrastructure.VerificationEmailSendJobRepository
 import io.dockistry.platform.email.application.EmailSendJobProcessor
 import io.dockistry.platform.email.config.EmailSendJobConfig
-import io.dockistry.platform.email.infrastructure.EmailSendJobRepository
 import io.dockistry.platform.iam.infrastructure.UserRepository
 import io.dockistry.platform.shared.api.ApiResponse
 import io.dockistry.platform.testsupport.InMemoryRawEmailSender
@@ -82,7 +82,7 @@ class EmailVerificationIntegrationTests {
     private lateinit var emailSendJobConfig: EmailSendJobConfig
 
     @Autowired
-    private lateinit var emailSendJobRepository: EmailSendJobRepository
+    private lateinit var verificationEmailSendJobRepository: VerificationEmailSendJobRepository
 
     @Autowired
     private lateinit var userRepository: UserRepository
@@ -360,7 +360,7 @@ class EmailVerificationIntegrationTests {
         val persistedUser = requireNotNull(userRepository.findByEmail(user.email))
         assertEquals(
             1,
-            emailSendJobRepository.countActiveEmailVerificationJobsForUser(persistedUser.id)
+            verificationEmailSendJobRepository.countActiveJobsForUser(persistedUser.id)
         )
 
         processEmailJobs()

@@ -4,7 +4,6 @@ import io.dockistry.platform.auth.domain.EmailVerificationChallengeReason
 import io.dockistry.platform.email.domain.EmailSendJob
 import io.dockistry.platform.email.domain.EmailSendJobLifecycleService
 import io.dockistry.platform.email.domain.VerificationEmailJobContext
-import io.dockistry.platform.email.infrastructure.EmailSendJobRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
@@ -14,7 +13,7 @@ import java.util.UUID
 @Service
 class EmailVerificationJobCreator(
     private val emailSendJobLifecycleService: EmailSendJobLifecycleService,
-    private val emailSendJobRepository: EmailSendJobRepository,
+    private val verificationEmailSendJobRepository: VerificationEmailSendJobRepository,
     private val objectMapper: ObjectMapper
 ) {
     fun enqueueRegisterVerificationJob(userId: UUID): EmailSendJob {
@@ -29,7 +28,7 @@ class EmailVerificationJobCreator(
         userId: UUID,
         reason: EmailVerificationChallengeReason
     ): EmailSendJob {
-        return emailSendJobRepository.findActiveEmailVerificationJobForUser(userId)
+        return verificationEmailSendJobRepository.findActiveJobForUser(userId)
             ?: createVerificationJob(userId, reason)
     }
 
@@ -48,7 +47,7 @@ class EmailVerificationJobCreator(
                 jobContext = serializeContext(context)
             )
         } catch (exception: DataIntegrityViolationException) {
-            emailSendJobRepository.findActiveEmailVerificationJobForUser(userId)
+            verificationEmailSendJobRepository.findActiveJobForUser(userId)
                 ?: throw exception
         }
     }
