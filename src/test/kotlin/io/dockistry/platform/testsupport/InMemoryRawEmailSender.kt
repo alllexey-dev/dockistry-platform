@@ -18,6 +18,10 @@ class InMemoryRawEmailSender : RawEmailSender {
         return sentEmails.lastOrNull { it.to == email }
     }
 
+    fun allTo(email: String): List<SentEmail> {
+        return sentEmails.filter { it.to == email }
+    }
+
     fun clear() {
         sentEmails.clear()
     }
