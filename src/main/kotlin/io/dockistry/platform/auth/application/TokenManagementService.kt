@@ -10,6 +10,7 @@ import io.dockistry.platform.auth.infrastructure.JwtConfig
 import io.dockistry.platform.auth.infrastructure.RefreshTokenRepository
 import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.iam.infrastructure.UserRepository
+import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -73,44 +74,79 @@ class TokenManagementService(
     // Prevents a situation where old token is revoked but new wasn't issued due to some error
     @Transactional
     fun refreshToken(token: String): TokenPair {
+        val parsedToken = parseRefreshToken(token)
+        val refreshToken = findRefreshToken(parsedToken.tokenId)
+
+        throwIfRefreshTokenUserMismatches(
+            refreshToken = refreshToken,
+            userIdFromToken = parsedToken.userId
+        )
+
+        revokeRefreshToken(refreshToken)
+        flushRefreshTokenRevocation()
+
+        return issueTokenPair(refreshToken.user)
+    }
+
+    @Transactional
+    fun revokeRefreshToken(token: String) {
+        val parsedToken = parseRefreshToken(token)
+        val refreshToken = findRefreshToken(parsedToken.tokenId)
+
+        revokeRefreshToken(refreshToken)
+        flushRefreshTokenRevocation()
+    }
+
+    private fun parseRefreshToken(token: String): ParsedRefreshToken {
         if (!tokenProvider.validateToken(token) || !tokenProvider.isRefreshToken(token)) {
             throw InvalidTokenException("Token is invalid or of wrong type")
         }
 
-        var userId: UUID
-        var tokenId: UUID
-
-        try {
-            tokenId = UUID.fromString(tokenProvider.getTokenIdFromToken(token))
-            userId = UUID.fromString(tokenProvider.getUserIdFromToken(token))
+        return try {
+            ParsedRefreshToken(
+                tokenId = UUID.fromString(tokenProvider.getTokenIdFromToken(token)),
+                userId = UUID.fromString(tokenProvider.getUserIdFromToken(token))
+            )
         } catch (_: RuntimeException) {
             // NullPointerException or IllegalArgumentException
             throw InvalidTokenException("Couldn't parse user/token UUID")
         }
-
-        revokeRefreshToken(tokenId, userId)
-
-        try {
-            refreshTokenRepository.flush()
-        } catch (_: ObjectOptimisticLockingFailureException) {
-            throw TokenRevokedException()
-        }
-
-        return issueTokenPair(userId)
     }
 
-    private fun revokeRefreshToken(tokenId: UUID, userId: UUID) {
-        val refreshToken = refreshTokenRepository.findRefreshTokenById(tokenId)
+    private fun findRefreshToken(tokenId: UUID): RefreshToken {
+        return refreshTokenRepository.findRefreshTokenById(tokenId)
             ?: throw TokenNotFoundException()
+    }
 
-        if (refreshToken.user.id != userId) {
-            throw InvalidTokenException("Token user mismatch")
-        }
-
+    private fun revokeRefreshToken(refreshToken: RefreshToken) {
         if (refreshToken.revokedAt != null) {
             throw TokenRevokedException()
         }
 
         refreshToken.revokedAt = clock.instant()
     }
+
+    private fun flushRefreshTokenRevocation() {
+        try {
+            refreshTokenRepository.flush()
+        } catch (_: ObjectOptimisticLockingFailureException) {
+            throw TokenRevokedException()
+        }
+    }
+
+    private fun throwIfRefreshTokenUserMismatches(
+        refreshToken: RefreshToken,
+        userIdFromToken: UUID
+    ) {
+        if (refreshToken.user.id != userIdFromToken) {
+            throw InternalDataIntegrityException(
+                "Refresh token subject $userIdFromToken does not match DB owner ${refreshToken.user.id}"
+            )
+        }
+    }
+
+    private data class ParsedRefreshToken(
+        val tokenId: UUID,
+        val userId: UUID
+    )
 }
