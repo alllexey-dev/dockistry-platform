@@ -10,7 +10,6 @@ import io.dockistry.platform.auth.infrastructure.JwtConfig
 import io.dockistry.platform.auth.infrastructure.RefreshTokenRepository
 import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.iam.infrastructure.UserRepository
-import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.orm.ObjectOptimisticLockingFailureException
@@ -85,11 +84,6 @@ class TokenManagementService(
         val parsedToken = parseRefreshToken(token)
         val refreshToken = findRefreshToken(parsedToken.tokenId)
 
-        throwIfRefreshTokenUserMismatches(
-            refreshToken = refreshToken,
-            userIdFromToken = parsedToken.userId
-        )
-
         revokeRefreshToken(refreshToken)
         flushRefreshTokenRevocation()
 
@@ -146,12 +140,11 @@ class TokenManagementService(
 
         return try {
             ParsedRefreshToken(
-                tokenId = UUID.fromString(tokenProvider.getTokenIdFromToken(token)),
-                userId = UUID.fromString(tokenProvider.getUserIdFromToken(token))
+                tokenId = UUID.fromString(tokenProvider.getTokenIdFromToken(token))
             )
         } catch (_: RuntimeException) {
             // NullPointerException or IllegalArgumentException
-            throw InvalidTokenException("Couldn't parse user/token UUID")
+            throw InvalidTokenException("Couldn't parse token UUID")
         }
     }
 
@@ -176,19 +169,7 @@ class TokenManagementService(
         }
     }
 
-    private fun throwIfRefreshTokenUserMismatches(
-        refreshToken: RefreshToken,
-        userIdFromToken: UUID
-    ) {
-        if (refreshToken.user.id != userIdFromToken) {
-            throw InternalDataIntegrityException(
-                "Refresh token subject $userIdFromToken does not match DB owner ${refreshToken.user.id}"
-            )
-        }
-    }
-
     private data class ParsedRefreshToken(
-        val tokenId: UUID,
-        val userId: UUID
+        val tokenId: UUID
     )
 }
