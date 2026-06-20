@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatusCode
 import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
 import org.springframework.security.authentication.BadCredentialsException
+import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.context.request.WebRequest
@@ -88,6 +89,33 @@ class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
                     errorCode = "invalid_username_or_password"
                 )
             )
+    }
+
+    override fun handleMethodArgumentNotValid(
+        exception: MethodArgumentNotValidException,
+        headers: HttpHeaders,
+        statusCode: HttpStatusCode,
+        request: WebRequest
+    ): ResponseEntity<Any> {
+        val fieldErrors = exception.bindingResult.fieldErrors.map {
+            "${it.field}: ${it.defaultMessage ?: "Validation error"}"
+        }
+        val globalErrors = exception.bindingResult.globalErrors.map {
+            it.defaultMessage ?: "Validation error"
+        }
+
+        val errorMessage = (fieldErrors + globalErrors)
+            .joinToString("; ")
+            .ifBlank { "Validation failed" }
+
+        return ResponseEntity(
+            ApiResponse<Nothing>(
+                errorMessage = errorMessage,
+                errorCode = "validation_error"
+            ),
+            headers,
+            statusCode
+        )
     }
 
     @ExceptionHandler(RuntimeException::class)

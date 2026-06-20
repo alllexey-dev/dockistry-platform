@@ -10,6 +10,8 @@ import io.dockistry.platform.auth.infrastructure.JwtConfig
 import io.dockistry.platform.auth.infrastructure.RefreshTokenRepository
 import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.iam.infrastructure.UserRepository
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -24,6 +26,12 @@ class TokenManagementService(
     private val refreshTokenRepository: RefreshTokenRepository,
     private val clock: Clock
 ) {
+
+    companion object {
+        private val logger: Logger =
+            LoggerFactory.getLogger(TokenManagementService::class.java)
+    }
+
     @Transactional
     fun issueTokenPair(username: String): TokenPair {
         val user = userRepository.findUserByUsername(username) ?: throw UserForAuthenticationNotFoundException("User with username $username not found")
@@ -73,44 +81,95 @@ class TokenManagementService(
     // Prevents a situation where old token is revoked but new wasn't issued due to some error
     @Transactional
     fun refreshToken(token: String): TokenPair {
+        val parsedToken = parseRefreshToken(token)
+        val refreshToken = findRefreshToken(parsedToken.tokenId)
+
+        revokeRefreshToken(refreshToken)
+        flushRefreshTokenRevocation()
+
+        return issueTokenPair(refreshToken.user)
+    }
+
+    @Transactional
+    fun invalidateRefreshToken(token: String) {
+        val parsed = parseRefreshToken(token)
+
+        try {
+            val refreshToken = findRefreshToken(parsed.tokenId)
+            revokeRefreshToken(refreshToken)
+            flushRefreshTokenRevocation()
+        } catch (_: TokenRevokedException) {
+            logger.warn(
+                "Logout requested for already-revoked refresh token: tokenId={}",
+                parsed.tokenId
+            )
+        } catch (_: TokenNotFoundException) {
+            logger.warn(
+                "Logout requested for refresh token not found in DB: tokenId={}",
+                parsed.tokenId
+            )
+        }
+    }
+
+    // Not needed for logout anymore since we have invalidateRefreshToken, but may be useful in future
+    @Transactional
+    fun revokeRefreshToken(token: String) {
+        val parsedToken = parseRefreshToken(token)
+        val refreshToken = findRefreshToken(parsedToken.tokenId)
+
+        revokeRefreshToken(refreshToken)
+        flushRefreshTokenRevocation()
+    }
+
+    @Transactional
+    fun revokeAllRefreshTokens(user: User) {
+        refreshTokenRepository.findByUserAndRevokedAtNull(user).forEach {
+            try {
+                revokeRefreshToken(it)
+                flushRefreshTokenRevocation()
+            } catch (_: TokenRevokedException) {
+                logger.warn("${it.id} refresh token was revoked in parallel with logout-all operation on user ${user.id}")
+            }
+        }
+    }
+
+    private fun parseRefreshToken(token: String): ParsedRefreshToken {
         if (!tokenProvider.validateToken(token) || !tokenProvider.isRefreshToken(token)) {
             throw InvalidTokenException("Token is invalid or of wrong type")
         }
 
-        var userId: UUID
-        var tokenId: UUID
-
-        try {
-            tokenId = UUID.fromString(tokenProvider.getTokenIdFromToken(token))
-            userId = UUID.fromString(tokenProvider.getUserIdFromToken(token))
+        return try {
+            ParsedRefreshToken(
+                tokenId = UUID.fromString(tokenProvider.getTokenIdFromToken(token))
+            )
         } catch (_: RuntimeException) {
             // NullPointerException or IllegalArgumentException
-            throw InvalidTokenException("Couldn't parse user/token UUID")
+            throw InvalidTokenException("Couldn't parse token UUID")
         }
-
-        revokeRefreshToken(tokenId, userId)
-
-        try {
-            refreshTokenRepository.flush()
-        } catch (_: ObjectOptimisticLockingFailureException) {
-            throw TokenRevokedException()
-        }
-
-        return issueTokenPair(userId)
     }
 
-    private fun revokeRefreshToken(tokenId: UUID, userId: UUID) {
-        val refreshToken = refreshTokenRepository.findRefreshTokenById(tokenId)
+    private fun findRefreshToken(tokenId: UUID): RefreshToken {
+        return refreshTokenRepository.findRefreshTokenById(tokenId)
             ?: throw TokenNotFoundException()
+    }
 
-        if (refreshToken.user.id != userId) {
-            throw InvalidTokenException("Token user mismatch")
-        }
-
+    private fun revokeRefreshToken(refreshToken: RefreshToken) {
         if (refreshToken.revokedAt != null) {
             throw TokenRevokedException()
         }
 
         refreshToken.revokedAt = clock.instant()
     }
+
+    private fun flushRefreshTokenRevocation() {
+        try {
+            refreshTokenRepository.flush()
+        } catch (_: ObjectOptimisticLockingFailureException) {
+            throw TokenRevokedException()
+        }
+    }
+
+    private data class ParsedRefreshToken(
+        val tokenId: UUID
+    )
 }

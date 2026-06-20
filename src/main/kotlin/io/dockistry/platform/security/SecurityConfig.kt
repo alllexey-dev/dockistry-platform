@@ -42,6 +42,7 @@ class SecurityConfig(
 
             authorizeHttpRequests {
                 authorize(DispatcherTypeRequestMatcher(DispatcherType.ERROR), permitAll)
+                authorize("/api/auth/logout-all", authenticated)
                 authorize("/api/auth/**", permitAll)
                 authorize("/api/public/**", permitAll)
                 authorize(anyRequest, authenticated)

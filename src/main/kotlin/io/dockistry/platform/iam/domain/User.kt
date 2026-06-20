@@ -12,21 +12,25 @@ import jakarta.persistence.MapsId
 import jakarta.persistence.OneToOne
 import jakarta.persistence.Table
 import java.util.UUID
+import java.time.Instant
 
 @Entity
 @Table(name = "users")
 class User(
     @Column(nullable = false, unique = true)
-    val username: String,
+    var username: String,
 
     @Column(nullable = false, unique = true)
-    val email: String,
+    var email: String,
 
     @Column(nullable = false)
     var passwordHash: String
 ) {
     @Id
     lateinit var id: UUID
+
+    @Column(name = "email_verified_at")
+    var emailVerifiedAt: Instant? = null
 
     @OneToOne(
         fetch = FetchType.LAZY,

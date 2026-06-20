@@ -1,11 +1,15 @@
 package io.dockistry.platform.security
 
 import io.dockistry.platform.TestClockConfig
-import io.dockistry.platform.shared.api.ApiResponse
+import io.dockistry.platform.TestEmailSenderConfig
+import io.dockistry.platform.auth.infrastructure.JwtConfig
+import io.dockistry.platform.email.application.EmailSendJobProcessor
 import io.dockistry.platform.testsupport.MutableClock
 import io.dockistry.platform.TestcontainersConfig
+import io.dockistry.platform.shared.api.ApiResponse
+import io.dockistry.platform.testsupport.AuthTestClient
+import io.dockistry.platform.testsupport.InMemoryRawEmailSender
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertNotNull
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
@@ -22,8 +26,7 @@ import tools.jackson.module.kotlin.readValue
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
-import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.toJavaDuration
 
 
@@ -35,7 +38,8 @@ import kotlin.time.toJavaDuration
 @AutoConfigureMockMvc
 @Import(
     TestClockConfig::class,
-    TestcontainersConfig::class
+    TestcontainersConfig::class,
+    TestEmailSenderConfig::class
 )
 @Testcontainers
 class JwtAccessTokenExpirationIntegrationTests {
@@ -49,20 +53,30 @@ class JwtAccessTokenExpirationIntegrationTests {
     @Autowired
     private lateinit var objectMapper: ObjectMapper
 
-    @Test
-    fun `access token allows health before expiry and rejects it after expiry`() {
-        val accessToken = registerUserAndGetAccessToken()
+    @Autowired
+    private lateinit var emailSender: InMemoryRawEmailSender
 
-        mockMvc.get("/actuator/health") {
-            header(HttpHeaders.AUTHORIZATION, "Bearer $accessToken")
+    @Autowired
+    private lateinit var emailSendJobProcessor: EmailSendJobProcessor
+
+    @Autowired
+    private lateinit var jwtConfig: JwtConfig
+
+    @Test
+    fun `access token allows private ping before expiry and rejects it after expiry`() {
+        val user = registerUserAndGetAccessToken()
+
+        mockMvc.get("/api/private/ping") {
+            header(HttpHeaders.AUTHORIZATION, "Bearer ${user.accessToken}")
         }.andExpect {
             status { isOk() }
+            content { string("pong to ${user.username}") }
         }
 
-        clock.advance(4.seconds.toJavaDuration())
+        clock.advance((jwtConfig.accessExpiration + 1).milliseconds.toJavaDuration())
 
-        val expiredTokenResult = mockMvc.get("/actuator/health") {
-            header(HttpHeaders.AUTHORIZATION, "Bearer $accessToken")
+        val expiredTokenResult = mockMvc.get("/api/private/ping") {
+            header(HttpHeaders.AUTHORIZATION, "Bearer ${user.accessToken}")
         }.andExpect {
             status { isUnauthorized() }
             content { contentType(MediaType.APPLICATION_JSON) }
@@ -76,29 +90,21 @@ class JwtAccessTokenExpirationIntegrationTests {
         )
     }
 
-    private fun registerUserAndGetAccessToken(): String {
-        val suffix = UUID.randomUUID()
+    private fun registerUserAndGetAccessToken(): RegisteredAccessToken {
+        val suffix = UUID.randomUUID().toString().take(8)
+        val username = "jwt-expiry-$suffix"
 
-        val result = mockMvc.post("/api/auth/register") {
-            contentType = MediaType.APPLICATION_JSON
-            content = objectMapper.writeValueAsString(
-                RegisterUserRequest(
-                    email = "jwt-expiry-$suffix@dockistry.io",
-                    username = "jwt-expiry-$suffix",
-                    password = "password-123"
-                )
-            )
-        }.andExpect {
-            status { isOk() }
-        }
-            .andReturn()
+        val tokens = AuthTestClient(
+            mockMvc = mockMvc,
+            objectMapper = objectMapper,
+            emailSender = emailSender,
+            emailSendJobProcessor = emailSendJobProcessor
+        ).registerAndVerifyUser(
+            email = "jwt-expiry-$suffix@dockistry.io",
+            username = username
+        )
 
-        val tokensResponse = objectMapper.readValue<ApiResponse<Tokens>>(result.response.contentAsString)
-        assertNotNull(tokensResponse.data)
-
-        val accessToken = tokensResponse.data.accessToken
-        assertTrue(accessToken.isNotBlank())
-        return accessToken
+        return RegisteredAccessToken(username, tokens.accessToken)
     }
 
     private fun assertApiError(
@@ -113,14 +119,9 @@ class JwtAccessTokenExpirationIntegrationTests {
         assertEquals(expectedMessage, response.errorMessage)
     }
 
-    private data class Tokens(
-        val accessToken: String = "",
-        val refreshToken: String = ""
+    private data class RegisteredAccessToken(
+        val username: String,
+        val accessToken: String
     )
 
-    private data class RegisterUserRequest(
-        val email: String,
-        val username: String,
-        val password: String
-    )
 }
