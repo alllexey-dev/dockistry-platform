@@ -96,6 +96,48 @@ class AuthValidationIntegrationTests {
         )
     }
 
+    @Test
+    fun `email verification code rejects invalid dto fields`() {
+        val result = mockMvc.post("/api/auth/email-verification/code") {
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                VerifyEmailByNumberCodeRequest(
+                    email = "not-an-email",
+                    numberCode = "abc"
+                )
+            )
+        }.andExpect {
+            status { isBadRequest() }
+            content { contentTypeCompatibleWith(MediaType.APPLICATION_JSON) }
+        }.andReturn()
+
+        assertValidationError(
+            result = result,
+            expectedMessages = listOf(
+                "email:",
+                "Number code must consist of 6 digits"
+            )
+        )
+    }
+
+    @Test
+    fun `resend email verification rejects invalid email`() {
+        val result = mockMvc.post("/api/auth/email-verification/resend") {
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                ResendEmailVerificationRequest(email = "not-an-email")
+            )
+        }.andExpect {
+            status { isBadRequest() }
+            content { contentTypeCompatibleWith(MediaType.APPLICATION_JSON) }
+        }.andReturn()
+
+        assertValidationError(
+            result = result,
+            expectedMessages = listOf("email:")
+        )
+    }
+
     private fun assertValidationError(
         result: MvcResult,
         expectedMessages: List<String>
@@ -128,5 +170,14 @@ class AuthValidationIntegrationTests {
 
     private data class RefreshTokenRequest(
         val refreshToken: String
+    )
+
+    private data class VerifyEmailByNumberCodeRequest(
+        val numberCode: String,
+        val email: String
+    )
+
+    private data class ResendEmailVerificationRequest(
+        val email: String
     )
 }

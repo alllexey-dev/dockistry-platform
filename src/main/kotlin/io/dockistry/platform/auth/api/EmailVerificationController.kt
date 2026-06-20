@@ -8,6 +8,7 @@ import io.dockistry.platform.auth.domain.dto.ResendEmailVerificationRequest
 import io.dockistry.platform.auth.domain.dto.VerifyEmailByNumberCodeRequest
 import io.dockistry.platform.auth.domain.dto.toAuthResponse
 import io.dockistry.platform.shared.api.ApiResponse
+import jakarta.validation.Valid
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -21,7 +22,7 @@ class EmailVerificationController(
     private val tokenManagementService: TokenManagementService,
 ) {
     @PostMapping("/code")
-    fun verifyNumberCode(@RequestBody payload: VerifyEmailByNumberCodeRequest): ApiResponse<AuthResponse> {
+    fun verifyNumberCode(@RequestBody @Valid payload: VerifyEmailByNumberCodeRequest): ApiResponse<AuthResponse> {
         val userId = emailVerificationFlowService.verifyNumberCode(
             email = payload.email,
             numberCode = payload.numberCode
@@ -38,7 +39,7 @@ class EmailVerificationController(
     }
 
     @PostMapping("/resend")
-    fun resendCode(@RequestBody payload: ResendEmailVerificationRequest): ApiResponse<String> {
+    fun resendCode(@RequestBody @Valid payload: ResendEmailVerificationRequest): ApiResponse<String> {
         emailVerificationFlowService.requestVerificationCodes(
             payload.email,
             EmailVerificationChallengeReason.RESEND
