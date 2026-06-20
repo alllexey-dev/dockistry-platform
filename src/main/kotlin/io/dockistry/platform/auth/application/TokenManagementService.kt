@@ -132,6 +132,7 @@ class TokenManagementService(
         refreshTokenRepository.findByUserAndRevokedAtNull(user).forEach {
             try {
                 revokeRefreshToken(it)
+                flushRefreshTokenRevocation()
             } catch (_: TokenRevokedException) {
                 logger.warn("${it.id} refresh token was revoked in parallel with logout-all operation on user ${user.id}")
             }
