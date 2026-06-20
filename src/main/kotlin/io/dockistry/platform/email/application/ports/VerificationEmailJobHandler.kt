@@ -7,6 +7,7 @@ import io.dockistry.platform.email.domain.VerificationEmailJobContext
 import io.dockistry.platform.iam.infrastructure.UserRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 
 @Service
 class VerificationEmailJobHandler(
@@ -34,6 +35,7 @@ class VerificationEmailJobHandler(
         }
     }
 
+    @Transactional
     override fun handle(context: VerificationEmailJobContext) {
         val userId = context.userId
 

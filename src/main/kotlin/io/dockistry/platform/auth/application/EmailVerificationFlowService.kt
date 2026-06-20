@@ -115,8 +115,6 @@ class EmailVerificationFlowService(
         candidate: VerificationCodeSendCandidate,
         reason: EmailVerificationChallengeReason
     ) {
-        candidate.lastChallenge?.supersededAt = clock.instant()
-
         emailVerificationJobCreator.enqueueVerificationJob(candidate.user.id, reason)
     }
 

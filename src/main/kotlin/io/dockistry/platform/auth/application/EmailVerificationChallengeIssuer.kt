@@ -31,24 +31,31 @@ class EmailVerificationChallengeIssuer(
                         " email verification challenge issuing, but couldn't be found in DB"
             )
 
+        val now = clock.instant()
         val numberCode = VerificationCodeGenerator.generateCode()
         val linkCode = VerificationCodeGenerator.generateLinkCode()
 
         val numberCodeHash = verificationCodeHasher.hash(numberCode)
         val linkCodeHash = verificationCodeHasher.hash(linkCode)
 
-        emailVerificationChallengeRepository.save(
+        emailVerificationChallengeRepository.findActiveChallenge(user)
+            ?.let {
+                it.supersededAt = now
+                emailVerificationChallengeRepository.flush()
+            }
+
+        emailVerificationChallengeRepository.saveAndFlush(
             EmailVerificationChallenge(
                 user = user,
                 linkCodeHash = linkCodeHash,
                 numberCodeHash = numberCodeHash,
-                linkExpiresAt = clock.instant().plusMillis(
+                linkExpiresAt = now.plusMillis(
                     emailVerificationProperties.linkCodeExpiration
                 ),
-                numberExpiresAt = clock.instant().plusMillis(
+                numberExpiresAt = now.plusMillis(
                     emailVerificationProperties.numberCodeExpiration
                 ),
-                createdAt = clock.instant(),
+                createdAt = now,
                 reason = reason
             )
         )

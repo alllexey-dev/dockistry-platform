@@ -10,6 +10,7 @@ import io.dockistry.platform.auth.domain.dto.ResendEmailVerificationRequest
 import io.dockistry.platform.auth.domain.dto.VerifyEmailByNumberCodeRequest
 import io.dockistry.platform.auth.infrastructure.EmailVerificationProperties
 import io.dockistry.platform.email.application.EmailSendJobProcessor
+import io.dockistry.platform.email.config.EmailSendJobConfig
 import io.dockistry.platform.shared.api.ApiResponse
 import io.dockistry.platform.testsupport.InMemoryRawEmailSender
 import io.dockistry.platform.testsupport.MutableClock
@@ -74,6 +75,9 @@ class EmailVerificationIntegrationTests {
 
     @Autowired
     private lateinit var emailVerificationProperties: EmailVerificationProperties
+
+    @Autowired
+    private lateinit var emailSendJobConfig: EmailSendJobConfig
 
     @BeforeEach
     fun clearEmailSender() {
@@ -313,6 +317,27 @@ class EmailVerificationIntegrationTests {
             expectedCode = "user_already_exists",
             expectedMessage = "User with username = $takenUsername already exists"
         )
+    }
+
+    @Test
+    fun `failed verification email send does not leave active challenge that blocks retry`() {
+        val user = newUser("email-send-failure")
+
+        register(user)
+        emailSender.failWith(RuntimeException("SMTP unavailable"))
+        processEmailJobs()
+        assertNull(emailSender.latestTo(user.email))
+
+        emailSender.resumeSending()
+        advancePast(emailSendJobConfig.retryInterval)
+        processEmailJobs()
+
+        val verificationEmail = latestEmailTo(user.email)
+        val tokens = verifyNumberCode(
+            email = user.email,
+            numberCode = VerificationEmailParser.numberCode(verificationEmail)
+        )
+        assertPrivatePing(tokens.accessToken, user.username)
     }
 
     private fun registerAndSendVerificationEmail(user: TestUser): SentEmail {

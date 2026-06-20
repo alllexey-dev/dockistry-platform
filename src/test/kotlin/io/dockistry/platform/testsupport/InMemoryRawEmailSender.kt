@@ -5,8 +5,12 @@ import java.util.concurrent.ConcurrentLinkedQueue
 
 class InMemoryRawEmailSender : RawEmailSender {
     private val sentEmails = ConcurrentLinkedQueue<SentEmail>()
+    @Volatile
+    private var failure: RuntimeException? = null
 
     override fun sendEmail(email: String, subject: String, text: String) {
+        failure?.let { throw it }
+
         sentEmails += SentEmail(
             to = email,
             subject = subject,
@@ -24,6 +28,15 @@ class InMemoryRawEmailSender : RawEmailSender {
 
     fun clear() {
         sentEmails.clear()
+        failure = null
+    }
+
+    fun failWith(exception: RuntimeException) {
+        failure = exception
+    }
+
+    fun resumeSending() {
+        failure = null
     }
 }
 
