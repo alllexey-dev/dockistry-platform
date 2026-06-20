@@ -4,7 +4,6 @@ import io.dockistry.platform.auth.application.EmailVerificationChallengeIssuer
 import io.dockistry.platform.auth.domain.EmailVerificationChallengeReason
 import io.dockistry.platform.auth.infrastructure.EmailVerificationLinks
 import io.dockistry.platform.email.domain.EmailSendJobContext
-import io.dockistry.platform.email.domain.EmailSendJobType
 import io.dockistry.platform.email.domain.VerificationEmailJobContext
 import io.dockistry.platform.iam.infrastructure.UserRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
@@ -17,7 +16,7 @@ class VerificationEmailJobHandler(
     private val userRepository: UserRepository,
     private val senderService: RawEmailSender,
     private val emailVerificationLinks: EmailVerificationLinks
-) : TypedEmailJobHandler<VerificationEmailJobContext>(VerificationEmailJobContext::class.java) {
+) : EmailJobHandler {
 
     companion object {
         const val EMAIL_SUBJECT = "Dockistry Email Verification"
@@ -39,7 +38,16 @@ class VerificationEmailJobHandler(
 
     @Transactional
     override fun handle(context: EmailSendJobContext) {
-        handleTyped(requireContext(context))
+        val verificationContext = try {
+            context as VerificationEmailJobContext
+        } catch (_: ClassCastException) {
+            throw InternalDataIntegrityException(
+                "Email job handler for ${getContextTypeKey()} expected ${getContextType().simpleName}, " +
+                    "but got ${context::class.simpleName}"
+            )
+        }
+
+        handleTyped(verificationContext)
     }
 
     private fun handleTyped(context: VerificationEmailJobContext) {
@@ -67,5 +75,7 @@ class VerificationEmailJobHandler(
         )
     }
 
-    override fun getJobType() = EmailSendJobType.EMAIL_VERIFICATION
+    override fun getContextTypeKey() = VerificationEmailJobContext.TYPE_KEY
+
+    override fun getContextType() = VerificationEmailJobContext::class.java
 }

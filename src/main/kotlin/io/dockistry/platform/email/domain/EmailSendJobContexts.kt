@@ -8,4 +8,8 @@ sealed interface EmailSendJobContext
 data class VerificationEmailJobContext(
     val userId: UUID,
     val reason: EmailVerificationChallengeReason
-) : EmailSendJobContext
+) : EmailSendJobContext {
+    companion object {
+        const val TYPE_KEY = "email_verification"
+    }
+}

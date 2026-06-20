@@ -11,5 +11,5 @@ CREATE INDEX idx_email_verification_throttles_user_blocked_until
 
 CREATE UNIQUE INDEX idx_email_send_jobs_email_verification_active_user
     ON email_send_jobs ((job_context ->> 'userId'))
-    WHERE job_type = 'EMAIL_VERIFICATION'
+    WHERE context_type_key = 'email_verification'
         AND status IN ('PENDING', 'PROCESSING', 'FAILED');

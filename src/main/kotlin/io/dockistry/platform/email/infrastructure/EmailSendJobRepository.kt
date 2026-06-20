@@ -10,7 +10,7 @@ interface EmailSendJobRepository : JpaRepository<EmailSendJob, UUID> {
         value = """
             SELECT *
             FROM email_send_jobs
-            WHERE job_type = 'EMAIL_VERIFICATION'
+            WHERE context_type_key = 'email_verification'
                 AND status IN ('PENDING', 'PROCESSING', 'FAILED')
                 AND job_context ->> 'userId' = CAST(:userId AS TEXT)
             ORDER BY created_at
@@ -24,7 +24,7 @@ interface EmailSendJobRepository : JpaRepository<EmailSendJob, UUID> {
         value = """
             SELECT COUNT(*)
             FROM email_send_jobs
-            WHERE job_type = 'EMAIL_VERIFICATION'
+            WHERE context_type_key = 'email_verification'
                 AND status IN ('PENDING', 'PROCESSING', 'FAILED')
                 AND job_context ->> 'userId' = CAST(:userId AS TEXT)
         """,

@@ -16,9 +16,8 @@ import java.util.UUID
 @Entity
 @Table(name = "email_send_jobs")
 class EmailSendJob(
-    @Enumerated(value = EnumType.STRING)
-    @Column(name = "job_type", nullable = false)
-    val jobType: EmailSendJobType,
+    @Column(name = "context_type_key", nullable = false)
+    val contextTypeKey: String,
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "job_context", nullable = false, columnDefinition = "jsonb")

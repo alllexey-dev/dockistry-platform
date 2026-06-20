@@ -3,7 +3,6 @@ package io.dockistry.platform.email.application
 import io.dockistry.platform.email.config.EmailSendJobConfig
 import io.dockistry.platform.email.domain.EmailSendJobLifecycleService
 import io.dockistry.platform.email.infrastructure.EmailSendJobClaimer
-import io.dockistry.platform.email.infrastructure.EmailSendJobContextSerializer
 import io.dockistry.platform.email.infrastructure.EmailSendJobDispatcher
 import io.dockistry.platform.email.infrastructure.EmailSendJobRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
@@ -15,7 +14,6 @@ import java.util.UUID
 class EmailSendJobProcessor(
     private val jobClaimer: EmailSendJobClaimer,
     private val jobRepository: EmailSendJobRepository,
-    private val jobContextSerializer: EmailSendJobContextSerializer,
     private val jobDispatcher: EmailSendJobDispatcher,
     private val jobLifecycleService: EmailSendJobLifecycleService,
     private val jobConfig: EmailSendJobConfig,
@@ -39,10 +37,9 @@ class EmailSendJobProcessor(
                     "Email send job id $emailSendJobId was passed for processing, but couldn't be found in DB"
                 )
             }
-        val context = jobContextSerializer.deserialize(job)
 
         try {
-            jobDispatcher.dispatch(job.jobType, context)
+            jobDispatcher.dispatch(job.contextTypeKey, job.jobContext)
             jobLifecycleService.markSent(job)
         } catch (e: Exception) {
             jobLifecycleService.markFailed(job, e)

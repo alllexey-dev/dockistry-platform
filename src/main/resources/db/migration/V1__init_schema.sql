@@ -115,17 +115,17 @@ CREATE TABLE email_verification_challenges
 
 CREATE TABLE email_send_jobs
 (
-    id              UUID                        NOT NULL,
-    job_type        VARCHAR(255)                NOT NULL,
-    job_context     JSONB                       NOT NULL,
-    status          VARCHAR(255)                NOT NULL,
-    attempts_count  INTEGER                     NOT NULL,
-    created_at      TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-    next_attempt_at TIMESTAMP WITHOUT TIME ZONE,
-    sent_at         TIMESTAMP WITHOUT TIME ZONE,
-    locked_at       TIMESTAMP WITHOUT TIME ZONE,
-    locked_until    TIMESTAMP WITHOUT TIME ZONE,
-    last_error      TEXT,
+    id               UUID                        NOT NULL,
+    context_type_key VARCHAR(255)                NOT NULL,
+    job_context      JSONB                       NOT NULL,
+    status           VARCHAR(255)                NOT NULL,
+    attempts_count   INTEGER                     NOT NULL,
+    created_at       TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    next_attempt_at  TIMESTAMP WITHOUT TIME ZONE,
+    sent_at          TIMESTAMP WITHOUT TIME ZONE,
+    locked_at        TIMESTAMP WITHOUT TIME ZONE,
+    locked_until     TIMESTAMP WITHOUT TIME ZONE,
+    last_error       TEXT,
     CONSTRAINT pk_email_send_jobs PRIMARY KEY (id)
 );
 
