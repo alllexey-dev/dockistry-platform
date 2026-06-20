@@ -3,6 +3,8 @@ package io.dockistry.platform.email.application.ports
 import io.dockistry.platform.auth.application.EmailVerificationChallengeIssuer
 import io.dockistry.platform.auth.domain.EmailVerificationChallengeReason
 import io.dockistry.platform.auth.infrastructure.EmailVerificationLinks
+import io.dockistry.platform.email.domain.EmailSendJobContext
+import io.dockistry.platform.email.domain.EmailSendJobType
 import io.dockistry.platform.email.domain.VerificationEmailJobContext
 import io.dockistry.platform.iam.infrastructure.UserRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
@@ -15,7 +17,7 @@ class VerificationEmailJobHandler(
     private val userRepository: UserRepository,
     private val senderService: RawEmailSender,
     private val emailVerificationLinks: EmailVerificationLinks
-) : EmailJobHandler<VerificationEmailJobContext> {
+) : TypedEmailJobHandler<VerificationEmailJobContext>(VerificationEmailJobContext::class.java) {
 
     companion object {
         const val EMAIL_SUBJECT = "Dockistry Email Verification"
@@ -36,7 +38,11 @@ class VerificationEmailJobHandler(
     }
 
     @Transactional
-    override fun handle(context: VerificationEmailJobContext) {
+    override fun handle(context: EmailSendJobContext) {
+        handleTyped(requireContext(context))
+    }
+
+    private fun handleTyped(context: VerificationEmailJobContext) {
         val userId = context.userId
 
         val verificationCodes = emailVerificationChallengeIssuer.issueChallenge(
@@ -60,4 +66,6 @@ class VerificationEmailJobHandler(
             )
         )
     }
+
+    override fun getJobType() = EmailSendJobType.EMAIL_VERIFICATION
 }

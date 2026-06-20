@@ -42,7 +42,7 @@ class EmailSendJobProcessor(
         val context = jobContextSerializer.deserialize(job)
 
         try {
-            jobDispatcher.dispatch(context)
+            jobDispatcher.dispatch(job.jobType, context)
             jobLifecycleService.markSent(job)
         } catch (e: Exception) {
             jobLifecycleService.markFailed(job, e)
