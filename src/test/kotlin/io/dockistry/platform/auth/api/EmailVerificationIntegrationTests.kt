@@ -11,6 +11,8 @@ import io.dockistry.platform.auth.domain.dto.VerifyEmailByNumberCodeRequest
 import io.dockistry.platform.auth.infrastructure.EmailVerificationProperties
 import io.dockistry.platform.email.application.EmailSendJobProcessor
 import io.dockistry.platform.email.config.EmailSendJobConfig
+import io.dockistry.platform.email.infrastructure.EmailSendJobRepository
+import io.dockistry.platform.iam.infrastructure.UserRepository
 import io.dockistry.platform.shared.api.ApiResponse
 import io.dockistry.platform.testsupport.InMemoryRawEmailSender
 import io.dockistry.platform.testsupport.MutableClock
@@ -78,6 +80,12 @@ class EmailVerificationIntegrationTests {
 
     @Autowired
     private lateinit var emailSendJobConfig: EmailSendJobConfig
+
+    @Autowired
+    private lateinit var emailSendJobRepository: EmailSendJobRepository
+
+    @Autowired
+    private lateinit var userRepository: UserRepository
 
     @BeforeEach
     fun clearEmailSender() {
@@ -338,6 +346,26 @@ class EmailVerificationIntegrationTests {
             numberCode = VerificationEmailParser.numberCode(verificationEmail)
         )
         assertPrivatePing(tokens.accessToken, user.username)
+    }
+
+    @Test
+    fun `repeated resend before pending email job is processed sends only one verification email`() {
+        val user = newUser("pending-job-dedupe")
+
+        register(user)
+        repeat(3) {
+            resendCodes(user.email)
+        }
+
+        val persistedUser = requireNotNull(userRepository.findByEmail(user.email))
+        assertEquals(
+            1,
+            emailSendJobRepository.countActiveEmailVerificationJobsForUser(persistedUser.id)
+        )
+
+        processEmailJobs()
+
+        assertEquals(1, emailSender.allTo(user.email).size)
     }
 
     private fun registerAndSendVerificationEmail(user: TestUser): SentEmail {

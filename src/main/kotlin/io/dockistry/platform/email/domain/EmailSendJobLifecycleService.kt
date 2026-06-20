@@ -19,7 +19,7 @@ class EmailSendJobLifecycleService(
         jobType: EmailSendJobType,
         jobContext: EmailSendJobContext
     ): EmailSendJob {
-        return emailSendJobRepository.save(
+        return emailSendJobRepository.saveAndFlush(
             EmailSendJob(
                 jobType = jobType,
                 jobContext = emailSendJobContextSerializer.serialize(jobContext),
