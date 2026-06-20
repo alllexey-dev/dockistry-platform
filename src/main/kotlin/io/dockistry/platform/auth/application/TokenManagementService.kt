@@ -97,6 +97,28 @@ class TokenManagementService(
     }
 
     @Transactional
+    fun invalidateRefreshToken(token: String) {
+        val parsed = parseRefreshToken(token)
+
+        try {
+            val refreshToken = findRefreshToken(parsed.tokenId)
+            revokeRefreshToken(refreshToken)
+            flushRefreshTokenRevocation()
+        } catch (_: TokenRevokedException) {
+            logger.warn(
+                "Logout requested for already-revoked refresh token: tokenId={}",
+                parsed.tokenId
+            )
+        } catch (_: TokenNotFoundException) {
+            logger.warn(
+                "Logout requested for refresh token not found in DB: tokenId={}",
+                parsed.tokenId
+            )
+        }
+    }
+
+    // Not needed for logout anymore since we have invalidateRefreshToken, but may be useful in future
+    @Transactional
     fun revokeRefreshToken(token: String) {
         val parsedToken = parseRefreshToken(token)
         val refreshToken = findRefreshToken(parsedToken.tokenId)

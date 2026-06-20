@@ -48,7 +48,7 @@ class AuthController(
 
     @PostMapping("/logout")
     fun logout(@RequestBody @Valid refreshRequest: RefreshRequest): ApiResponse<String> {
-        tokenManagementService.revokeRefreshToken(refreshRequest.refreshToken)
+        tokenManagementService.invalidateRefreshToken(refreshRequest.refreshToken)
         return ApiResponse("You successfully logged out.")
     }
 
