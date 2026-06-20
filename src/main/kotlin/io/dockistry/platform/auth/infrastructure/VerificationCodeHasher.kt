@@ -4,23 +4,12 @@ import org.springframework.stereotype.Component
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Base64
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 
 @Component
-class VerificationCodeHasher(
-    private val emailVerificationProperties: EmailVerificationProperties
-) {
-    private val key = SecretKeySpec(
-        Base64.getDecoder().decode(emailVerificationProperties.hashSecretBase64),
-        "HmacSHA256"
-    )
-
+class VerificationCodeHasher {
     fun hash(value: String): String {
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(key)
-
-        val digest = mac.doFinal(value.toByteArray(StandardCharsets.UTF_8))
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(StandardCharsets.UTF_8))
 
         return Base64.getUrlEncoder()
             .withoutPadding()

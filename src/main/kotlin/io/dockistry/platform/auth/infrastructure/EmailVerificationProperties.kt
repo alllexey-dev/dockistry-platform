@@ -6,8 +6,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 data class EmailVerificationProperties(
     val linkPath: String,
 
-    val hashSecretBase64: String,
-
     val linkCodeExpiration: Long,
     val numberCodeExpiration: Long,
 
