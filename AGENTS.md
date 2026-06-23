@@ -1,0 +1,405 @@
+# AGENTS.md
+
+## 1. О проекте (Project Overview)
+
+`dockistry-platform` — backend-платформа для управления Docker-инфраструктурой.
+Целевая продуктовая идея описана в `DESCRIPTION.md`: единый API-first сервис для
+пользователей, проектов, RBAC, контейнеров, образов, сетей, volumes, секретов,
+reverse proxy, деплоя, мониторинга и бэкапов.
+
+Фактически реализованное состояние на текущий момент — MVP-ядро backend:
+
+- регистрация пользователей и вход через JWT;
+- access/refresh token flow с ротацией refresh-токенов;
+- обязательная email verification перед login;
+- постановка email verification писем в persisted job queue;
+- базовая IAM/RBAC-модель: users, groups, principals, roles, permissions,
+  scopes, role bindings;
+- разграничение доступа к projects через глобальные и project-scoped
+  permissions;
+- начальная project-domain логика: создание, чтение, обновление, архивирование,
+  удаление и список проектов;
+- единый формат API-ответов и ошибок через `ApiResponse`;
+- PostgreSQL schema management через Flyway migrations.
+
+Главная бизнес-логика сейчас сосредоточена вокруг:
+
+- безопасной auth-модели: пользователь регистрируется, получает verification
+  email, подтверждает email кодом или ссылкой, после чего может получать JWT;
+- refresh-token lifecycle: refresh token хранится в БД, ротируется при refresh,
+  может быть отозван одиночно или через logout-all, защищен optimistic locking;
+- IAM: `Principal` может быть user или group, права выдаются через role bindings,
+  пользователь получает права как напрямую, так и через группы;
+- projects: каждый проект имеет owner principal, отдельный scope и проверяется
+  через `PermissionCheckService`;
+- email jobs: отправка verification email не происходит напрямую в auth flow,
+  вместо этого создается `EmailSendJob`, который позже забирает scheduler.
+
+Важно: часть возможностей из `DESCRIPTION.md` пока является roadmap, а не
+готовым кодом. Перед реализацией новых Docker/containers/secrets/proxy features
+проверяй текущее состояние кода, а не считай roadmap уже существующим API.
+
+## 2. Технологический стек (Tech Stack)
+
+Основной стек:
+
+- Kotlin `2.3.20`;
+- JDK `21` через Gradle toolchain;
+- Spring Boot `4.0.6`;
+- Spring Web MVC;
+- Spring Security;
+- Spring Data JPA/JDBC;
+- Hibernate/JPA entities;
+- PostgreSQL `18.4`;
+- Flyway migrations;
+- Gradle wrapper `9.4.1`;
+- JWT через `com.auth0:java-jwt`;
+- JSON через Jackson Kotlin module (`tools.jackson.module:jackson-module-kotlin`);
+- validation через `spring-boot-starter-validation` и Jakarta Validation;
+- scheduling через Spring `@EnableScheduling` / `@Scheduled`;
+- slug generation через `com.github.slugify:slugify` и ICU4J;
+- тесты: JUnit 5, Kotlin test, Spring Boot Test, MockMvc, Spring Security Test,
+  Testcontainers PostgreSQL.
+
+Ключевые Gradle plugins:
+
+- `kotlin("jvm")`;
+- `kotlin("plugin.spring")`;
+- `kotlin("plugin.jpa")`;
+- `org.springframework.boot`;
+- `io.spring.dependency-management`;
+- `org.gradle.toolchains.foojay-resolver-convention`.
+
+Runtime/config:
+
+- локальная БД поднимается через `compose.yaml`;
+- приложение слушает `server.port=8080`;
+- datasource берется из `DB_URL`, `DB_USER`, `DB_PASSWORD`;
+- Hibernate работает с `spring.jpa.hibernate.ddl-auto=validate`;
+- Flyway включен через `spring.flyway.enabled=true`;
+- `.env.example` содержит локальные значения для PostgreSQL;
+- production profile защищен от дефолтного `jwt.secret=secret` через
+  `ProductionSecretDefaultsGuard`.
+
+CI:
+
+- `.github/workflows/ci.yml`;
+- GitHub Actions на `ubuntu-latest`;
+- JDK 21 Temurin;
+- основная проверка: `./gradlew clean build`;
+- Docker service отдельно не объявлен: интеграционные тесты сами поднимают
+  PostgreSQL через Testcontainers.
+
+## 3. Архитектура и структура (Project Structure)
+
+Корень репозитория:
+
+- `build.gradle.kts` — Gradle build, зависимости, Kotlin/JPA настройки,
+  `test` и `benchmarkTest` tasks;
+- `settings.gradle.kts` — имя root project и Foojay toolchain resolver;
+- `compose.yaml` — локальный PostgreSQL;
+- `README.md` — быстрый старт, команды запуска и тестирования;
+- `DESCRIPTION.md` — продуктовая идея и roadmap;
+- `.github/workflows/ci.yml` — CI;
+- `scripts/check-staged-independent.sh` — проверка, что staged diff применим
+  отдельно от unstaged/untracked изменений;
+- `src/main/resources/application.properties` — production/default config;
+- `src/test/resources/application.properties` — test config;
+- `src/main/resources/db/migration` — Flyway SQL migrations.
+
+Основной package root:
+
+- `io.dockistry.platform`
+
+Главные модули:
+
+- `auth` — registration/login/refresh/logout/email verification;
+- `email` — persisted email send jobs и email sender port;
+- `iam` — users, groups, principals, roles, permissions, scopes, RBAC checks;
+- `projects` — project domain и project permission checks;
+- `security` — JWT filter, Spring Security config, auth entry point;
+- `shared` — общие API DTO, exception handling, config.
+
+Внутри модулей используется слойность:
+
+- `api` — REST controllers. Здесь должны быть HTTP mappings, DTO validation и
+  возврат `ApiResponse<T>`, но не тяжелая бизнес-логика.
+- `application` — application services/use cases. Здесь находятся транзакции,
+  orchestration, бизнес-правила, permission checks.
+- `domain` — JPA entities, enums, domain exceptions, доменные утилиты. В auth
+  также лежат DTO в `domain/dto`.
+- `infrastructure` — Spring Data repositories, EntityManager queries,
+  adapters, property classes, technical integrations.
+- `application/ports` — explicit ports-and-adapters граница там, где она уже
+  нужна (`RawEmailSender`, `EmailJobHandler`).
+- `config` — Spring configuration classes для конкретного модуля.
+
+Текущие domain boundaries:
+
+- `auth` зависит от `iam` для пользователя и от `email` для verification jobs;
+- `projects` зависит от `iam` для principals/scopes/permissions;
+- `security` использует `auth.application.JwtTokenProvider` и `iam` user lookup;
+- `email` содержит общий job processor/dispatcher и не должен знать детали auth
+  сверх конкретного `VerificationEmailJobContext`/handler;
+- `shared` не должен зависеть от feature-модулей.
+
+Архитектурные паттерны:
+
+- модульный монолит на Spring Boot;
+- layered architecture с элементами ports-and-adapters;
+- repository pattern через Spring Data JPA;
+- application services как граница транзакций;
+- typed domain exceptions поверх shared `ServiceException`;
+- единый response envelope `ApiResponse`;
+- SQL migrations как источник правды для схемы БД;
+- injectable `Clock` вместо прямого `Instant.now()`.
+
+## 4. Правила разработки и Code Style (Development Guidelines)
+
+### Общий стиль Kotlin
+
+- Используй Kotlin-идиомы и существующий стиль проекта.
+- Имена классов: `PascalCase`.
+- Имена функций, переменных и properties: `camelCase`.
+- Constants: `UPPER_SNAKE_CASE` только если это реально low-level constant;
+  в проекте чаще используются `object SystemPermissionNames` с `const val`.
+- Package names — lower-case, под `io.dockistry.platform.<module>`.
+- Файлы обычно называются по главному классу/объекту:
+  `ProjectService.kt`, `JwtAuthenticationFilter.kt`,
+  `EmailVerificationFlowService.kt`.
+- Для DTO используй `data class`.
+- Для stateless utility допустим `object`, как `ProjectNameNormalizer` или
+  `VerificationCodeGenerator`.
+- Constructor injection обязателен для Spring beans.
+- Не используй field injection в main-коде.
+- В тестах `lateinit var` с `@Autowired` уже используется и допустим.
+- Предпочитай small private helper methods, если они улучшают читаемость.
+- Не добавляй комментарии к очевидному коду. Добавляй короткий комментарий
+  только для сложной бизнес-причины, concurrency edge case или неочевидного
+  framework behavior.
+- Старайся держать строки в районе 90 символов. Если строка становится длинной,
+  перенеси аргументы, SQL, error messages или chained calls. В SQL/лог-сообщениях
+  допустимы более длинные строки, если перенос ухудшает читаемость.
+
+В проекте сейчас нет настроенных `.editorconfig`, ktlint, detekt, Spotless,
+Prettier, ESLint, Ruff или Black. Стиль поддерживается вручную и проверяется
+компиляцией/тестами.
+
+### Spring и application services
+
+- Бизнес-логику держи в `application` services, не в controllers.
+- Mutating use cases помечай `@Transactional`.
+- Read use cases, которые зависят от lazy JPA relations или consistency внутри
+  запроса, тоже могут быть `@Transactional`.
+- Controllers должны быть тонкими: принять request, вызвать service, вернуть
+  `ApiResponse`.
+- Для request body используй `@RequestBody @Valid`.
+- Для configuration values используй `@ConfigurationProperties`, а не scattered
+  `@Value`.
+- Для времени используй injected `Clock`.
+- Не вызывай `Instant.now()`/`LocalDateTime.now()` напрямую в бизнес-коде.
+- Если добавляешь scheduled behavior, учитывай `@EnableScheduling` в
+  `DockistryPlatformApplication` и настраивай интервалы через properties.
+
+### API response и errors
+
+- Успешные JSON endpoints должны возвращать `ApiResponse<T>`.
+- Ошибки должны возвращать тот же envelope:
+  `data=null`, `errorMessage`, `errorCode`.
+- Для ожидаемых бизнес-ошибок создавай domain exception, наследующий один из:
+  `BadRequestException`, `UnauthorizedException`, `ForbiddenException`,
+  `NotFoundException`, `ConflictException`.
+- Не бросай generic `RuntimeException` для user-facing ошибок: он превратится в
+  `500 internal_server_error`.
+- `InternalDataIntegrityException` используй только для невозможных внутренних
+  инвариантов: например, когда ID/username только что был найден, но entity уже
+  не находится.
+- Не добавляй `@ExceptionHandler(MethodArgumentNotValidException::class)` в
+  `GlobalExceptionHandler`: класс наследуется от `ResponseEntityExceptionHandler`,
+  поэтому нужно override-ить framework methods, как уже сделано для
+  `handleMethodArgumentNotValid`.
+- Если меняешь validation annotations/messages, обновляй
+  `AuthValidationIntegrationTests` или добавляй аналогичные negative tests.
+- Сохраняй понятные и стабильные `errorCode`: snake_case strings вроде
+  `user_already_exists`, `validation_error`, `token_revoked`.
+
+### Security/auth
+
+- Security stateless: CSRF/formLogin/httpBasic/logout отключены.
+- Public endpoints сейчас:
+  - `/api/auth/**`, кроме `/api/auth/logout-all`;
+  - `/api/public/**`;
+  - `DispatcherType.ERROR`.
+- Все остальные endpoints требуют authenticated request.
+- Access token используется для authenticated API.
+- Refresh token не должен проходить как access token.
+- `logout-all` требует access token и отзывает все active refresh tokens
+  текущего пользователя.
+- Пользователь не может login до email verification.
+- Refresh flow должен ротировать refresh token: старый token отзывается, новый
+  выпускается.
+- Секрет JWT нельзя оставлять дефолтным при `prod` profile.
+
+### Persistence и Flyway
+
+- Схема БД управляется Flyway, а Hibernate только валидирует ее.
+- Если меняешь JPA entity mapping, almost always нужно изменить одну из существующих
+  миграций – на данном этапе мы просто сносим БД и поднимаем заново. Если же это
+  изменения семантически или структурно абсолютно новые и не подходящие ни под одну из
+  существующих миграций – тогда нужно создать новую. Все миграции находятся в
+  `src/main/resources/db/migration`.
+- Не полагайся на Hibernate auto-DDL: `ddl-auto=validate`.
+- Новые migration files называй последовательно:
+  `V5__short_description.sql`, `V6__...` и т.д.
+- SQL schema должна соответствовать Kotlin entity annotations:
+  table names, column names, nullability, indexes, unique constraints,
+  foreign keys, enum string storage, JSONB columns.
+- Для UUID primary keys используется `GenerationType.UUID`, кроме cases вроде
+  shared primary key `User`/`Principal`.
+- Для JPA relations внимательно задавай owner side, cascade, orphanRemoval,
+  fetch type и nullable/optional.
+- Для high-value query paths добавляй indexes миграцией, как сделано для role
+  bindings и verification challenges.
+- Если ловишь `DataIntegrityViolationException` из-за race condition на unique
+  constraints, сначала делай domain-level pre-check, затем повтори check в catch
+  и только потом пробрасывай неизвестную ошибку.
+
+### IAM/RBAC
+
+- `Principal` — общая IAM identity. Он может быть `USER` или `GROUP`.
+- `User` связан с `Principal` через shared primary key.
+- `Group` тоже является principal, всё её права передаются всем её members.
+- `Scope` задает область действия permission. Сейчас enum `ScopeType` включает
+  `GLOBAL`, `PROJECT`, `CONTAINER`, `SECRET`, `VOLUME`, `NETWORK`,
+  `PROXY_RULE`, `STACK`. В текущей project-логике активно используются
+  `GLOBAL` и `PROJECT`, но IAM-модель уже рассчитана на будущие Docker-related
+  resource scopes.
+- `Role` может быть system-owned (`isSystem=true`, `project=null`) или
+  project-owned (`isSystem=false`, `project != null`).
+- `RoleBinding` связывает subject principal, scope и role.
+- Permission checks должны учитывать direct user bindings и group-derived
+  bindings. Для этого используй `PermissionCheckService`, не обходи его вручную.
+- Project access должен идти через `ProjectAccessService`.
+- System role/permission names держи в `SystemRoleNames` и
+  `SystemPermissionNames`.
+- Bootstrap базовых ролей/прав происходит в `SystemRolesBootstrapService`.
+
+### Email verification и email jobs
+
+- Не отправляй verification email напрямую из auth service.
+- Для verification flow создавай/переиспользуй `EmailSendJob` через
+  `EmailVerificationJobCreator`.
+- `EmailSendJobScheduler` периодически запускает `EmailSendJobProcessor`.
+- `EmailSendJobDispatcher` выбирает handler по `contextTypeKey`.
+- Для новых типов email jobs добавляй:
+  - context data class, реализующий `EmailSendJobContext`;
+  - stable `TYPE_KEY`;
+  - `EmailJobHandler`;
+  - tests на serialization/dispatch/lifecycle, если есть логика.
+- `RawEmailSender` — порт. Production sender пока dummy, tests используют
+  `InMemoryRawEmailSender`.
+- Verification code/hash/link logic находится в auth infrastructure/application;
+  не размазывай ее по controllers.
+
+### Validation и DTO
+
+- Request DTO должны иметь Jakarta Validation annotations на fields через
+  `@field:...`.
+- Username pattern сейчас:
+  `^[a-zA-Z0-9._-]{3,32}$`.
+- Password pattern сейчас:
+  printable ASCII, `8..128` chars.
+- Number verification code: ровно 6 digits.
+- Email fields используют `@field:NotBlank` и `@field:Email`.
+- Validation errors должны сохранять custom messages в response body.
+
+### Tests
+
+- Основная команда перед push:
+  `./gradlew clean build`.
+- Быстрая команда:
+  `./gradlew test`.
+- Benchmark-like тесты исключены из обычного `test` и запускаются отдельно:
+  `./gradlew benchmarkTest`.
+- Для конкретного теста:
+  `./gradlew test --tests "io.dockistry.platform.SomeTest"`.
+- Интеграционные тесты используют:
+  - `@SpringBootTest`;
+  - `@AutoConfigureMockMvc` для API/security;
+  - `@Import(TestcontainersConfig::class)`;
+  - `@Testcontainers`.
+- Testcontainers поднимает PostgreSQL `postgres:18.4-alpine`; локальный
+  `docker compose` для тестов не нужен.
+- Для email-related tests импортируй `TestEmailSenderConfig`.
+- Для deterministic time импортируй `TestClockConfig` и используй
+  `MutableClock`.
+- Для auth setup в API tests переиспользуй `AuthTestClient`, когда подходит.
+- Для IAM/project fixtures используй `IamProjectFixtures`.
+- Если меняешь contract:
+  - добавляй positive tests для happy path;
+  - добавляй negative tests для validation, permissions и error codes;
+  - проверяй не только status code, но и `ApiResponse.errorCode`;
+  - для protected endpoints тестируй через full Spring context + MockMvc, а не
+    standalone MockMvc, чтобы не обойти security filter chain.
+- Если меняешь JPA mapping или Flyway migration, минимум запускай context/JPA
+  tests или полный `./gradlew test`.
+
+### Git и изменения
+
+- Держи изменения узкими: не смешивай feature, refactor, formatting и docs без
+  причины.
+- Не трогай unrelated файлы.
+- Обновляй `AGENTS.md`, если новые
+  решения меняют архитектуру, workflow, правила разработки, тестирования,
+  инфраструктуру, модульные границы или важные проектные соглашения.
+- Обновляй `README.md`, если изменение влияет на запуск, настройку окружения,
+  миграции, тестовые команды, CI, публичное API, пользовательский flow или
+  documented behavior.
+- Если `AGENTS.md` и `README.md` не нужно менять, осознанно проверь это
+  перед финальным ответом.
+- Перед commit полезно проверять `git diff --check`.
+- Если есть staged subset и грязный worktree, используй
+  `scripts/check-staged-independent.sh -- ./gradlew test`, чтобы убедиться, что
+  staged diff самодостаточен.
+- Commit messages лучше писать в conventional style, например:
+  `feat(auth): ...`, `fix(api): ...`, `test(projects): ...`, `docs: ...`.
+
+## 5. Инструкция для AI-агента (Agent Workflow / Rules)
+
+- Твоя роль: Senior Developer. Я делегирую тебе задачи, чтобы ускорить
+  разработку.
+- Сначала прочитай этот файл, затем проверь актуальное состояние нужных файлов
+  в репозитории. Не работай только по памяти.
+- Не ломай существующую логику. Если нужно сделать масштабный рефакторинг —
+  сначала спроси разрешения.
+- Пиши чистый, читаемый Kotlin-код в стиле текущего проекта.
+- Если добавляешь новую сложную функцию или нетривиальный сервисный flow,
+  добавь короткий KDoc/Docstring или точечный комментарий с причиной, а не
+  пересказом кода.
+- Если в задаче не указано иное, старайся переиспользовать уже существующие в
+  проекте утилиты, services, repositories, fixtures и test helpers. Не пиши
+  велосипеды.
+- Для API сохраняй `ApiResponse` envelope и существующую error-handling модель.
+- Для новых бизнес-ошибок добавляй typed domain exception с понятным
+  `errorCode`.
+- Для JPA entity changes всегда проверяй, нужна ли Flyway migration. В этом
+  проекте обычно нужна.
+- Для auth/security changes запускай релевантные integration tests, а при
+  возможности весь `./gradlew test`.
+- Для permission/project changes проверяй group-derived access и existing
+  fixture invariants.
+- Для email verification changes учитывай job queue, cooldown, rate limit,
+  throttle и retry behavior.
+- Не ослабляй тесты, чтобы протолкнуть изменение. Если новый restriction
+  корректен — обнови fixtures и добавь negative coverage.
+- При существенных изменениях не забывай обновлять `AGENTS.md`. Если изменение
+  затрагивает команды, конфигурацию, публичное поведение, onboarding или
+  эксплуатацию проекта, также обновляй `README.md`.
+- Отвечай по делу, без лишней воды. Давай сразу рабочий код и называй команды,
+  которыми проверял результат.
+- Если проверку не удалось запустить из-за окружения, Docker, Gradle lock или
+  sandbox permissions, явно скажи об этом и укажи точную причину.
+
+## 6. Текущий статус / Что делаем сейчас (Current State & Roadmap)
+
+[Здесь я буду описывать текущий фокус разработки перед новой сессией.]
