@@ -27,20 +27,24 @@ class ProjectAccessServiceIntegrationTests {
     private lateinit var entityManager: EntityManager
 
     @Test
-    fun `can create requires global project create permission`() {
+    fun `has create permission requires global project create permission`() {
         val fixtures = IamProjectFixtures(entityManager)
         val globalCreator = fixtures.principal()
         val projectScopedCreator = fixtures.principal()
         fixtures.grantSystemPermission(globalCreator, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
-        fixtures.grantSystemPermission(projectScopedCreator, fixtures.scope(ScopeType.PROJECT), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(
+            projectScopedCreator,
+            fixtures.scope(ScopeType.PROJECT),
+            SystemPermissionNames.PROJECT_CREATE
+        )
         fixtures.flush()
 
-        assertTrue(projectAccessService.canCreate(globalCreator))
-        assertFalse(projectAccessService.canCreate(projectScopedCreator))
+        assertTrue(projectAccessService.hasCreatePermission(globalCreator))
+        assertFalse(projectAccessService.hasCreatePermission(projectScopedCreator))
     }
 
     @Test
-    fun `can read accepts project scoped or global read permission`() {
+    fun `has read permission accepts project scoped or global read permission`() {
         val fixtures = IamProjectFixtures(entityManager)
         val project = fixtures.project()
         val projectReader = fixtures.principal()
@@ -50,13 +54,13 @@ class ProjectAccessServiceIntegrationTests {
         fixtures.grantSystemPermission(globalReader, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
-        assertTrue(projectAccessService.canRead(project.scope, projectReader))
-        assertTrue(projectAccessService.canRead(project.scope, globalReader))
-        assertFalse(projectAccessService.canRead(project.scope, noAccess))
+        assertTrue(projectAccessService.hasReadPermission(project.scope, projectReader))
+        assertTrue(projectAccessService.hasReadPermission(project.scope, globalReader))
+        assertFalse(projectAccessService.hasReadPermission(project.scope, noAccess))
     }
 
     @Test
-    fun `can read accepts project scoped permission granted through user group`() {
+    fun `has read permission accepts project scoped permission granted through user group`() {
         val fixtures = IamProjectFixtures(entityManager)
         val project = fixtures.project()
         val group = fixtures.group()
@@ -65,63 +69,60 @@ class ProjectAccessServiceIntegrationTests {
         fixtures.grantSystemPermission(group.principal, project.scope, SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
-        assertTrue(projectAccessService.canRead(project.scope, user.principal))
+        assertTrue(projectAccessService.hasReadPermission(project.scope, user.principal))
     }
 
     @Test
-    fun `can update requires read and update permissions`() {
+    fun `has update permission checks update permission only`() {
         val fixtures = IamProjectFixtures(entityManager)
         val project = fixtures.project()
         val updater = fixtures.principal()
-        val updateWithoutRead = fixtures.principal()
+        val noUpdate = fixtures.principal()
         fixtures.grantSystemPermission(
             updater,
             project.scope,
-            SystemPermissionNames.PROJECT_READ,
             SystemPermissionNames.PROJECT_UPDATE
         )
-        fixtures.grantSystemPermission(updateWithoutRead, project.scope, SystemPermissionNames.PROJECT_UPDATE)
+        fixtures.grantSystemPermission(noUpdate, project.scope, SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
-        assertTrue(projectAccessService.canUpdate(project.scope, updater))
-        assertFalse(projectAccessService.canUpdate(project.scope, updateWithoutRead))
+        assertTrue(projectAccessService.hasUpdatePermission(project.scope, updater))
+        assertFalse(projectAccessService.hasUpdatePermission(project.scope, noUpdate))
     }
 
     @Test
-    fun `can archive requires read and archive permissions`() {
+    fun `has archive permission checks archive permission only`() {
         val fixtures = IamProjectFixtures(entityManager)
         val project = fixtures.project()
         val archiver = fixtures.principal()
-        val archiveWithoutRead = fixtures.principal()
+        val noArchive = fixtures.principal()
         fixtures.grantSystemPermission(
             archiver,
             project.scope,
-            SystemPermissionNames.PROJECT_READ,
             SystemPermissionNames.PROJECT_ARCHIVE
         )
-        fixtures.grantSystemPermission(archiveWithoutRead, project.scope, SystemPermissionNames.PROJECT_ARCHIVE)
+        fixtures.grantSystemPermission(noArchive, project.scope, SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
-        assertTrue(projectAccessService.canArchive(project.scope, archiver))
-        assertFalse(projectAccessService.canArchive(project.scope, archiveWithoutRead))
+        assertTrue(projectAccessService.hasArchivePermission(project.scope, archiver))
+        assertFalse(projectAccessService.hasArchivePermission(project.scope, noArchive))
     }
 
     @Test
-    fun `can delete requires read and delete permissions`() {
+    fun `has delete permission checks delete permission only`() {
         val fixtures = IamProjectFixtures(entityManager)
         val project = fixtures.project()
         val deleter = fixtures.principal()
-        val deleteWithoutRead = fixtures.principal()
+        val noDelete = fixtures.principal()
         fixtures.grantSystemPermission(
             deleter,
             project.scope,
-            SystemPermissionNames.PROJECT_READ,
             SystemPermissionNames.PROJECT_DELETE
         )
-        fixtures.grantSystemPermission(deleteWithoutRead, project.scope, SystemPermissionNames.PROJECT_DELETE)
+        fixtures.grantSystemPermission(noDelete, project.scope, SystemPermissionNames.PROJECT_READ)
         fixtures.flush()
 
-        assertTrue(projectAccessService.canDelete(project.scope, deleter))
-        assertFalse(projectAccessService.canDelete(project.scope, deleteWithoutRead))
+        assertTrue(projectAccessService.hasDeletePermission(project.scope, deleter))
+        assertFalse(projectAccessService.hasDeletePermission(project.scope, noDelete))
     }
 }
