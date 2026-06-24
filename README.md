@@ -5,7 +5,8 @@
 Полное описание возможностей и roadmap — в [`DESCRIPTION.md`](./DESCRIPTION.md).
 
 > Текущее состояние: MVP-ядро — регистрация/вход пользователей (JWT, access + refresh токены),
-> базовая RBAC-модель (пользователи, группы, роли, права, scope), миграции БД через Flyway.
+> базовая RBAC-модель (пользователи, группы, роли, права, scope), базовый Projects REST API,
+> миграции БД через Flyway.
 
 ## Технологический стек
 
@@ -104,6 +105,24 @@ java -jar build/libs/dockistry-platform-0.0.1-SNAPSHOT.jar
 curl http://localhost:8080/api/public/ping
 # -> pong
 ```
+
+## Projects API
+
+Project endpoints требуют access token и возвращают JSON в envelope `ApiResponse`.
+Базовые операции:
+
+| Метод | Endpoint | Назначение |
+|-------|----------|------------|
+| `GET` | `/api/projects` | список проектов, доступных текущему пользователю |
+| `POST` | `/api/projects` | создать проект |
+| `GET` | `/api/projects/{id}` | получить project info |
+| `PATCH` | `/api/projects/{id}` | обновить основные поля проекта |
+| `POST` | `/api/projects/{id}/archive` | архивировать проект |
+| `DELETE` | `/api/projects/{id}` | удалить проект, успешный ответ содержит `data="ok"` |
+
+Для операций по конкретному project id отсутствие проекта и отсутствие read-access
+оба отображаются как `404 project_not_found`; если read-access есть, но не хватает
+права на действие, возвращается `403 insufficient_permission_for_operation`.
 
 ## Тестирование
 
