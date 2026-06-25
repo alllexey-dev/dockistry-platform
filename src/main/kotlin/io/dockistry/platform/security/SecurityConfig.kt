@@ -44,6 +44,7 @@ class SecurityConfig(
                 authorize(DispatcherTypeRequestMatcher(DispatcherType.ERROR), permitAll)
                 authorize("/api/auth/logout-all", authenticated)
                 authorize("/api/auth/**", permitAll)
+                authorize("/api/setup/initial-admin", permitAll)
                 authorize("/api/public/**", permitAll)
                 authorize(anyRequest, authenticated)
             }
