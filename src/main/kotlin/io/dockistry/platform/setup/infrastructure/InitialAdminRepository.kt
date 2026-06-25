@@ -26,7 +26,8 @@ class InitialAdminRepository(
                           AND EXISTS(
                               SELECT 1
                               FROM users u
-                              WHERE u.email_verified_at IS NOT NULL)
+                              WHERE u.id = p.id
+                                AND u.email_verified_at IS NOT NULL)
                           )
                           OR
                       (p.principal_type = :principalGroupType
