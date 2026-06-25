@@ -10,7 +10,7 @@ import java.util.UUID
 @Service
 class ProjectReadService(
     private val projectService: ProjectService,
-    private val projectInfoDtoAssembler: ProjectInfoDtoAssembler
+    private val projectInfoDtoMapper: ProjectInfoDtoMapper
 ) {
     @Transactional
     fun listVisibleProjects(user: User): List<ProjectInfoDto> =
@@ -18,7 +18,7 @@ class ProjectReadService(
 
     @Transactional
     fun listVisibleProjects(principal: Principal): List<ProjectInfoDto> {
-        return projectInfoDtoAssembler.toDtos(projectService.list(principal))
+        return projectInfoDtoMapper.toDtos(projectService.list(principal))
     }
 
     @Transactional
@@ -28,6 +28,6 @@ class ProjectReadService(
 
     @Transactional
     fun getProjectInfo(id: UUID, principal: Principal): ProjectInfoDto {
-        return projectInfoDtoAssembler.toDto(projectService.get(id, principal))
+        return projectInfoDtoMapper.toDto(projectService.get(id, principal))
     }
 }

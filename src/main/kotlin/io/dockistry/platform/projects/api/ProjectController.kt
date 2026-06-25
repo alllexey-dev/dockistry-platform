@@ -1,7 +1,7 @@
 package io.dockistry.platform.projects.api
 
 import io.dockistry.platform.iam.application.CurrentUserProvider
-import io.dockistry.platform.projects.application.ProjectInfoDtoAssembler
+import io.dockistry.platform.projects.application.ProjectInfoDtoMapper
 import io.dockistry.platform.projects.application.ProjectReadService
 import io.dockistry.platform.projects.application.ProjectService
 import io.dockistry.platform.projects.domain.dto.ProjectInfoDto
@@ -25,7 +25,7 @@ class ProjectController(
     private val currentUserProvider: CurrentUserProvider,
     private val projectService: ProjectService,
     private val projectReadService: ProjectReadService,
-    private val projectInfoDtoAssembler: ProjectInfoDtoAssembler
+    private val projectInfoDtoMapper: ProjectInfoDtoMapper
 ) {
 
     @GetMapping("")
@@ -54,7 +54,7 @@ class ProjectController(
             user = user
         )
 
-        return ApiResponse(projectInfoDtoAssembler.toDto(project))
+        return ApiResponse(projectInfoDtoMapper.toDto(project))
     }
 
     @PatchMapping("/{id}")
@@ -71,7 +71,7 @@ class ProjectController(
             user = user
         )
         return ApiResponse(
-            projectInfoDtoAssembler.toDto(project)
+            projectInfoDtoMapper.toDto(project)
         )
     }
 
@@ -79,7 +79,7 @@ class ProjectController(
     fun archive(@PathVariable id: UUID): ApiResponse<ProjectInfoDto> {
         val user = currentUserProvider.getUser()
         val project = projectService.archiveForUser(id, user)
-        return ApiResponse(projectInfoDtoAssembler.toDto(project))
+        return ApiResponse(projectInfoDtoMapper.toDto(project))
     }
 
     @DeleteMapping("/{id}")
