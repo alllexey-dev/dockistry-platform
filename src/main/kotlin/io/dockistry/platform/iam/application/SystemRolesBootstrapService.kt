@@ -2,10 +2,13 @@ package io.dockistry.platform.iam.application
 
 import io.dockistry.platform.iam.domain.Permission
 import io.dockistry.platform.iam.domain.Role
+import io.dockistry.platform.iam.domain.Scope
+import io.dockistry.platform.iam.domain.ScopeType
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.iam.domain.SystemRoleNames
 import io.dockistry.platform.iam.infrastructure.PermissionRepository
 import io.dockistry.platform.iam.infrastructure.RoleRepository
+import io.dockistry.platform.iam.infrastructure.ScopeRepository
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
 import org.springframework.stereotype.Component
@@ -14,11 +17,17 @@ import org.springframework.transaction.annotation.Transactional
 @Component
 class SystemRolesBootstrapService(
     private val permissionRepository: PermissionRepository,
-    private val roleRepository: RoleRepository
+    private val roleRepository: RoleRepository,
+    private val scopeRepository: ScopeRepository
 ) : ApplicationRunner {
 
     @Transactional
     override fun run(args: ApplicationArguments) {
+        ensureSystemRolesAndPermissions()
+        ensureGlobalScope()
+    }
+
+    private fun ensureSystemRolesAndPermissions() {
         val projectCreatePermission = permission(
             key = SystemPermissionNames.PROJECT_CREATE,
             description = "Allows creating projects or project contents depending on the scope where this permission is granted."
@@ -80,6 +89,14 @@ class SystemRolesBootstrapService(
             projectViewer.permissions.clear()
             projectViewer.permissions.addAll(viewerPermissions)
         }
+    }
+
+    fun ensureGlobalScope() {
+        if (!scopeRepository.findByScopeType(ScopeType.GLOBAL).isEmpty()) {
+            return
+        }
+
+        scopeRepository.save(Scope(ScopeType.GLOBAL))
     }
 
     private fun permission(key: String, description: String): Permission {
