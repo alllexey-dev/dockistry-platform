@@ -6,7 +6,6 @@ import io.dockistry.platform.auth.domain.dto.RegisterRequest
 import io.dockistry.platform.auth.domain.dto.toAuthResponse
 import io.dockistry.platform.setup.application.InitialAdminService
 import io.dockistry.platform.shared.api.ApiResponse
-import jakarta.validation.Valid
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping

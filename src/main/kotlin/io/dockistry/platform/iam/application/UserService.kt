@@ -1,7 +1,6 @@
 package io.dockistry.platform.iam.application
 
 import io.dockistry.platform.auth.domain.UserAlreadyExistsException
-import io.dockistry.platform.auth.domain.UserForAuthenticationNotFoundException
 import io.dockistry.platform.auth.domain.UserHasNotVerifiedEmailException
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.PrincipalType

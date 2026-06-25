@@ -1,7 +1,6 @@
 package io.dockistry.platform.email.application.ports
 
 import io.dockistry.platform.auth.application.EmailVerificationChallengeIssuer
-import io.dockistry.platform.auth.domain.EmailVerificationChallengeReason
 import io.dockistry.platform.auth.infrastructure.EmailVerificationLinks
 import io.dockistry.platform.email.domain.EmailSendJobContext
 import io.dockistry.platform.email.domain.VerificationEmailJobContext

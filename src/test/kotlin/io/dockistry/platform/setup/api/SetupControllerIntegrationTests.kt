@@ -5,7 +5,6 @@ import io.dockistry.platform.auth.domain.dto.AuthResponse
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.PrincipalType
 import io.dockistry.platform.iam.domain.RoleBinding
-import io.dockistry.platform.iam.domain.Scope
 import io.dockistry.platform.iam.domain.ScopeType
 import io.dockistry.platform.iam.domain.SystemRoleNames
 import io.dockistry.platform.iam.domain.User
