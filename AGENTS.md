@@ -294,6 +294,10 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `SystemRolesBootstrapService`.
 - Initial admin получает `SystemRoleNames.PROJECT_ADMIN` на `GLOBAL` scope;
   этот scope должен существовать до `InitialAdminService.initializeAdmin`.
+- Race condition при создании initial admin закрывается через
+  `SetupStateEntry` с ключом
+  `SetupStateEntryKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED`: insert marker'а
+  выполняется первым шагом той же транзакции и полагается на PK/unique key в БД.
 
 ### Email verification и email jobs
 

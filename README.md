@@ -48,6 +48,9 @@ cp .env.example .env
 | `DB_PASSWORD`     | пароль БД                           | `dockistry`                                          |
 | `DB_URL`          | JDBC URL                            | `jdbc:postgresql://localhost:5432/dockistry_platform`|
 | `POSTGRES_*`      | используются Docker Compose         | производные от `DB_*`                                 |
+| `INITIAL_ADMIN_USERNAME` | username первого администратора | пусто                                                |
+| `INITIAL_ADMIN_EMAIL` | email первого администратора    | пусто                                                |
+| `INITIAL_ADMIN_PASSWORD` | пароль первого администратора | пусто                                                |
 
 Дополнительно приложение читает (см. `application.properties`):
 
@@ -105,6 +108,32 @@ java -jar build/libs/dockistry-platform-0.0.1-SNAPSHOT.jar
 curl http://localhost:8080/api/public/ping
 # -> pong
 ```
+
+## Первичная настройка администратора
+
+Первый администратор получает системную роль `project_admin` в `GLOBAL` scope.
+Создание защищено DB-marker'ом, поэтому успешно пройти может только один initial
+admin bootstrap.
+
+Есть два способа создать первого администратора:
+
+1. Задать все три переменные `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_EMAIL` и
+   `INITIAL_ADMIN_PASSWORD` перед стартом приложения.
+2. После старта вызвать public endpoint:
+
+```bash
+curl -X POST http://localhost:8080/api/setup/initial-admin \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "email": "admin@example.com",
+    "password": "password-123"
+  }'
+```
+
+Endpoint доступен без authentication только до успешного создания первого
+администратора. После этого повторные вызовы возвращают `409
+initial_admin_already_exists`. Успешный ответ возвращает access/refresh tokens.
 
 ## Projects API
 
