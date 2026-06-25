@@ -363,6 +363,10 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   documented behavior.
 - Если `AGENTS.md` и `README.md` не нужно менять, осознанно проверь это
   перед финальным ответом.
+- Раздел `## 6. Текущий статус / Что делаем сейчас` может временно содержать
+  текущую задачу пользователя для локального контекста сессии. Такие записи не
+  коммить: дефолтное состояние раздела в репозитории — только placeholder
+  `[Здесь я буду описывать текущий фокус разработки перед новой сессией.]`.
 - Перед commit полезно проверять `git diff --check`.
 - Если есть staged subset и грязный worktree, используй
   `scripts/check-staged-independent.sh -- ./gradlew test`, чтобы убедиться, что
@@ -409,20 +413,3 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 ## 6. Текущий статус / Что делаем сейчас (Current State & Roadmap)
 
 [Здесь я буду описывать текущий фокус разработки перед новой сессией.]
-
-Projects REST API
-
-базовый минимум:
-- GET /api/projects - посмотреть доступные проекты
-- POST /api/projects - создать новый проект
-- GET /api/projects/{id} - получить информацию по проекту с конкретным ID
-- PATCH /api/projects/{id} - редактировать характеристики/основные атрибуты проекта (full
-  update, т.к. `project.description` nullable и мы не можем distinguish null vs value
-  not updated)
-- POST /api/projects/{id}/archive - заархивировать (`status=ProjectStatus.ARCHIVED`) проект
-- DELETE /api/projects/{id} - удалить проект
-
-Доп. моменты:
-- DTO, валидация (Jakarta Validation, `@Valid`)
-- учитываем все имеющиеся права у юзера
-- мб еще чето
