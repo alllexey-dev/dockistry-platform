@@ -1,20 +1,20 @@
 package io.dockistry.platform.projects.application
 
 import io.dockistry.platform.iam.application.PermissionCheckService
+import io.dockistry.platform.iam.domain.InsufficientPermissionException
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.RoleBinding
 import io.dockistry.platform.iam.domain.Scope
 import io.dockistry.platform.iam.domain.ScopeType
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.iam.domain.SystemRoleNames
-import io.dockistry.platform.iam.domain.InsufficientPermissionException
+import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.iam.infrastructure.PrincipalRepository
 import io.dockistry.platform.iam.infrastructure.RoleRepository
 import io.dockistry.platform.iam.infrastructure.ScopeQueryRepository
 import io.dockistry.platform.projects.domain.InvalidProjectSlugException
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.projects.domain.ProjectAlreadyExistsException
-import io.dockistry.platform.projects.domain.ProjectNotFoundException
 import io.dockistry.platform.projects.domain.ProjectStatus
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
@@ -30,6 +30,7 @@ class ProjectService(
     private val clock: Clock,
     private val projectRepository: ProjectRepository,
     private val projectAccessService: ProjectAccessService,
+    private val projectAccessGuard: ProjectAccessGuard,
     private val roleRepository: RoleRepository,
     private val principalRepository: PrincipalRepository,
     private val permissionCheckService: PermissionCheckService,
@@ -43,11 +44,14 @@ class ProjectService(
         ownerPrincipalId: UUID,
     ): Project {
         val ownerPrincipal = principalRepository.findPrincipalById(ownerPrincipalId)
-            ?: throw InternalDataIntegrityException("Principal $ownerPrincipalId was passed for project creation, but it couldn't be found in the DB")
+            ?: throw InternalDataIntegrityException(
+                "Principal $ownerPrincipalId was passed for project creation, " +
+                    "but it couldn't be found in the DB"
+            )
 
         val scope = Scope(ScopeType.PROJECT)
 
-        if (!projectAccessService.canCreate(ownerPrincipal)) {
+        if (!projectAccessService.hasCreatePermission(ownerPrincipal)) {
             throw InsufficientPermissionException("This principal is not allowed to create projects")
         }
 
@@ -84,12 +88,7 @@ class ProjectService(
         description: String? = null,
         principal: Principal
     ): Project {
-        val project = projectRepository.findProjectById(projectId)
-            ?: throw ProjectNotFoundException("Project with provided ID couldn't be found")
-
-        if (!projectAccessService.canUpdate(project.scope, principal)) {
-            throw InsufficientPermissionException("This principal is not allowed to view/edit specified project")
-        }
+        val project = projectAccessGuard.requireUpdatable(projectId, principal)
 
         project.name = name
         project.slug = slug
@@ -109,12 +108,7 @@ class ProjectService(
         projectId: UUID,
         principal: Principal
     ): Project {
-        val project = projectRepository.findProjectById(projectId)
-            ?: throw ProjectNotFoundException("Project with provided ID couldn't be found")
-
-        if (!projectAccessService.canArchive(project.scope, principal)) {
-            throw InsufficientPermissionException("This principal is not allowed to view/edit specified project")
-        }
+        val project = projectAccessGuard.requireArchivable(projectId, principal)
 
         project.status = ProjectStatus.ARCHIVED
 
@@ -126,12 +120,7 @@ class ProjectService(
         projectId: UUID,
         principal: Principal
     ): Project {
-        val project = projectRepository.findProjectById(projectId)
-            ?: throw ProjectNotFoundException("Project with provided ID couldn't be found")
-
-        if (!projectAccessService.canDelete(project.scope, principal)) {
-            throw InsufficientPermissionException("This principal is not allowed to delete specified project")
-        }
+        val project = projectAccessGuard.requireDeletable(projectId, principal)
 
         project.scope.roleBindings.toList().forEach { binding ->
             binding.subjectPrincipal.roleBindings.remove(binding)
@@ -147,14 +136,7 @@ class ProjectService(
         projectId: UUID,
         principal: Principal
     ): Project {
-        val project = projectRepository.findProjectById(projectId)
-            ?: throw ProjectNotFoundException("Project with provided ID couldn't be found")
-
-        if (!projectAccessService.canRead(project.scope, principal)) {
-            throw InsufficientPermissionException("This principal is not allowed to access specified project")
-        }
-
-        return project
+        return projectAccessGuard.requireReadable(projectId, principal)
     }
 
     @Transactional
@@ -172,5 +154,53 @@ class ProjectService(
                 ScopeType.PROJECT
             )
         )
+    }
+
+    @Transactional
+    fun createForUser(
+        name: String,
+        slug: String,
+        description: String?,
+        user: User
+    ): Project {
+        return create(
+            name = name,
+            slug = slug,
+            description = description,
+            ownerPrincipalId = user.principal.id
+        )
+    }
+
+    @Transactional
+    fun updateForUser(
+        projectId: UUID,
+        name: String,
+        slug: String,
+        description: String?,
+        user: User
+    ): Project {
+        return update(
+            projectId = projectId,
+            name = name,
+            slug = slug,
+            description = description,
+            principal = user.principal
+        )
+    }
+
+    @Transactional
+    fun archiveForUser(
+        projectId: UUID,
+        user: User
+    ): Project {
+        return archive(projectId = projectId, principal = user.principal)
+    }
+
+    @Transactional
+    fun deleteForUser(
+        projectId: UUID,
+        user: User
+    ): Project {
+        return delete(projectId = projectId, principal = user.principal)
     }
 }

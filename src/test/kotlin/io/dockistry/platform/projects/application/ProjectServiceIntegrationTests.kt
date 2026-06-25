@@ -191,10 +191,28 @@ class ProjectServiceIntegrationTests {
     }
 
     @Test
-    fun `update throws insufficient permission when principal cannot update`() {
+    fun `update throws not found when principal cannot read`() {
         val fixtures = fixtures()
         val project = fixtures.project()
         val principal = fixtures.principal()
+
+        assertFailsWith<ProjectNotFoundException> {
+            projectService.update(
+                projectId = project.id,
+                name = "Forbidden",
+                slug = "forbidden",
+                principal = principal
+            )
+        }
+    }
+
+    @Test
+    fun `update throws insufficient permission when principal can read but cannot update`() {
+        val fixtures = fixtures()
+        val project = fixtures.project()
+        val principal = fixtures.principal()
+        fixtures.grant(projectReader = principal, project = project)
+        fixtures.flush()
 
         assertFailsWith<InsufficientPermissionException> {
             projectService.update(
@@ -266,10 +284,23 @@ class ProjectServiceIntegrationTests {
     }
 
     @Test
-    fun `archive throws insufficient permission when principal cannot archive`() {
+    fun `archive throws not found when principal cannot read`() {
         val fixtures = fixtures()
         val project = fixtures.project()
         val principal = fixtures.principal()
+
+        assertFailsWith<ProjectNotFoundException> {
+            projectService.archive(project.id, principal)
+        }
+    }
+
+    @Test
+    fun `archive throws insufficient permission when principal can read but cannot archive`() {
+        val fixtures = fixtures()
+        val project = fixtures.project()
+        val principal = fixtures.principal()
+        fixtures.grant(projectReader = principal, project = project)
+        fixtures.flush()
 
         assertFailsWith<InsufficientPermissionException> {
             projectService.archive(project.id, principal)
@@ -301,10 +332,23 @@ class ProjectServiceIntegrationTests {
     }
 
     @Test
-    fun `delete throws insufficient permission when principal cannot delete`() {
+    fun `delete throws not found when principal cannot read`() {
         val fixtures = fixtures()
         val project = fixtures.project()
         val principal = fixtures.principal()
+
+        assertFailsWith<ProjectNotFoundException> {
+            projectService.delete(project.id, principal)
+        }
+    }
+
+    @Test
+    fun `delete throws insufficient permission when principal can read but cannot delete`() {
+        val fixtures = fixtures()
+        val project = fixtures.project()
+        val principal = fixtures.principal()
+        fixtures.grant(projectReader = principal, project = project)
+        fixtures.flush()
 
         assertFailsWith<InsufficientPermissionException> {
             projectService.delete(project.id, principal)
@@ -334,12 +378,12 @@ class ProjectServiceIntegrationTests {
     }
 
     @Test
-    fun `get throws insufficient permission when principal cannot read`() {
+    fun `get throws not found when principal cannot read`() {
         val fixtures = fixtures()
         val project = fixtures.project()
         val principal = fixtures.principal()
 
-        assertFailsWith<InsufficientPermissionException> {
+        assertFailsWith<ProjectNotFoundException> {
             projectService.get(project.id, principal)
         }
     }

@@ -19,7 +19,6 @@ import jakarta.persistence.OneToOne
 import jakarta.persistence.PrePersist
 import jakarta.persistence.PreUpdate
 import jakarta.persistence.Table
-import jakarta.validation.constraints.Pattern
 import java.time.Instant
 import java.util.UUID
 
@@ -28,11 +27,7 @@ import java.util.UUID
 class Project(
     name: String,
 
-    @Column(unique = true, nullable = false)
-    @field:Pattern(
-        regexp = "^[a-z0-9]+(?:-[a-z0-9]+)*$"
-    )
-    var slug: String,
+    slug: String,
 
     var description: String? = null,
 
@@ -58,6 +53,12 @@ class Project(
     var name: String = ProjectNameNormalizer.normalizeAndValidate(name)
         set(value) {
             field = ProjectNameNormalizer.normalizeAndValidate(value)
+        }
+
+    @field:Column(unique = true, nullable = false)
+    var slug: String = ProjectSlugValidator.validate(slug)
+        set(value) {
+            field = ProjectSlugValidator.validate(value)
         }
 
     @OneToMany(mappedBy = "project", cascade = [CascadeType.ALL], fetch = FetchType.LAZY)

@@ -279,7 +279,13 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - `RoleBinding` связывает subject principal, scope и role.
 - Permission checks должны учитывать direct user bindings и group-derived
   bindings. Для этого используй `PermissionCheckService`, не обходи его вручную.
-- Project access должен идти через `ProjectAccessService`.
+- Project permission predicates должны идти через `ProjectAccessService` и
+  называться как `has*Permission`, потому что они проверяют только наличие
+  permission, а не полный action-level доступ.
+- Protected project-id operations (`GET/PATCH/archive/delete`) должны сначала
+  получать project через `ProjectAccessGuard`: missing project и no-read access
+  возвращаются как `project_not_found`, а read-but-no-action возвращается как
+  `insufficient_permission_for_operation`.
 - System role/permission names держи в `SystemRoleNames` и
   `SystemPermissionNames`.
 - Bootstrap базовых ролей/прав происходит в `SystemRolesBootstrapService`.
@@ -403,3 +409,20 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 ## 6. Текущий статус / Что делаем сейчас (Current State & Roadmap)
 
 [Здесь я буду описывать текущий фокус разработки перед новой сессией.]
+
+Projects REST API
+
+базовый минимум:
+- GET /api/projects - посмотреть доступные проекты
+- POST /api/projects - создать новый проект
+- GET /api/projects/{id} - получить информацию по проекту с конкретным ID
+- PATCH /api/projects/{id} - редактировать характеристики/основные атрибуты проекта (full
+  update, т.к. `project.description` nullable и мы не можем distinguish null vs value
+  not updated)
+- POST /api/projects/{id}/archive - заархивировать (`status=ProjectStatus.ARCHIVED`) проект
+- DELETE /api/projects/{id} - удалить проект
+
+Доп. моменты:
+- DTO, валидация (Jakarta Validation, `@Valid`)
+- учитываем все имеющиеся права у юзера
+- мб еще чето
