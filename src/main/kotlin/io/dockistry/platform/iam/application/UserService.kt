@@ -6,6 +6,7 @@ import io.dockistry.platform.auth.domain.UserHasNotVerifiedEmailException
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.PrincipalType
 import io.dockistry.platform.iam.domain.User
+import io.dockistry.platform.iam.domain.UserCredentialsValidator
 import io.dockistry.platform.iam.infrastructure.UserRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.springframework.dao.DataIntegrityViolationException
@@ -21,6 +22,8 @@ class UserService(
 ) {
     @Transactional
     fun createUser(username: String, email: String, password: String): User {
+        val password = UserCredentialsValidator.validatePassword(password)
+
         val user = User(
             email = email,
             username = username,
@@ -42,6 +45,8 @@ class UserService(
         email: String,
         password: String
     ): User {
+        val password = UserCredentialsValidator.validatePassword(password)
+
         val user = userRepository.findUserById(userId)
             ?: throw InternalDataIntegrityException("User ID $userId was passed for updating, but User couldn't be found in DB")
 

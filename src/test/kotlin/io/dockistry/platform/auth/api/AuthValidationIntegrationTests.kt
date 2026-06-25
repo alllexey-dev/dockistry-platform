@@ -32,7 +32,7 @@ class AuthValidationIntegrationTests {
     private lateinit var objectMapper: ObjectMapper
 
     @Test
-    fun `register rejects invalid dto fields`() {
+    fun `register rejects invalid credentials with domain validation error`() {
         val result = mockMvc.post("/api/auth/register") {
             contentType = MediaType.APPLICATION_JSON
             content = objectMapper.writeValueAsString(
@@ -47,17 +47,15 @@ class AuthValidationIntegrationTests {
             content { contentTypeCompatibleWith(MediaType.APPLICATION_JSON) }
         }.andReturn()
 
-        assertValidationError(
+        assertApiError(
             result = result,
-            expectedMessages = listOf(
-                "Username must consist of 3-32 English letters, digits, dots, underscores, dashes",
-                "Password must be 8-128 printable ASCII characters"
-            )
+            expectedCode = "password_validation_failed",
+            expectedMessage = "Password must be 8-128 printable ASCII characters"
         )
     }
 
     @Test
-    fun `login rejects invalid dto fields`() {
+    fun `login accepts invalid field formats as bad credentials`() {
         val result = mockMvc.post("/api/auth/login") {
             contentType = MediaType.APPLICATION_JSON
             content = objectMapper.writeValueAsString(
@@ -67,17 +65,11 @@ class AuthValidationIntegrationTests {
                 )
             )
         }.andExpect {
-            status { isBadRequest() }
+            status { isUnauthorized() }
             content { contentTypeCompatibleWith(MediaType.APPLICATION_JSON) }
         }.andReturn()
 
-        assertValidationError(
-            result = result,
-            expectedMessages = listOf(
-                "Username must consist of 3-32 English letters, digits, dots, underscores, dashes",
-                "Password must be 8-128 printable ASCII characters"
-            )
-        )
+        assertApiError(result, expectedCode = "invalid_username_or_password")
     }
 
     @Test
@@ -165,6 +157,22 @@ class AuthValidationIntegrationTests {
                 errorMessage.contains(it),
                 "Expected validation response to contain '$it', but was '$errorMessage'"
             )
+        }
+    }
+
+    private fun assertApiError(
+        result: MvcResult,
+        expectedCode: String,
+        expectedMessage: String? = null
+    ) {
+        val response = objectMapper.readValue<ApiResponse<Unit>>(result.response.contentAsString)
+
+        assertNull(response.data)
+        assertEquals(expectedCode, response.errorCode)
+        val errorMessage = assertNotNull(response.errorMessage)
+        assertTrue(errorMessage.isNotBlank())
+        if (expectedMessage != null) {
+            assertEquals(expectedMessage, errorMessage)
         }
     }
 
