@@ -13,6 +13,7 @@ reverse proxy, деплоя, мониторинга и бэкапов.
 - access/refresh token flow с ротацией refresh-токенов;
 - обязательная email verification перед login;
 - постановка email verification писем в persisted job queue;
+- initial admin bootstrap через env config или public setup endpoint;
 - базовая IAM/RBAC-модель: users, groups, principals, roles, permissions,
   scopes, role bindings;
 - разграничение доступа к projects через глобальные и project-scoped
@@ -228,6 +229,7 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Security stateless: CSRF/formLogin/httpBasic/logout отключены.
 - Public endpoints сейчас:
   - `/api/auth/**`, кроме `/api/auth/logout-all`;
+  - `/api/setup/initial-admin`;
   - `/api/public/**`;
   - `DispatcherType.ERROR`.
 - Все остальные endpoints требуют authenticated request.
@@ -288,7 +290,10 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `insufficient_permission_for_operation`.
 - System role/permission names держи в `SystemRoleNames` и
   `SystemPermissionNames`.
-- Bootstrap базовых ролей/прав происходит в `SystemRolesBootstrapService`.
+- Bootstrap базовых ролей/прав и единственного `GLOBAL` scope происходит в
+  `SystemRolesBootstrapService`.
+- Initial admin получает `SystemRoleNames.PROJECT_ADMIN` на `GLOBAL` scope;
+  этот scope должен существовать до `InitialAdminService.initializeAdmin`.
 
 ### Email verification и email jobs
 
