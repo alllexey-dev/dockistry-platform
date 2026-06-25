@@ -15,7 +15,9 @@ import io.dockistry.platform.iam.infrastructure.RoleRepository
 import io.dockistry.platform.iam.infrastructure.ScopeRepository
 import io.dockistry.platform.iam.infrastructure.UserRepository
 import io.dockistry.platform.setup.domain.InitialAdminAlreadyExistsException
+import io.dockistry.platform.setup.domain.SetupStateEntryKeys
 import io.dockistry.platform.setup.infrastructure.InitialAdminRepository
+import io.dockistry.platform.setup.infrastructure.SetupStateEntryRepository
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
 import org.junit.jupiter.api.Test
@@ -26,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.time.Instant
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -49,6 +52,9 @@ class InitialAdminServiceIntegrationTests {
 
     @Autowired
     private lateinit var roleRepository: RoleRepository
+
+    @Autowired
+    private lateinit var setupStateEntryRepository: SetupStateEntryRepository
 
     @PersistenceContext
     private lateinit var entityManager: EntityManager
@@ -114,6 +120,11 @@ class InitialAdminServiceIntegrationTests {
         assertEquals(ScopeType.GLOBAL, binding.scope.scopeType)
         assertEquals(SystemRoleNames.PROJECT_ADMIN, binding.role.name)
 
+        assertTrue(
+            setupStateEntryRepository.existsById(
+                SetupStateEntryKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED
+            )
+        )
         assertTrue(initialAdminRepository.existsAdmin())
     }
 

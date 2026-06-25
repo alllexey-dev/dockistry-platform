@@ -9,8 +9,12 @@ import io.dockistry.platform.iam.domain.UserCredentialsValidator
 import io.dockistry.platform.iam.infrastructure.RoleRepository
 import io.dockistry.platform.iam.infrastructure.ScopeRepository
 import io.dockistry.platform.setup.domain.InitialAdminAlreadyExistsException
+import io.dockistry.platform.setup.domain.SetupStateEntry
+import io.dockistry.platform.setup.domain.SetupStateEntryKeys
 import io.dockistry.platform.setup.infrastructure.InitialAdminRepository
+import io.dockistry.platform.setup.infrastructure.SetupStateEntryRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
@@ -22,9 +26,12 @@ class InitialAdminService(
     private val clock: Clock,
     private val scopeRepository: ScopeRepository,
     private val roleRepository: RoleRepository,
+    private val setupStateEntryRepository: SetupStateEntryRepository,
 ) {
     @Transactional
     fun initializeAdmin(username: String, email: String, password: String): User {
+        markBootstrapExecuted()
+
         if (initialAdminRepository.existsAdmin()) {
             throw InitialAdminAlreadyExistsException()
         }
@@ -50,6 +57,19 @@ class InitialAdminService(
         )
 
         return user
+    }
+
+    private fun markBootstrapExecuted() {
+        try {
+            setupStateEntryRepository.saveAndFlush(
+                SetupStateEntry(
+                    key = SetupStateEntryKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED,
+                    value = "true"
+                )
+            )
+        } catch (_: DataIntegrityViolationException) {
+            throw InitialAdminAlreadyExistsException()
+        }
     }
 
 }
