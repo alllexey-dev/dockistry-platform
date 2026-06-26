@@ -1,6 +1,5 @@
 package io.dockistry.platform.iam.application
 
-import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.iam.infrastructure.PermissionQueryRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.springframework.stereotype.Service
@@ -23,15 +22,6 @@ class PermissionCheckService(
         return permissionQueryRepository.existsEffectivePermission(
             principalId, key
         ).orElseThrow { missingPrincipalException(principalId) }
-    }
-
-    @Transactional
-    fun hasMemberManagementPermission(principalId: UUID, scopeId: UUID): Boolean {
-        return hasPermission(
-            SystemPermissionNames.PROJECT_MEMBERS_MANAGE,
-            principalId,
-            scopeId
-        )
     }
 
     private fun missingPrincipalException(principalId: UUID) = InternalDataIntegrityException(

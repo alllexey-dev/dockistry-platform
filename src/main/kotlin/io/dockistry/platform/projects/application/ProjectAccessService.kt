@@ -50,7 +50,8 @@ class ProjectAccessService(
     }
 
     fun hasMemberManagementPermission(scope: Scope, principal: Principal): Boolean {
-        return permissionCheckService.hasMemberManagementPermission(
+        return permissionCheckService.hasPermission(
+            SystemPermissionNames.PROJECT_MEMBERS_MANAGE,
             principal.id,
             scope.id
         )
