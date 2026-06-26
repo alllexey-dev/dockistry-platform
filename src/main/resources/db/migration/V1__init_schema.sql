@@ -138,7 +138,7 @@ CREATE TABLE email_verification_throttles
     CONSTRAINT pk_email_verification_throttles PRIMARY KEY (id)
 );
 
-CREATE TABLE setup_state_entries
+CREATE TABLE system_settings
 (
     key   text PRIMARY KEY,
     value text NOT NULL

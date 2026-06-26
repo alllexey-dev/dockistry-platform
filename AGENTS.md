@@ -119,7 +119,8 @@ CI:
 - `iam` — users, groups, principals, roles, permissions, scopes, RBAC checks;
 - `projects` — project domain и project permission checks;
 - `security` — JWT filter, Spring Security config, auth entry point;
-- `shared` — общие API DTO, exception handling, config.
+- `shared` — общие API DTO, exception handling, config и глобальные
+  cross-domain entities вроде `SystemSetting`.
 
 Внутри модулей используется слойность:
 
@@ -142,7 +143,9 @@ CI:
 - `security` использует `auth.application.JwtTokenProvider` и `iam` user lookup;
 - `email` содержит общий job processor/dispatcher и не должен знать детали auth
   сверх конкретного `VerificationEmailJobContext`/handler;
-- `shared` не должен зависеть от feature-модулей.
+- `shared` не должен зависеть от feature-модулей; feature-модули могут
+  использовать shared abstractions/entities, если они действительно
+  cross-domain.
 
 Архитектурные паттерны:
 
@@ -294,10 +297,11 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `SystemRolesBootstrapService`.
 - Initial admin получает `SystemRoleNames.PROJECT_ADMIN` на `GLOBAL` scope;
   этот scope должен существовать до `InitialAdminService.initializeAdmin`.
-- Race condition при создании initial admin закрывается через
-  `SetupStateEntry` с ключом
-  `SetupStateEntryKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED`: insert marker'а
-  выполняется первым шагом той же транзакции и полагается на PK/unique key в БД.
+- Race condition при создании initial admin закрывается через shared
+  `SystemSetting` с ключом
+  `SystemSettingKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED`: insert marker'а
+  выполняется первым шагом той же транзакции и полагается на primary key в
+  таблице `system_settings`.
 
 ### Email verification и email jobs
 

@@ -3,8 +3,8 @@ package io.dockistry.platform.setup.application
 import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.iam.infrastructure.UserRepository
 import io.dockistry.platform.setup.domain.InitialAdminAlreadyExistsException
-import io.dockistry.platform.setup.domain.SetupStateEntryKeys
-import io.dockistry.platform.setup.infrastructure.SetupStateEntryRepository
+import io.dockistry.platform.shared.domain.SystemSettingKeys
+import io.dockistry.platform.shared.infrastructure.SystemSettingRepository
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.assertInstanceOf
 import org.springframework.beans.factory.annotation.Autowired
@@ -34,7 +34,7 @@ class InitialAdminServiceConcurrencyTests {
     private lateinit var initialAdminService: InitialAdminService
 
     @Autowired
-    private lateinit var setupStateEntryRepository: SetupStateEntryRepository
+    private lateinit var systemSettingRepository: SystemSettingRepository
 
     @Autowired
     private lateinit var userRepository: UserRepository
@@ -80,9 +80,9 @@ class InitialAdminServiceConcurrencyTests {
 
     @AfterEach
     fun tearDown() {
-        setupStateEntryRepository.findById(SetupStateEntryKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED)
+        systemSettingRepository.findById(SystemSettingKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED)
             .ifPresent {
-                setupStateEntryRepository.delete(it)
+                systemSettingRepository.delete(it)
             }
 
         userRepository.findAll()

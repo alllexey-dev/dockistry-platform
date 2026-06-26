@@ -1,5 +1,5 @@
-package io.dockistry.platform.setup.domain
+package io.dockistry.platform.shared.domain
 
-object SetupStateEntryKeys {
+object SystemSettingKeys {
     const val INITIAL_ADMIN_BOOTSTRAP_EXECUTED = "initial_admin_bootstrap_executed"
 }

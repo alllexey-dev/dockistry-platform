@@ -1,4 +1,4 @@
-package io.dockistry.platform.setup.domain
+package io.dockistry.platform.shared.domain
 
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -6,8 +6,8 @@ import jakarta.persistence.Id
 import jakarta.persistence.Table
 
 @Entity
-@Table(name = "setup_state_entries")
-class SetupStateEntry(
+@Table(name = "system_settings")
+class SystemSetting(
     @Id
     @Column(name = "key")
     val key: String,

@@ -9,11 +9,11 @@ import io.dockistry.platform.iam.domain.UserCredentialsValidator
 import io.dockistry.platform.iam.infrastructure.RoleRepository
 import io.dockistry.platform.iam.infrastructure.ScopeRepository
 import io.dockistry.platform.setup.domain.InitialAdminAlreadyExistsException
-import io.dockistry.platform.setup.domain.SetupStateEntry
-import io.dockistry.platform.setup.domain.SetupStateEntryKeys
 import io.dockistry.platform.setup.infrastructure.InitialAdminRepository
-import io.dockistry.platform.setup.infrastructure.SetupStateEntryRepository
+import io.dockistry.platform.shared.domain.SystemSetting
+import io.dockistry.platform.shared.domain.SystemSettingKeys
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
+import io.dockistry.platform.shared.infrastructure.SystemSettingRepository
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -26,7 +26,7 @@ class InitialAdminService(
     private val clock: Clock,
     private val scopeRepository: ScopeRepository,
     private val roleRepository: RoleRepository,
-    private val setupStateEntryRepository: SetupStateEntryRepository,
+    private val systemSettingRepository: SystemSettingRepository,
 ) {
     @Transactional
     fun initializeAdmin(username: String, email: String, password: String): User {
@@ -61,9 +61,9 @@ class InitialAdminService(
 
     private fun markBootstrapExecuted() {
         try {
-            setupStateEntryRepository.saveAndFlush(
-                SetupStateEntry(
-                    key = SetupStateEntryKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED,
+            systemSettingRepository.saveAndFlush(
+                SystemSetting(
+                    key = SystemSettingKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED,
                     value = "true"
                 )
             )
