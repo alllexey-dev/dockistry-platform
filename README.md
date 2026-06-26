@@ -41,21 +41,24 @@ cp .env.example .env
 
 `.env` уже содержит рабочие значения по умолчанию. Переменные:
 
-| Переменная        | Назначение                          | Значение по умолчанию                                |
-|-------------------|-------------------------------------|------------------------------------------------------|
-| `DB_DATABASE`     | имя БД                              | `dockistry_platform`                                 |
-| `DB_USER`         | пользователь БД                     | `dockistry`                                          |
-| `DB_PASSWORD`     | пароль БД                           | `dockistry`                                          |
-| `DB_URL`          | JDBC URL                            | `jdbc:postgresql://localhost:5432/dockistry_platform`|
-| `POSTGRES_*`      | используются Docker Compose         | производные от `DB_*`                                 |
+| Переменная               | Назначение                       | Значение по умолчанию                                 |
+|--------------------------|----------------------------------|-------------------------------------------------------|
+| `DB_DATABASE`            | имя БД                           | `dockistry_platform`                                  |
+| `DB_USER`                | пользователь БД                  | `dockistry`                                           |
+| `DB_PASSWORD`            | пароль БД                        | `dockistry`                                           |
+| `DB_URL`                 | JDBC URL                         | `jdbc:postgresql://localhost:5432/dockistry_platform` |
+| `POSTGRES_*`             | используются Docker Compose      | производные от `DB_*`                                 |
+| `INITIAL_ADMIN_USERNAME` | username первого администратора  | пусто                                                 |
+| `INITIAL_ADMIN_EMAIL`    | email первого администратора     | пусто                                                 |
+| `INITIAL_ADMIN_PASSWORD` | пароль первого администратора    | пусто                                                 |
 
 Дополнительно приложение читает (см. `application.properties`):
 
-| Переменная               | Назначение                       | По умолчанию          |
-|--------------------------|----------------------------------|-----------------------|
-| `JWT_SECRET`             | секрет для подписи JWT           | `secret` (заменить!)  |
-| `JWT_ACCESS_EXPIRATION`  | время жизни access-токена, мс    | `3600000` (1 час)     |
-| `JWT_REFRESH_EXPIRATION` | время жизни refresh-токена, мс   | `1209600000` (14 дней)|
+| Переменная               | Назначение                     | По умолчанию           |
+|--------------------------|--------------------------------|------------------------|
+| `JWT_SECRET`             | секрет для подписи JWT         | `secret` (заменить!)   |
+| `JWT_ACCESS_EXPIRATION`  | время жизни access-токена, мс  | `3600000` (1 час)      |
+| `JWT_REFRESH_EXPIRATION` | время жизни refresh-токена, мс | `1209600000` (14 дней) |
 
 > ⚠️ Для любого окружения, кроме чисто локального, обязательно задайте свой `JWT_SECRET`.
 
@@ -106,19 +109,45 @@ curl http://localhost:8080/api/public/ping
 # -> pong
 ```
 
+## Первичная настройка администратора
+
+Первый администратор получает системную роль `project_admin` в `GLOBAL` scope.
+Создание защищено DB-marker'ом, поэтому успешно пройти может только один initial
+admin bootstrap.
+
+Есть два способа создать первого администратора:
+
+1. Задать все три переменные `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_EMAIL` и
+   `INITIAL_ADMIN_PASSWORD` перед стартом приложения.
+2. После старта вызвать public endpoint:
+
+```bash
+curl -X POST http://localhost:8080/api/setup/initial-admin \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "email": "admin@example.com",
+    "password": "password-123"
+  }'
+```
+
+Endpoint доступен без authentication только до успешного создания первого
+администратора. После этого повторные вызовы возвращают `409
+initial_admin_already_exists`. Успешный ответ возвращает access/refresh tokens.
+
 ## Projects API
 
 Project endpoints требуют access token и возвращают JSON в envelope `ApiResponse`.
 Базовые операции:
 
-| Метод | Endpoint | Назначение |
-|-------|----------|------------|
-| `GET` | `/api/projects` | список проектов, доступных текущему пользователю |
-| `POST` | `/api/projects` | создать проект |
-| `GET` | `/api/projects/{id}` | получить project info |
-| `PATCH` | `/api/projects/{id}` | обновить основные поля проекта |
-| `POST` | `/api/projects/{id}/archive` | архивировать проект |
-| `DELETE` | `/api/projects/{id}` | удалить проект, успешный ответ содержит `data="ok"` |
+| Метод    | Endpoint                     | Назначение                                              |
+|----------|------------------------------|---------------------------------------------------------|
+| `GET`    | `/api/projects`              | список проектов, доступных текущему пользователю        |
+| `POST`   | `/api/projects`              | создать проект                                          |
+| `GET`    | `/api/projects/{id}`         | получить project info                                   |
+| `PATCH`  | `/api/projects/{id}`         | обновить основные поля проекта                          |
+| `POST`   | `/api/projects/{id}/archive` | архивировать проект                                     |
+| `DELETE` | `/api/projects/{id}`         | удалить проект, успешный ответ содержит `data="ok"`     |
 
 Для операций по конкретному project id отсутствие проекта и отсутствие read-access
 оба отображаются как `404 project_not_found`; если read-access есть, но не хватает

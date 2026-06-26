@@ -30,12 +30,12 @@ class AuthController(
 ) {
 
     @PostMapping("/login")
-    fun login(@RequestBody @Valid loginRequest: LoginRequest): ApiResponse<AuthResponse> {
+    fun login(@RequestBody loginRequest: LoginRequest): ApiResponse<AuthResponse> {
         return authenticateAndGenerateToken(loginRequest.username, loginRequest.password)
     }
 
     @PostMapping("/register")
-    fun register(@RequestBody @Valid registerRequest: RegisterRequest): ApiResponse<String> {
+    fun register(@RequestBody registerRequest: RegisterRequest): ApiResponse<String> {
         registrationService.registerUser(registerRequest)
         return ApiResponse("An email with verification code will be sent to your email address soon.")
     }

@@ -13,6 +13,7 @@ reverse proxy, деплоя, мониторинга и бэкапов.
 - access/refresh token flow с ротацией refresh-токенов;
 - обязательная email verification перед login;
 - постановка email verification писем в persisted job queue;
+- initial admin bootstrap через env config или public setup endpoint;
 - базовая IAM/RBAC-модель: users, groups, principals, roles, permissions,
   scopes, role bindings;
 - разграничение доступа к projects через глобальные и project-scoped
@@ -118,7 +119,8 @@ CI:
 - `iam` — users, groups, principals, roles, permissions, scopes, RBAC checks;
 - `projects` — project domain и project permission checks;
 - `security` — JWT filter, Spring Security config, auth entry point;
-- `shared` — общие API DTO, exception handling, config.
+- `shared` — общие API DTO, exception handling, config и глобальные
+  cross-domain entities вроде `SystemSetting`.
 
 Внутри модулей используется слойность:
 
@@ -141,7 +143,9 @@ CI:
 - `security` использует `auth.application.JwtTokenProvider` и `iam` user lookup;
 - `email` содержит общий job processor/dispatcher и не должен знать детали auth
   сверх конкретного `VerificationEmailJobContext`/handler;
-- `shared` не должен зависеть от feature-модулей.
+- `shared` не должен зависеть от feature-модулей; feature-модули могут
+  использовать shared abstractions/entities, если они действительно
+  cross-domain.
 
 Архитектурные паттерны:
 
@@ -228,6 +232,7 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Security stateless: CSRF/formLogin/httpBasic/logout отключены.
 - Public endpoints сейчас:
   - `/api/auth/**`, кроме `/api/auth/logout-all`;
+  - `/api/setup/initial-admin`;
   - `/api/public/**`;
   - `DispatcherType.ERROR`.
 - Все остальные endpoints требуют authenticated request.
@@ -288,7 +293,15 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `insufficient_permission_for_operation`.
 - System role/permission names держи в `SystemRoleNames` и
   `SystemPermissionNames`.
-- Bootstrap базовых ролей/прав происходит в `SystemRolesBootstrapService`.
+- Bootstrap базовых ролей/прав и единственного `GLOBAL` scope происходит в
+  `SystemRolesBootstrapService`.
+- Initial admin получает `SystemRoleNames.PROJECT_ADMIN` на `GLOBAL` scope;
+  этот scope должен существовать до `InitialAdminService.initializeAdmin`.
+- Race condition при создании initial admin закрывается через shared
+  `SystemSetting` с ключом
+  `SystemSettingKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED`: insert marker'а
+  выполняется первым шагом той же транзакции и полагается на primary key в
+  таблице `system_settings`.
 
 ### Email verification и email jobs
 
@@ -363,6 +376,10 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   documented behavior.
 - Если `AGENTS.md` и `README.md` не нужно менять, осознанно проверь это
   перед финальным ответом.
+- Раздел `## 6. Текущий статус / Что делаем сейчас` может временно содержать
+  текущую задачу пользователя для локального контекста сессии. Такие записи не
+  коммить: дефолтное состояние раздела в репозитории — только placeholder
+  `[Здесь я буду описывать текущий фокус разработки перед новой сессией.]`.
 - Перед commit полезно проверять `git diff --check`.
 - Если есть staged subset и грязный worktree, используй
   `scripts/check-staged-independent.sh -- ./gradlew test`, чтобы убедиться, что
@@ -409,20 +426,3 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 ## 6. Текущий статус / Что делаем сейчас (Current State & Roadmap)
 
 [Здесь я буду описывать текущий фокус разработки перед новой сессией.]
-
-Projects REST API
-
-базовый минимум:
-- GET /api/projects - посмотреть доступные проекты
-- POST /api/projects - создать новый проект
-- GET /api/projects/{id} - получить информацию по проекту с конкретным ID
-- PATCH /api/projects/{id} - редактировать характеристики/основные атрибуты проекта (full
-  update, т.к. `project.description` nullable и мы не можем distinguish null vs value
-  not updated)
-- POST /api/projects/{id}/archive - заархивировать (`status=ProjectStatus.ARCHIVED`) проект
-- DELETE /api/projects/{id} - удалить проект
-
-Доп. моменты:
-- DTO, валидация (Jakarta Validation, `@Valid`)
-- учитываем все имеющиеся права у юзера
-- мб еще чето

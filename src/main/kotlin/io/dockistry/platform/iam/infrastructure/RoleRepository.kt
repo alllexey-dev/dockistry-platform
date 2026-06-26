@@ -7,6 +7,7 @@ import java.util.UUID
 
 interface RoleRepository : JpaRepository<Role, UUID> {
     fun findByName(name: String): Role?
+    fun findByNameAndIsSystemTrue(name: String): Role?
     fun existsByNameAndIsSystemTrue(name: String): Boolean
     fun existsByNameAndProject(name: String, project: Project): Boolean
 }

@@ -4,7 +4,6 @@ import io.dockistry.platform.auth.domain.RefreshToken
 import io.dockistry.platform.iam.domain.User
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.stereotype.Repository
-import java.time.Instant
 import java.util.UUID
 
 @Repository

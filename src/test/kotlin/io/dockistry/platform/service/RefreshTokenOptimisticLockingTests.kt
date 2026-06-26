@@ -67,7 +67,7 @@ class RefreshTokenOptimisticLockingTests {
     }
 
     private fun createRefreshToken(): UUID {
-        val suffix = UUID.randomUUID()
+        val suffix = UUID.randomUUID().toString().take(8)
         val tokenId = UUID.randomUUID()
 
         inNewTransaction {

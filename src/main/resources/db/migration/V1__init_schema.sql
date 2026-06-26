@@ -138,6 +138,12 @@ CREATE TABLE email_verification_throttles
     CONSTRAINT pk_email_verification_throttles PRIMARY KEY (id)
 );
 
+CREATE TABLE system_settings
+(
+    key   text PRIMARY KEY,
+    value text NOT NULL
+);
+
 ALTER TABLE permissions
     ADD CONSTRAINT uc_permissions_permission_key UNIQUE (permission_key);
 
