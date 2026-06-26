@@ -14,6 +14,7 @@ import io.dockistry.platform.projects.domain.ProjectRoleNotAssignableException
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
+import org.hibernate.exception.ConstraintViolationException
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -202,6 +203,22 @@ class ProjectMemberServiceIntegrationTests {
                 subjectPrincipalId = subject.id,
                 roleId = updateOnlyRole.id
             )
+        }
+    }
+
+    @Test
+    fun `role binding uniqueness is enforced by database`() {
+        val fixtures = fixtures()
+        val project = fixtures.project()
+        val subject = fixtures.principal()
+        val role = role(SystemRoleNames.PROJECT_VIEWER)
+        fixtures.bind(subject, project.scope, role)
+        fixtures.flushAndClear()
+
+        fixtures.bind(subject, project.scope, role)
+
+        assertFailsWith<ConstraintViolationException> {
+            fixtures.flush()
         }
     }
 

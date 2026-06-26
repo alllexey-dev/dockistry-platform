@@ -16,6 +16,7 @@ import io.dockistry.platform.projects.domain.dto.RoleBindingDto
 import io.dockistry.platform.projects.domain.dto.RoleDto
 import io.dockistry.platform.projects.infrastructure.ProjectMemberRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -93,7 +94,16 @@ class ProjectMemberService(
         project.scope.roleBindings.add(binding)
         role.roleBindings.add(binding)
 
-        val savedBinding = roleBindingRepository.saveAndFlush(binding)
+        val savedBinding = try {
+            roleBindingRepository.saveAndFlush(binding)
+        } catch (exception: DataIntegrityViolationException) {
+            throw handleRoleBindingIntegrityViolation(
+                projectId = projectId,
+                roleId = roleId,
+                subjectPrincipalId = subjectPrincipalId,
+                exception = exception
+            )
+        }
 
         return RoleBindingDto(
             roleBindingId = savedBinding.id,
@@ -148,5 +158,20 @@ class ProjectMemberService(
         return InternalDataIntegrityException(
             "Principal $principalId has project role bindings, but couldn't be resolved"
         )
+    }
+
+    private fun handleRoleBindingIntegrityViolation(
+        projectId: UUID,
+        roleId: UUID,
+        subjectPrincipalId: UUID,
+        exception: DataIntegrityViolationException
+    ): RuntimeException {
+        if (roleBindingRepository.isRoleAssigned(projectId, roleId, subjectPrincipalId)) {
+            return ProjectRoleAlreadyAssignedException(
+                "Role $roleId is already assigned to principal $subjectPrincipalId in project $projectId"
+            )
+        }
+
+        return exception
     }
 }
