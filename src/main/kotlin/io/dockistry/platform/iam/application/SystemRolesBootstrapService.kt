@@ -48,6 +48,10 @@ class SystemRolesBootstrapService(
             key = SystemPermissionNames.PROJECT_ARCHIVE,
             description = "Allows archiving project(s) depending on the granted scope."
         )
+        val projectMembersManagePermission = permission(
+            key = SystemPermissionNames.PROJECT_MEMBERS_MANAGE,
+            description = "Allows adding and removing project member role bindings in the granted scope."
+        )
 
         val projectAdmin = role(
             name = SystemRoleNames.PROJECT_ADMIN,
@@ -67,7 +71,8 @@ class SystemRolesBootstrapService(
             projectReadPermission,
             projectUpdatePermission,
             projectDeletePermission,
-            projectArchivePermission
+            projectArchivePermission,
+            projectMembersManagePermission
         )
         val operatorPermissions = setOf(
             projectReadPermission,
