@@ -19,7 +19,7 @@ interface RoleBindingRepository : JpaRepository<RoleBinding, UUID> {
         )
         """
     )
-    fun isAssigned(projectId: UUID, roleId: UUID, principalId: UUID): Boolean
+    fun isRoleAssigned(projectId: UUID, roleId: UUID, principalId: UUID): Boolean
 
     @Query(
         """
@@ -33,7 +33,7 @@ interface RoleBindingRepository : JpaRepository<RoleBinding, UUID> {
         )
         """
     )
-    fun isBindingAssigned(projectId: UUID, principalId: UUID, roleBindingId: UUID): Boolean
+    fun isAssigned(projectId: UUID, roleBindingId: UUID, principalId: UUID): Boolean
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(

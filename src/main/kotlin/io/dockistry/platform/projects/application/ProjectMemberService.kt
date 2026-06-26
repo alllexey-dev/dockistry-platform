@@ -68,7 +68,7 @@ class ProjectMemberService(
             )
         }
 
-        if (roleBindingRepository.isAssigned(projectId, roleId, subjectPrincipalId)) {
+        if (roleBindingRepository.isRoleAssigned(projectId, roleId, subjectPrincipalId)) {
             throw ProjectRoleAlreadyAssignedException(
                 "Role $roleId is already assigned to principal $subjectPrincipalId in project $projectId"
             )
@@ -110,7 +110,7 @@ class ProjectMemberService(
     ) {
         projectAccessGuard.requireMemberManageable(projectId, managerPrincipal)
 
-        if (!roleBindingRepository.isBindingAssigned(projectId, subjectPrincipalId, roleBindingId)) {
+        if (!roleBindingRepository.isAssigned(projectId, roleBindingId, subjectPrincipalId)) {
             throw ProjectRoleBindingNotFoundException(
                 "Role binding $roleBindingId couldn't be found " +
                     "for principal $subjectPrincipalId in project $projectId"
