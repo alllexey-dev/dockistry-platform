@@ -19,3 +19,23 @@ class InvalidProjectSlugException(
 class ProjectAlreadyExistsException(
     message: String
 ) : ConflictException(message, "project_already_exists")
+
+class ProjectRoleNotAssignableException(
+    message: String
+) : BadRequestException(message, "project_role_not_assignable")
+
+class ProjectRoleAlreadyAssignedException(
+    message: String
+) : ConflictException(message, "project_role_already_assigned")
+
+class ProjectRoleBindingNotFoundException(
+    message: String
+) : NotFoundException(message, "project_role_binding_not_found")
+
+class ProjectMemberNotFoundException(
+    message: String
+) : NotFoundException(message, "project_member_not_found")
+
+class ProjectMemberPrincipalNotFoundException(
+    message: String
+) : NotFoundException(message, "project_member_principal_not_found")

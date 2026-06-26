@@ -48,4 +48,11 @@ class ProjectAccessService(
             scope.id
         )
     }
+
+    fun hasMemberManagementPermission(scope: Scope, principal: Principal): Boolean {
+        return permissionCheckService.hasMemberManagementPermission(
+            principal.id,
+            scope.id
+        )
+    }
 }
