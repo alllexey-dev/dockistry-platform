@@ -7,7 +7,6 @@ import io.dockistry.platform.projects.domain.dto.AssignRoleResponse
 import io.dockistry.platform.projects.domain.dto.ProjectMemberDto
 import io.dockistry.platform.projects.domain.dto.RoleDto
 import io.dockistry.platform.shared.api.ApiResponse
-import jakarta.validation.Valid
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -43,14 +42,14 @@ class ProjectMemberController(
     fun assignRole(
         @PathVariable projectId: UUID,
         @PathVariable principalId: UUID,
-        @RequestBody @Valid request: AssignRoleRequest
+        @RequestBody request: AssignRoleRequest
     ): ApiResponse<AssignRoleResponse> {
         val user = currentUserProvider.getUser()
         val binding = projectMemberService.assignRole(
             managerPrincipal = user.principal,
             projectId = projectId,
             subjectPrincipalId = principalId,
-            roleId = requireNotNull(request.roleId)
+            roleId = request.roleId
         )
         return ApiResponse(AssignRoleResponse(binding.roleBindingId))
     }

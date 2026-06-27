@@ -208,7 +208,7 @@ class ProjectMemberControllerIntegrationTests {
             contentType = MediaType.APPLICATION_JSON
             content = "{}"
         }.andExpect {
-            expectApiError(statusCode = 400, errorCode = "validation_error")
+            expectApiError(statusCode = 400, errorCode = "bad_request")
         }
     }
 
