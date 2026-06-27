@@ -90,9 +90,6 @@ class ProjectMemberService(
             scope = project.scope,
             role = role
         )
-        subjectPrincipal.roleBindings.add(binding)
-        project.scope.roleBindings.add(binding)
-        role.roleBindings.add(binding)
 
         val savedBinding = try {
             roleBindingRepository.saveAndFlush(binding)
