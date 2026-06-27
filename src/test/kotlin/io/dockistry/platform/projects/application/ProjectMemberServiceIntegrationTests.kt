@@ -313,6 +313,29 @@ class ProjectMemberServiceIntegrationTests {
         }
     }
 
+    @Test
+    fun `delete member returns not found when project binding does not grant read permission`() {
+        val fixtures = fixtures()
+        val project = fixtures.project()
+        val manager = fixtures.principal()
+        val subject = fixtures.principal()
+        val updateOnlyRole = fixtures.role(
+            permissions = setOf(fixtures.systemPermission(SystemPermissionNames.PROJECT_UPDATE))
+        )
+        val updateOnlyBinding = fixtures.bind(subject, project.scope, updateOnlyRole)
+        fixtures.grantMemberManagement(manager, project)
+        fixtures.flushAndClear()
+
+        assertFailsWith<ProjectMemberNotFoundException> {
+            projectMemberService.deleteMember(
+                managerPrincipal = manager,
+                projectId = project.id,
+                subjectPrincipalId = subject.id
+            )
+        }
+        assertTrue(roleBindingExists(updateOnlyBinding.id))
+    }
+
     private fun fixtures(): IamProjectFixtures = IamProjectFixtures(entityManager)
 
     private fun role(name: String): Role = assertNotNull(roleRepository.findByName(name))

@@ -127,14 +127,18 @@ class ProjectMemberRepository(
                 SELECT 1
                 FROM role_bindings rb
                 JOIN projects p ON p.scope_id = rb.scope_id
+                JOIN role_permissions rp ON rp.role_id = rb.role_id
+                JOIN permissions pm ON pm.id = rp.permission_id
                 WHERE p.id = :projectId
                     AND rb.subject_principal_id = :principalId
+                    AND pm.permission_key = :projectReadPermissionKey
             )
         """.trimIndent()
 
         val params = mapOf(
             "projectId" to projectId,
-            "principalId" to principalId
+            "principalId" to principalId,
+            "projectReadPermissionKey" to SystemPermissionNames.PROJECT_READ
         )
 
         return jdbc.queryForObject(sql, params, Boolean::class.java) ?: false
