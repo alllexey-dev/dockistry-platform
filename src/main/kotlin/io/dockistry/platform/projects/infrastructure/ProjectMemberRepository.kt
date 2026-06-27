@@ -27,7 +27,6 @@ class ProjectMemberRepository(
                     FROM permissions pm
                     WHERE pm.permission_key = :projectReadPermissionKey
                 )
-            ORDER BY rb.subject_principal_id, rb.id
         """.trimIndent()
 
         val params = mapOf(
@@ -56,7 +55,7 @@ class ProjectMemberRepository(
             FROM roles r
             JOIN role_permissions rp ON rp.role_id = r.id
             JOIN permissions pm ON pm.id = rp.permission_id
-            WHERE (r.is_system = :isSystemRole OR r.project_id = :projectId)
+            WHERE (r.is_system = TRUE OR r.project_id = :projectId)
                 AND EXISTS (
                     SELECT 1
                     FROM role_permissions read_rp
@@ -64,17 +63,15 @@ class ProjectMemberRepository(
                     WHERE read_rp.role_id = r.id
                         AND read_pm.permission_key = :projectReadPermissionKey
                 )
-            ORDER BY r.name, pm.permission_key
         """.trimIndent()
 
         val params = mapOf(
             "projectId" to projectId,
-            "isSystemRole" to true,
             "projectReadPermissionKey" to SystemPermissionNames.PROJECT_READ
         )
 
-        val roleNames = linkedMapOf<UUID, String>()
-        val rolePermissions = linkedMapOf<UUID, MutableList<PermissionDto>>()
+        val roleNames = mutableMapOf<UUID, String>()
+        val rolePermissions = mutableMapOf<UUID, MutableList<PermissionDto>>()
 
         jdbc.query(sql, params) { rs ->
             val roleId = rs.getObject("role_id", UUID::class.java)
