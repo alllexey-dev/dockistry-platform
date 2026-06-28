@@ -149,6 +149,25 @@ Project endpoints требуют access token и возвращают JSON в en
 | `POST`   | `/api/projects/{id}/archive` | архивировать проект                                     |
 | `DELETE` | `/api/projects/{id}`         | удалить проект, успешный ответ содержит `data="ok"`     |
 
+Управление участниками проекта:
+
+- `GET /api/projects/{id}/members` — список direct members проекта с readable
+  role bindings.
+- `GET /api/projects/{id}/assignable-roles` — роли, которые можно назначить в
+  контексте проекта.
+- `POST /api/projects/{id}/members/{principalId}/roles` — назначить роль
+  principal-у, возвращает `roleBindingId`.
+- `DELETE /api/projects/{id}/members/{principalId}/roles/{roleBindingId}` —
+  удалить конкретный role binding, успешный ответ содержит `data="ok"`.
+- `DELETE /api/projects/{id}/members/{principalId}` — удалить все role bindings
+  участника, успешный ответ содержит `data="ok"`.
+
+Список members показывает только principals с прямыми role bindings на scope
+проекта и не разворачивает group membership в отдельных пользователей. Роли для
+назначения должны быть системными или принадлежать текущему проекту и содержать
+permission `project.read`. Mutating member endpoints требуют permission
+`project.members.manage`.
+
 Для операций по конкретному project id отсутствие проекта и отсутствие read-access
 оба отображаются как `404 project_not_found`; если read-access есть, но не хватает
 права на действие, возвращается `403 insufficient_permission_for_operation`.

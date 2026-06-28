@@ -12,4 +12,5 @@ object SystemPermissionNames {
     const val PROJECT_UPDATE = "project.update"
     const val PROJECT_DELETE = "project.delete"
     const val PROJECT_ARCHIVE = "project.archive"
+    const val PROJECT_MEMBERS_MANAGE = "project.members.manage"
 }
