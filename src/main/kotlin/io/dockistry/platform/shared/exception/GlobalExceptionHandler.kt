@@ -60,6 +60,7 @@ class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
             is UnauthorizedException -> HttpStatus.UNAUTHORIZED
             is NotFoundException -> HttpStatus.NOT_FOUND
             is BadRequestException -> HttpStatus.BAD_REQUEST
+            is ServiceUnavailableException -> HttpStatus.SERVICE_UNAVAILABLE
         }
 
         handlerLogger.warn("Service error (status {}): {}", status, exception.message, exception)

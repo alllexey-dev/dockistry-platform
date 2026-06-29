@@ -36,6 +36,8 @@ dependencies {
 
 	implementation("com.github.slugify:slugify:4.0.0")
 	implementation("com.ibm.icu:icu4j:78.3")
+	implementation("com.github.docker-java:docker-java-core:3.7.1")
+	implementation("com.github.docker-java:docker-java-transport-zerodep:3.7.1")
 
 	implementation("org.springframework.boot:spring-boot-starter-flyway")
 	runtimeOnly("org.flywaydb:flyway-database-postgresql")
