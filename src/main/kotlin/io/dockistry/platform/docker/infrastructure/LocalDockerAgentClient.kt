@@ -213,15 +213,26 @@ class LocalDockerAgentClient(
         )
     }
 
+    /*
+     * Docker reports CPU usage as cumulative counters. cpu_stats is the current
+     * sample, precpu_stats is the previous one, so the useful value is the delta
+     * between them. The final multiplication by online CPUs matches Docker CLI
+     * semantics: a container using one full core on a 4-core host is ~100%, and a
+     * container using two full cores can report ~200%.
+     */
     private fun calculateCpuPercent(stats: Statistics): Double {
         val cpuDelta = (stats.cpuStats?.cpuUsage?.totalUsage ?: return 0.0) -
             (stats.preCpuStats?.cpuUsage?.totalUsage ?: return 0.0)
         val systemDelta = (stats.cpuStats?.systemCpuUsage ?: return 0.0) -
             (stats.preCpuStats?.systemCpuUsage ?: return 0.0)
+        // Older Docker daemons may not provide online_cpus; percpu_usage is the
+        // best available fallback for host CPU count.
         val onlineCpus = stats.cpuStats?.onlineCpus
             ?: stats.cpuStats?.cpuUsage?.percpuUsage?.size?.toLong()
             ?: 1L
 
+        // No positive movement means Docker returned an incomplete or stale
+        // stats frame, so there is no meaningful percentage to calculate.
         if (cpuDelta <= 0L || systemDelta <= 0L) {
             return 0.0
         }
