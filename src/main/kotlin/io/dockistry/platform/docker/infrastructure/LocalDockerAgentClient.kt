@@ -205,16 +205,13 @@ class LocalDockerAgentClient(
         )
     }
 
-    @Suppress("DEPRECATION")
     private fun Statistics.toContainerStats(): ContainerStats {
-        val networkStats = networks ?: network
-
         return ContainerStats(
             cpuPercent = calculateCpuPercent(this),
             memoryUsageBytes = memoryStats?.usage,
             memoryLimitBytes = memoryStats?.limit,
-            networkRxBytes = networkStats?.values?.sumOf { it.rxBytes ?: 0L },
-            networkTxBytes = networkStats?.values?.sumOf { it.txBytes ?: 0L }
+            networkRxBytes = networks?.values?.sumOf { it.rxBytes ?: 0L },
+            networkTxBytes = networks?.values?.sumOf { it.txBytes ?: 0L }
         )
     }
 
