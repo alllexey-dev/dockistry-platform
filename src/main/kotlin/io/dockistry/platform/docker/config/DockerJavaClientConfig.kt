@@ -16,11 +16,17 @@ class DockerJavaClientConfig {
         val httpClient = ZerodepDockerHttpClient.Builder()
             .dockerHost(clientConfig.dockerHost)
             .sslConfig(clientConfig.sslConfig)
-            .maxConnections(20)
-            .connectionTimeout(Duration.ofSeconds(5))
-            .responseTimeout(Duration.ofSeconds(30))
+            .maxConnections(MAX_CONNECTIONS)
+            .connectionTimeout(Duration.ofSeconds(CONNECTION_TIMEOUT_SECONDS))
+            .responseTimeout(Duration.ofSeconds(RESPONSE_TIMEOUT_SECONDS))
             .build()
 
         return DockerClientImpl.getInstance(clientConfig, httpClient)
+    }
+
+    private companion object {
+        const val MAX_CONNECTIONS = 20
+        const val CONNECTION_TIMEOUT_SECONDS = 5L
+        const val RESPONSE_TIMEOUT_SECONDS = 30L
     }
 }
