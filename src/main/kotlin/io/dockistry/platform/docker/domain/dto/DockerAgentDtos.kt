@@ -78,9 +78,9 @@ enum class RestartPolicyType {
 }
 
 data class ContainerStats(
-    val cpuPercent: Double,
+    val cpuPercent: Double?,
     val memoryUsageBytes: Long?,
     val memoryLimitBytes: Long?,
-    val networkRxBytes: Long,
-    val networkTxBytes: Long
+    val networkRxBytes: Long?,
+    val networkTxBytes: Long?
 )

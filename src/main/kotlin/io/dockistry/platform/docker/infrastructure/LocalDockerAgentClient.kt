@@ -82,6 +82,11 @@ class LocalDockerAgentClient(
 
     private fun readSingleStats(containerId: String): Statistics {
         var stats: Statistics? = null
+        /*
+         * docker-java exposes stats as an async command because Docker's stats
+         * endpoint is stream-first. withNoStream(true) asks Docker for one frame,
+         * but the client API still delivers that frame through a callback.
+         */
         val callback = object : ResultCallback.Adapter<Statistics>() {
             override fun onNext(item: Statistics) {
                 stats = item
@@ -208,8 +213,8 @@ class LocalDockerAgentClient(
             cpuPercent = calculateCpuPercent(this),
             memoryUsageBytes = memoryStats?.usage,
             memoryLimitBytes = memoryStats?.limit,
-            networkRxBytes = networkStats.orEmpty().values.sumOf { it.rxBytes ?: 0L },
-            networkTxBytes = networkStats.orEmpty().values.sumOf { it.txBytes ?: 0L }
+            networkRxBytes = networkStats?.values?.sumOf { it.rxBytes ?: 0L },
+            networkTxBytes = networkStats?.values?.sumOf { it.txBytes ?: 0L }
         )
     }
 
@@ -220,11 +225,11 @@ class LocalDockerAgentClient(
      * semantics: a container using one full core on a 4-core host is ~100%, and a
      * container using two full cores can report ~200%.
      */
-    private fun calculateCpuPercent(stats: Statistics): Double {
-        val cpuDelta = (stats.cpuStats?.cpuUsage?.totalUsage ?: return 0.0) -
-            (stats.preCpuStats?.cpuUsage?.totalUsage ?: return 0.0)
-        val systemDelta = (stats.cpuStats?.systemCpuUsage ?: return 0.0) -
-            (stats.preCpuStats?.systemCpuUsage ?: return 0.0)
+    private fun calculateCpuPercent(stats: Statistics): Double? {
+        val cpuDelta = (stats.cpuStats?.cpuUsage?.totalUsage ?: return null) -
+            (stats.preCpuStats?.cpuUsage?.totalUsage ?: return null)
+        val systemDelta = (stats.cpuStats?.systemCpuUsage ?: return null) -
+            (stats.preCpuStats?.systemCpuUsage ?: return null)
         // Older Docker daemons may not provide online_cpus; percpu_usage is the
         // best available fallback for host CPU count.
         val onlineCpus = stats.cpuStats?.onlineCpus
@@ -234,7 +239,7 @@ class LocalDockerAgentClient(
         // No positive movement means Docker returned an incomplete or stale
         // stats frame, so there is no meaningful percentage to calculate.
         if (cpuDelta <= 0L || systemDelta <= 0L) {
-            return 0.0
+            return null
         }
 
         return (cpuDelta.toDouble() / systemDelta.toDouble()) * onlineCpus * 100.0
