@@ -144,10 +144,16 @@ class LocalDockerAgentClient(
             labels = config?.labels.orEmpty(),
             envNames = config?.env.toEnvNames(),
             mounts = mounts.orEmpty().map {
+                val destination = it.destination?.path
+
                 MountInfo(
-                    type = inferMountType(name = it.name, source = it.source),
+                    type = inferMountType(
+                        name = it.name,
+                        source = it.source,
+                        destination = destination
+                    ),
                     source = it.source,
-                    target = it.destination?.path,
+                    target = destination,
                     readOnly = it.rw?.let { rw -> !rw }
                 )
             },
@@ -189,10 +195,17 @@ class LocalDockerAgentClient(
             .sorted()
     }
 
-    private fun inferMountType(name: String?, source: String?): String? {
+    /*
+     * Docker inspect JSON includes mount Type, but `docker-java` 3.7.1 does not
+     * expose it on InspectContainerResponse.Mount. Infer the common cases from
+     * fields that are available in that model: named Docker volumes have Name,
+     * bind mounts have Source, and tmpfs mounts have only Destination.
+     */
+    private fun inferMountType(name: String?, source: String?, destination: String?): String? {
         return when {
             !name.isNullOrBlank() -> "volume"
             !source.isNullOrBlank() -> "bind"
+            !destination.isNullOrBlank() -> "tmpfs"
             else -> null
         }
     }
