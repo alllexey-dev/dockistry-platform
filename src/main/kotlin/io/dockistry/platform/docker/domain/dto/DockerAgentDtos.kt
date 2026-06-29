@@ -32,7 +32,6 @@ data class ContainerDetails(
     val name: String?,
     val image: String?,
     val state: ContainerState,
-    val status: String?,
     val ports: List<PortInfo>,
     val labels: Map<String, String>,
     val envNames: List<String>,

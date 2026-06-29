@@ -139,7 +139,6 @@ class LocalDockerAgentClient(
             name = name?.trimStart('/'),
             image = config?.image ?: imageId,
             state = stateStatus.toContainerState(),
-            status = stateStatus,
             ports = networkSettings?.ports.toPortInfos(),
             labels = config?.labels.orEmpty(),
             envNames = config?.env.toEnvNames(),
