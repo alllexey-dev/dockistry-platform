@@ -1,17 +1,17 @@
 package io.dockistry.platform.docker.application.ports
 
-import io.dockistry.platform.docker.domain.dto.ContainerDetails
-import io.dockistry.platform.docker.domain.dto.ContainerFilter
-import io.dockistry.platform.docker.domain.dto.ContainerStats
-import io.dockistry.platform.docker.domain.dto.ContainerSummary
-import io.dockistry.platform.docker.domain.dto.DockerAgentStatus
+import io.dockistry.platform.docker.domain.model.DockerAgentInfo
+import io.dockistry.platform.docker.domain.model.DockerContainerDetails
+import io.dockistry.platform.docker.domain.model.DockerContainerFilter
+import io.dockistry.platform.docker.domain.model.DockerContainerStats
+import io.dockistry.platform.docker.domain.model.DockerContainerSummary
 
 interface DockerAgentClient {
-    fun status(): DockerAgentStatus
+    fun status(): DockerAgentInfo
 
-    fun listContainers(filter: ContainerFilter): List<ContainerSummary>
+    fun listContainers(filter: DockerContainerFilter): List<DockerContainerSummary>
 
-    fun inspectContainer(containerId: String): ContainerDetails
+    fun inspectContainer(containerId: String): DockerContainerDetails
 
-    fun getContainerStats(containerId: String): ContainerStats
+    fun getContainerStats(containerId: String): DockerContainerStats
 }

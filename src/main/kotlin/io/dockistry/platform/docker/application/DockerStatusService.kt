@@ -6,9 +6,10 @@ import org.springframework.stereotype.Service
 
 @Service
 class DockerStatusService(
-    private val dockerAgentClient: DockerAgentClient
+    private val dockerAgentClient: DockerAgentClient,
+    private val dockerApiDtoMapper: DockerApiDtoMapper
 ) {
     fun getStatus(): DockerAgentStatus {
-        return dockerAgentClient.status()
+        return dockerApiDtoMapper.toStatusDto(dockerAgentClient.status())
     }
 }

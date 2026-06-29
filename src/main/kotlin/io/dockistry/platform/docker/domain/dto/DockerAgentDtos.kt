@@ -13,10 +13,6 @@ enum class DockerAgentState {
     UNAVAILABLE
 }
 
-data class ContainerFilter(
-    val labels: Map<String, String> = emptyMap()
-)
-
 data class ContainerSummary(
     val id: String,
     val name: String?,

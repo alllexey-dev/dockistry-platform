@@ -2,61 +2,88 @@ package io.dockistry.platform.docker.infrastructure
 
 import com.github.dockerjava.api.DockerClient
 import com.github.dockerjava.api.async.ResultCallback
+import com.github.dockerjava.api.command.GraphDriver
+import com.github.dockerjava.api.command.HealthState
 import com.github.dockerjava.api.exception.DockerClientException
 import com.github.dockerjava.api.exception.DockerException
 import com.github.dockerjava.api.exception.NotFoundException as DockerNotFoundException
+import com.github.dockerjava.api.model.BlkioStatEntry
+import com.github.dockerjava.api.model.BlkioStatsConfig
 import com.github.dockerjava.api.model.Container
+import com.github.dockerjava.api.model.ContainerConfig
+import com.github.dockerjava.api.model.ContainerMount
+import com.github.dockerjava.api.model.ContainerNetwork
 import com.github.dockerjava.api.model.ContainerPort
 import com.github.dockerjava.api.model.ExposedPort
+import com.github.dockerjava.api.model.HealthCheck
+import com.github.dockerjava.api.model.HostConfig
 import com.github.dockerjava.api.model.Ports
+import com.github.dockerjava.api.model.StatisticNetworksConfig
 import com.github.dockerjava.api.model.Statistics
 import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.DockerAgentUnavailableException
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
-import io.dockistry.platform.docker.domain.dto.ContainerDetails
-import io.dockistry.platform.docker.domain.dto.ContainerFilter
-import io.dockistry.platform.docker.domain.dto.ContainerState
-import io.dockistry.platform.docker.domain.dto.ContainerStats
-import io.dockistry.platform.docker.domain.dto.ContainerSummary
-import io.dockistry.platform.docker.domain.dto.DockerAgentState
-import io.dockistry.platform.docker.domain.dto.DockerAgentStatus
-import io.dockistry.platform.docker.domain.dto.MountInfo
-import io.dockistry.platform.docker.domain.dto.PortInfo
-import io.dockistry.platform.docker.domain.dto.RestartPolicy
-import io.dockistry.platform.docker.domain.dto.RestartPolicyType
+import io.dockistry.platform.docker.domain.model.DockerAgentAvailability
+import io.dockistry.platform.docker.domain.model.DockerAgentInfo
+import io.dockistry.platform.docker.domain.model.DockerBlockIoEntry
+import io.dockistry.platform.docker.domain.model.DockerBlockIoStats
+import io.dockistry.platform.docker.domain.model.DockerContainerConfig
+import io.dockistry.platform.docker.domain.model.DockerContainerDetails
+import io.dockistry.platform.docker.domain.model.DockerContainerFilter
+import io.dockistry.platform.docker.domain.model.DockerContainerHealth
+import io.dockistry.platform.docker.domain.model.DockerContainerHealthLog
+import io.dockistry.platform.docker.domain.model.DockerContainerHostConfig
+import io.dockistry.platform.docker.domain.model.DockerContainerState
+import io.dockistry.platform.docker.domain.model.DockerContainerStateDetails
+import io.dockistry.platform.docker.domain.model.DockerContainerStats
+import io.dockistry.platform.docker.domain.model.DockerContainerSummary
+import io.dockistry.platform.docker.domain.model.DockerExposedPort
+import io.dockistry.platform.docker.domain.model.DockerHealthcheck
+import io.dockistry.platform.docker.domain.model.DockerMountInfo
+import io.dockistry.platform.docker.domain.model.DockerNetworkEndpoint
+import io.dockistry.platform.docker.domain.model.DockerNetworkStats
+import io.dockistry.platform.docker.domain.model.DockerPortInfo
+import io.dockistry.platform.docker.domain.model.DockerRestartPolicy
+import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
+import io.dockistry.platform.docker.domain.model.DockerStorageInfo
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.util.concurrent.TimeUnit
 import com.github.dockerjava.api.command.InspectContainerResponse as DockerInspectContainerResponse
-import com.github.dockerjava.api.model.RestartPolicy as DockerRestartPolicy
+import com.github.dockerjava.api.model.RestartPolicy as DockerJavaRestartPolicy
 
 @Component
 class LocalDockerAgentClient(
     private val dockerClient: DockerClient
 ) : DockerAgentClient {
 
-    override fun status(): DockerAgentStatus {
+    override fun status(): DockerAgentInfo {
         return try {
             val version = dockerClient.versionCmd().exec()
             val info = dockerClient.infoCmd().exec()
 
-            DockerAgentStatus(
-                state = DockerAgentState.AVAILABLE,
+            DockerAgentInfo(
+                state = DockerAgentAvailability.AVAILABLE,
                 engineVersion = version.version ?: info.serverVersion,
                 apiVersion = version.apiVersion,
-                operatingSystem = info.operatingSystem ?: version.operatingSystem
+                operatingSystem = info.operatingSystem ?: version.operatingSystem,
+                architecture = info.architecture ?: version.arch,
+                serverName = info.name,
+                dockerRootDir = info.dockerRootDir,
+                cgroupDriver = info.cGroupDriver,
+                cgroupVersion = info.cGroupVersion
             )
         } catch (exception: RuntimeException) {
             dockerLogger.warn("Docker agent status check failed: {}", exception.safeMessage(), exception)
-            DockerAgentStatus(
-                state = DockerAgentState.UNAVAILABLE,
-                errorMessage = DOCKER_AGENT_UNAVAILABLE_MESSAGE
+            DockerAgentInfo(
+                state = DockerAgentAvailability.UNAVAILABLE,
+                errorMessage = exception.safeMessage()
             )
         }
     }
 
-    override fun listContainers(filter: ContainerFilter): List<ContainerSummary> {
+    override fun listContainers(filter: DockerContainerFilter): List<DockerContainerSummary> {
         return dockerCall {
             val command = dockerClient.listContainersCmd()
                 .withShowAll(true)
@@ -69,7 +96,7 @@ class LocalDockerAgentClient(
         }
     }
 
-    override fun inspectContainer(containerId: String): ContainerDetails {
+    override fun inspectContainer(containerId: String): DockerContainerDetails {
         return dockerCall {
             dockerClient.inspectContainerCmd(containerId)
                 .exec()
@@ -77,7 +104,7 @@ class LocalDockerAgentClient(
         }
     }
 
-    override fun getContainerStats(containerId: String): ContainerStats {
+    override fun getContainerStats(containerId: String): DockerContainerStats {
         return dockerCall {
             readSingleStats(containerId).toContainerStats()
         }
@@ -118,50 +145,64 @@ class LocalDockerAgentClient(
         }
     }
 
-    private fun Container.toSummary(): ContainerSummary {
-        return ContainerSummary(
+    private fun Container.toSummary(): DockerContainerSummary {
+        val names = names.orEmpty().map { it.trimStart('/') }
+
+        return DockerContainerSummary(
             id = id,
-            name = names?.firstOrNull()?.trimStart('/'),
+            name = names.firstOrNull(),
+            names = names,
             image = image,
+            imageId = imageId,
+            command = command,
+            createdEpochSeconds = created,
             state = state.toContainerState(),
             status = status,
             ports = ports.orEmpty().map { it.toPortInfo() },
-            labels = labels.orEmpty()
+            labels = labels.orEmpty(),
+            sizeRwBytes = sizeRw,
+            sizeRootFsBytes = sizeRootFs,
+            networkMode = hostConfig?.networkMode,
+            networks = networkSettings?.networks.toNetworkEndpoints(),
+            mounts = mounts.orEmpty().map { it.toMountInfo() }
         )
     }
 
-    private fun DockerInspectContainerResponse.toDetails(): ContainerDetails {
+    private fun DockerInspectContainerResponse.toDetails(): DockerContainerDetails {
         val config = config
-        val stateStatus = state?.status
+        val env = config?.env.toEnvMap()
+        val mounts = mounts.orEmpty().map { it.toMountInfo() }
 
-        return ContainerDetails(
+        return DockerContainerDetails(
             id = id,
             name = name?.trimStart('/'),
             image = config?.image ?: imageId,
-            state = stateStatus.toContainerState(),
+            imageId = imageId,
+            createdAt = created,
+            path = path,
+            args = args.orEmpty().toList(),
+            driver = driver,
+            platform = platform,
+            state = state.toStateDetails(),
+            config = config.toContainerConfig(),
+            hostConfig = hostConfig.toContainerHostConfig(),
             ports = networkSettings?.ports.toPortInfos(),
             labels = config?.labels.orEmpty(),
-            envNames = config?.env.toEnvNames(),
-            mounts = mounts.orEmpty().map {
-                val destination = it.destination?.path
-
-                MountInfo(
-                    type = inferMountType(
-                        name = it.name,
-                        source = it.source,
-                        destination = destination
-                    ),
-                    source = it.source,
-                    target = destination,
-                    readOnly = it.rw?.let { rw -> !rw }
-                )
-            },
-            restartPolicy = hostConfig?.restartPolicy.toRestartPolicy()
+            env = env,
+            envNames = env.keys.sorted(),
+            mounts = mounts,
+            networks = networkSettings?.networks.toNetworkEndpoints(),
+            storage = graphDriver.toStorageInfo(),
+            restartPolicy = hostConfig?.restartPolicy.toRestartPolicy(),
+            restartCount = restartCount,
+            execIds = execIds.orEmpty(),
+            sizeRwBytes = sizeRw,
+            sizeRootFsBytes = sizeRootFs
         )
     }
 
-    private fun ContainerPort.toPortInfo(): PortInfo {
-        return PortInfo(
+    private fun ContainerPort.toPortInfo(): DockerPortInfo {
+        return DockerPortInfo(
             privatePort = privatePort,
             publicPort = publicPort,
             ip = ip,
@@ -169,7 +210,7 @@ class LocalDockerAgentClient(
         )
     }
 
-    private fun Ports?.toPortInfos(): List<PortInfo> {
+    private fun Ports?.toPortInfos(): List<DockerPortInfo> {
         return this?.bindings.orEmpty().flatMap { (exposedPort, bindings) ->
             bindings?.map { binding ->
                 exposedPort.toPortInfo(binding)
@@ -177,8 +218,8 @@ class LocalDockerAgentClient(
         }
     }
 
-    private fun ExposedPort.toPortInfo(binding: Ports.Binding?): PortInfo {
-        return PortInfo(
+    private fun ExposedPort.toPortInfo(binding: Ports.Binding?): DockerPortInfo {
+        return DockerPortInfo(
             privatePort = port,
             publicPort = binding?.hostPortSpec?.toIntOrNull(),
             ip = binding?.hostIp,
@@ -186,12 +227,197 @@ class LocalDockerAgentClient(
         )
     }
 
-    private fun Array<String>?.toEnvNames(): List<String> {
+    private fun ContainerMount.toMountInfo(): DockerMountInfo {
+        return DockerMountInfo(
+            type = inferMountType(name = name, source = source, destination = destination),
+            name = name,
+            source = source,
+            target = destination,
+            driver = driver,
+            mode = mode,
+            readOnly = rw?.let { !it },
+            propagation = propagation
+        )
+    }
+
+    private fun DockerInspectContainerResponse.Mount.toMountInfo(): DockerMountInfo {
+        val destination = destination?.path
+
+        return DockerMountInfo(
+            type = inferMountType(name = name, source = source, destination = destination),
+            name = name,
+            source = source,
+            target = destination,
+            driver = driver,
+            mode = mode,
+            readOnly = rw?.let { !it },
+            propagation = null
+        )
+    }
+
+    private fun Array<String>?.toEnvMap(): Map<String, String?> {
         return this.orEmpty()
-            .mapNotNull { env ->
-                env.substringBefore("=").takeIf { it.isNotBlank() }
+            .mapNotNull { item ->
+                val separatorIndex = item.indexOf('=')
+                val name = if (separatorIndex >= 0) item.substring(0, separatorIndex) else item
+
+                name.takeIf { it.isNotBlank() }?.let {
+                    it to if (separatorIndex >= 0) item.substring(separatorIndex + 1) else null
+                }
             }
-            .sorted()
+            .toMap()
+    }
+
+    private fun ContainerConfig?.toContainerConfig(): DockerContainerConfig {
+        val env = this?.env.toEnvMap()
+
+        return DockerContainerConfig(
+            image = this?.image,
+            env = env,
+            envNames = env.keys.sorted(),
+            cmd = this?.cmd.orEmpty().toList(),
+            entrypoint = this?.entrypoint.orEmpty().toList(),
+            workingDir = this?.workingDir,
+            user = this?.user,
+            hostname = this?.hostName,
+            domainName = this?.domainName,
+            labels = this?.labels.orEmpty(),
+            exposedPorts = this?.exposedPorts.orEmpty().map {
+                DockerExposedPort(
+                    port = it.port,
+                    type = it.protocol.toString()
+                )
+            },
+            attachStdin = this?.attachStdin,
+            attachStdout = this?.attachStdout,
+            attachStderr = this?.attachStderr,
+            stdinOpen = this?.stdinOpen,
+            stdinOnce = this?.stdInOnce,
+            tty = this?.tty,
+            networkDisabled = this?.networkDisabled,
+            macAddress = this?.macAddress,
+            healthcheck = this?.healthcheck.toHealthcheck()
+        )
+    }
+
+    private fun HealthCheck?.toHealthcheck(): DockerHealthcheck? {
+        return this?.let {
+            DockerHealthcheck(
+                test = it.test.orEmpty(),
+                intervalNanos = it.interval,
+                timeoutNanos = it.timeout,
+                startPeriodNanos = it.startPeriod,
+                retries = it.retries
+            )
+        }
+    }
+
+    private fun HostConfig?.toContainerHostConfig(): DockerContainerHostConfig {
+        return DockerContainerHostConfig(
+            networkMode = this?.networkMode,
+            pidMode = this?.pidMode,
+            ipcMode = this?.ipcMode,
+            cgroupMode = this?.cgroup,
+            cgroupNamespaceMode = this?.cgroupnsMode,
+            privileged = this?.privileged,
+            readonlyRootfs = this?.readonlyRootfs,
+            autoRemove = this?.autoRemove,
+            publishAllPorts = this?.publishAllPorts,
+            restartPolicy = this?.restartPolicy.toRestartPolicy(),
+            memoryBytes = this?.memory,
+            memorySwapBytes = this?.memorySwap,
+            memoryReservationBytes = this?.memoryReservation,
+            memorySwappiness = this?.memorySwappiness,
+            nanoCpus = this?.nanoCPUs,
+            cpuShares = this?.cpuShares,
+            cpuQuota = this?.cpuQuota,
+            cpuPeriod = this?.cpuPeriod,
+            cpusetCpus = this?.cpusetCpus,
+            cpusetMems = this?.cpusetMems,
+            pidsLimit = this?.pidsLimit,
+            shmSizeBytes = this?.shmSize,
+            runtime = this?.runtime,
+            capAdd = this?.capAdd.orEmpty().map { it.toString() },
+            capDrop = this?.capDrop.orEmpty().map { it.toString() },
+            securityOptions = this?.securityOpts.orEmpty(),
+            dns = this?.dns.orEmpty().toList(),
+            dnsSearch = this?.dnsSearch.orEmpty().toList(),
+            dnsOptions = this?.dnsOptions.orEmpty(),
+            extraHosts = this?.extraHosts.orEmpty().toList(),
+            groupAdd = this?.groupAdd.orEmpty(),
+            tmpfs = this?.tmpFs.orEmpty(),
+            sysctls = this?.sysctls.orEmpty(),
+            storageOptions = this?.storageOpt.orEmpty(),
+            logType = this?.logConfig?.type?.toString(),
+            logConfig = this?.logConfig?.config.orEmpty()
+        )
+    }
+
+    private fun DockerInspectContainerResponse.ContainerState?.toStateDetails(): DockerContainerStateDetails {
+        val statusText = this?.status
+
+        return DockerContainerStateDetails(
+            state = statusText.toContainerState(),
+            statusText = statusText,
+            running = this?.running,
+            paused = this?.paused,
+            restarting = this?.restarting,
+            oomKilled = this?.oomKilled,
+            dead = this?.dead,
+            pid = this?.pidLong,
+            exitCode = this?.exitCodeLong,
+            error = this?.error,
+            startedAt = this?.startedAt,
+            finishedAt = this?.finishedAt,
+            health = this?.health.toHealth()
+        )
+    }
+
+    private fun HealthState?.toHealth(): DockerContainerHealth? {
+        return this?.let {
+            DockerContainerHealth(
+                status = it.status,
+                failingStreak = it.failingStreak,
+                log = it.log.orEmpty().map { entry ->
+                    DockerContainerHealthLog(
+                        start = entry.start,
+                        end = entry.end,
+                        exitCode = entry.exitCodeLong,
+                        output = entry.output
+                    )
+                }
+            )
+        }
+    }
+
+    private fun Map<String, ContainerNetwork>?.toNetworkEndpoints(): Map<String, DockerNetworkEndpoint> {
+        return this.orEmpty().mapValues { (_, network) ->
+            DockerNetworkEndpoint(
+                networkId = network.networkID,
+                endpointId = network.endpointId,
+                gateway = network.gateway,
+                ipAddress = network.ipAddress,
+                ipPrefixLen = network.ipPrefixLen,
+                ipv6Gateway = network.ipV6Gateway,
+                globalIpv6Address = network.globalIPv6Address,
+                globalIpv6PrefixLen = network.globalIPv6PrefixLen,
+                macAddress = network.macAddress,
+                aliases = network.aliases.orEmpty()
+            )
+        }
+    }
+
+    private fun GraphDriver?.toStorageInfo(): DockerStorageInfo? {
+        return this?.let {
+            DockerStorageInfo(
+                driverName = it.name,
+                rootDir = it.data?.rootDir,
+                deviceId = it.data?.deviceId,
+                deviceName = it.data?.deviceName,
+                deviceSize = it.data?.deviceSize,
+                dir = it.data?.dir
+            )
+        }
     }
 
     /*
@@ -209,30 +435,83 @@ class LocalDockerAgentClient(
         }
     }
 
-    private fun DockerRestartPolicy?.toRestartPolicy(): RestartPolicy {
+    private fun DockerJavaRestartPolicy?.toRestartPolicy(): DockerRestartPolicy {
         val type = when (this?.name?.lowercase().orEmpty()) {
-            "", "no" -> RestartPolicyType.NO
-            "always" -> RestartPolicyType.ALWAYS
-            "on-failure" -> RestartPolicyType.ON_FAILURE
-            "unless-stopped" -> RestartPolicyType.UNLESS_STOPPED
-            else -> RestartPolicyType.NO
+            "", "no" -> DockerRestartPolicyType.NO
+            "always" -> DockerRestartPolicyType.ALWAYS
+            "on-failure" -> DockerRestartPolicyType.ON_FAILURE
+            "unless-stopped" -> DockerRestartPolicyType.UNLESS_STOPPED
+            else -> DockerRestartPolicyType.NO
         }
 
-        return RestartPolicy(
+        return DockerRestartPolicy(
             type = type,
             maxRetries = this?.maximumRetryCount
-                ?.takeIf { type == RestartPolicyType.ON_FAILURE && it > 0 }
+                ?.takeIf { type == DockerRestartPolicyType.ON_FAILURE && it > 0 }
         )
     }
 
-    private fun Statistics.toContainerStats(): ContainerStats {
-        return ContainerStats(
+    private fun Statistics.toContainerStats(): DockerContainerStats {
+        val networkStats = networks.toNetworkStats()
+
+        return DockerContainerStats(
             cpuPercent = calculateCpuPercent(this),
             memoryUsageBytes = memoryStats?.usage,
             memoryLimitBytes = memoryStats?.limit,
+            memoryMaxUsageBytes = memoryStats?.maxUsage,
+            memoryFailCount = memoryStats?.failcnt,
+            memoryCacheBytes = memoryStats?.stats?.cache,
+            memoryRssBytes = memoryStats?.stats?.rss,
+            memorySwapBytes = memoryStats?.stats?.swap,
             networkRxBytes = networks?.values?.sumOf { it.rxBytes ?: 0L },
-            networkTxBytes = networks?.values?.sumOf { it.txBytes ?: 0L }
+            networkTxBytes = networks?.values?.sumOf { it.txBytes ?: 0L },
+            networks = networkStats,
+            pidsCurrent = pidsStats?.current,
+            blockIo = blkioStats.toBlockIoStats(),
+            readAt = read,
+            preReadAt = preread
         )
+    }
+
+    private fun Map<String, StatisticNetworksConfig>?.toNetworkStats(): Map<String, DockerNetworkStats> {
+        return this.orEmpty().mapValues { (_, stats) ->
+            DockerNetworkStats(
+                rxBytes = stats.rxBytes,
+                rxDropped = stats.rxDropped,
+                rxErrors = stats.rxErrors,
+                rxPackets = stats.rxPackets,
+                txBytes = stats.txBytes,
+                txDropped = stats.txDropped,
+                txErrors = stats.txErrors,
+                txPackets = stats.txPackets
+            )
+        }
+    }
+
+    private fun BlkioStatsConfig?.toBlockIoStats(): DockerBlockIoStats? {
+        return this?.let {
+            DockerBlockIoStats(
+                serviceBytes = it.ioServiceBytesRecursive.toBlockIoEntries(),
+                serviced = it.ioServicedRecursive.toBlockIoEntries(),
+                queued = it.ioQueueRecursive.toBlockIoEntries(),
+                serviceTime = it.ioServiceTimeRecursive.toBlockIoEntries(),
+                waitTime = it.ioWaitTimeRecursive.toBlockIoEntries(),
+                merged = it.ioMergedRecursive.toBlockIoEntries(),
+                time = it.ioTimeRecursive.toBlockIoEntries(),
+                sectors = it.sectorsRecursive.toBlockIoEntries()
+            )
+        }
+    }
+
+    private fun List<BlkioStatEntry>?.toBlockIoEntries(): List<DockerBlockIoEntry> {
+        return this.orEmpty().map {
+            DockerBlockIoEntry(
+                major = it.major,
+                minor = it.minor,
+                operation = it.op,
+                value = it.value
+            )
+        }
     }
 
     /*
@@ -262,16 +541,16 @@ class LocalDockerAgentClient(
         return (cpuDelta.toDouble() / systemDelta.toDouble()) * onlineCpus * 100.0
     }
 
-    private fun String?.toContainerState(): ContainerState {
+    private fun String?.toContainerState(): DockerContainerState {
         return when (this?.lowercase()) {
-            "created" -> ContainerState.CREATED
-            "running" -> ContainerState.RUNNING
-            "paused" -> ContainerState.PAUSED
-            "restarting" -> ContainerState.RESTARTING
-            "removing" -> ContainerState.REMOVING
-            "exited" -> ContainerState.EXITED
-            "dead" -> ContainerState.DEAD
-            else -> ContainerState.UNKNOWN
+            "created" -> DockerContainerState.CREATED
+            "running" -> DockerContainerState.RUNNING
+            "paused" -> DockerContainerState.PAUSED
+            "restarting" -> DockerContainerState.RESTARTING
+            "removing" -> DockerContainerState.REMOVING
+            "exited" -> DockerContainerState.EXITED
+            "dead" -> DockerContainerState.DEAD
+            else -> DockerContainerState.UNKNOWN
         }
     }
 
