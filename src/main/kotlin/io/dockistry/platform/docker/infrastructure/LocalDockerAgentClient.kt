@@ -24,6 +24,8 @@ import io.dockistry.platform.docker.domain.dto.MountInfo
 import io.dockistry.platform.docker.domain.dto.PortInfo
 import io.dockistry.platform.docker.domain.dto.RestartPolicy
 import io.dockistry.platform.docker.domain.dto.RestartPolicyType
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.util.concurrent.TimeUnit
 import com.github.dockerjava.api.command.InspectContainerResponse as DockerInspectContainerResponse
@@ -46,9 +48,10 @@ class LocalDockerAgentClient(
                 operatingSystem = info.operatingSystem ?: version.operatingSystem
             )
         } catch (exception: RuntimeException) {
+            dockerLogger.warn("Docker agent status check failed: {}", exception.safeMessage(), exception)
             DockerAgentStatus(
                 state = DockerAgentState.UNAVAILABLE,
-                errorMessage = exception.safeMessage()
+                errorMessage = DOCKER_AGENT_UNAVAILABLE_MESSAGE
             )
         }
     }
@@ -100,14 +103,19 @@ class LocalDockerAgentClient(
                 .awaitCompletion(STATS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         } catch (exception: InterruptedException) {
             Thread.currentThread().interrupt()
-            throw DockerAgentUnavailableException("Interrupted while waiting for Docker stats")
+            dockerLogger.warn("Docker stats command was interrupted for container {}", containerId, exception)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
         }
 
         if (!completed) {
-            throw DockerAgentUnavailableException("Timed out while waiting for Docker stats")
+            dockerLogger.warn("Docker stats command timed out for container {}", containerId)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
         }
 
-        return stats ?: throw DockerAgentUnavailableException("Docker did not return stats")
+        return stats ?: run {
+            dockerLogger.warn("Docker stats command completed without stats for container {}", containerId)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+        }
     }
 
     private fun Container.toSummary(): ContainerSummary {
@@ -261,10 +269,16 @@ class LocalDockerAgentClient(
         } catch (exception: DockerNotFoundException) {
             throw DockerContainerNotFoundException("Docker container couldn't be found")
         } catch (exception: DockerException) {
-            throw DockerAgentUnavailableException("Docker agent call failed: ${exception.safeMessage()}")
+            logDockerCallFailure(exception)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
         } catch (exception: DockerClientException) {
-            throw DockerAgentUnavailableException("Docker agent call failed: ${exception.safeMessage()}")
+            logDockerCallFailure(exception)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
         }
+    }
+
+    private fun logDockerCallFailure(exception: RuntimeException) {
+        dockerLogger.warn("Docker agent call failed: {}", exception.safeMessage(), exception)
     }
 
     private fun RuntimeException.safeMessage(): String {
@@ -272,6 +286,9 @@ class LocalDockerAgentClient(
     }
 
     private companion object {
+        val dockerLogger: Logger = LoggerFactory.getLogger(LocalDockerAgentClient::class.java)
+
+        const val DOCKER_AGENT_UNAVAILABLE_MESSAGE = "Docker agent is unavailable"
         const val STATS_TIMEOUT_SECONDS = 5L
     }
 }
