@@ -2,7 +2,6 @@ package io.dockistry.platform.docker.infrastructure
 
 import com.github.dockerjava.api.DockerClient
 import com.github.dockerjava.api.async.ResultCallback
-import com.github.dockerjava.api.command.GraphDriver
 import com.github.dockerjava.api.command.HealthState
 import com.github.dockerjava.api.exception.DockerClientException
 import com.github.dockerjava.api.exception.DockerException
@@ -25,13 +24,10 @@ import io.dockistry.platform.docker.domain.DockerAgentUnavailableException
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.model.DockerAgentAvailability
 import io.dockistry.platform.docker.domain.model.DockerAgentInfo
-import io.dockistry.platform.docker.domain.model.DockerBlockIoEntry
-import io.dockistry.platform.docker.domain.model.DockerBlockIoStats
 import io.dockistry.platform.docker.domain.model.DockerContainerConfig
 import io.dockistry.platform.docker.domain.model.DockerContainerDetails
 import io.dockistry.platform.docker.domain.model.DockerContainerFilter
 import io.dockistry.platform.docker.domain.model.DockerContainerHealth
-import io.dockistry.platform.docker.domain.model.DockerContainerHealthLog
 import io.dockistry.platform.docker.domain.model.DockerContainerHostConfig
 import io.dockistry.platform.docker.domain.model.DockerContainerState
 import io.dockistry.platform.docker.domain.model.DockerContainerStateDetails
@@ -45,7 +41,6 @@ import io.dockistry.platform.docker.domain.model.DockerNetworkStats
 import io.dockistry.platform.docker.domain.model.DockerPortInfo
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicy
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
-import io.dockistry.platform.docker.domain.model.DockerStorageInfo
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -192,7 +187,6 @@ class LocalDockerAgentClient(
             envNames = env.keys.sorted(),
             mounts = mounts,
             networks = networkSettings?.networks.toNetworkEndpoints(),
-            storage = graphDriver.toStorageInfo(),
             restartPolicy = hostConfig?.restartPolicy.toRestartPolicy(),
             restartCount = restartCount,
             execIds = execIds.orEmpty(),
@@ -280,7 +274,6 @@ class LocalDockerAgentClient(
             workingDir = this?.workingDir,
             user = this?.user,
             hostname = this?.hostName,
-            domainName = this?.domainName,
             labels = this?.labels.orEmpty(),
             exposedPorts = this?.exposedPorts.orEmpty().map {
                 DockerExposedPort(
@@ -288,14 +281,6 @@ class LocalDockerAgentClient(
                     type = it.protocol.toString()
                 )
             },
-            attachStdin = this?.attachStdin,
-            attachStdout = this?.attachStdout,
-            attachStderr = this?.attachStderr,
-            stdinOpen = this?.stdinOpen,
-            stdinOnce = this?.stdInOnce,
-            tty = this?.tty,
-            networkDisabled = this?.networkDisabled,
-            macAddress = this?.macAddress,
             healthcheck = this?.healthcheck.toHealthcheck()
         )
     }
@@ -315,10 +300,6 @@ class LocalDockerAgentClient(
     private fun HostConfig?.toContainerHostConfig(): DockerContainerHostConfig {
         return DockerContainerHostConfig(
             networkMode = this?.networkMode,
-            pidMode = this?.pidMode,
-            ipcMode = this?.ipcMode,
-            cgroupMode = this?.cgroup,
-            cgroupNamespaceMode = this?.cgroupnsMode,
             privileged = this?.privileged,
             readonlyRootfs = this?.readonlyRootfs,
             autoRemove = this?.autoRemove,
@@ -327,29 +308,17 @@ class LocalDockerAgentClient(
             memoryBytes = this?.memory,
             memorySwapBytes = this?.memorySwap,
             memoryReservationBytes = this?.memoryReservation,
-            memorySwappiness = this?.memorySwappiness,
             nanoCpus = this?.nanoCPUs,
             cpuShares = this?.cpuShares,
             cpuQuota = this?.cpuQuota,
             cpuPeriod = this?.cpuPeriod,
             cpusetCpus = this?.cpusetCpus,
-            cpusetMems = this?.cpusetMems,
             pidsLimit = this?.pidsLimit,
-            shmSizeBytes = this?.shmSize,
-            runtime = this?.runtime,
             capAdd = this?.capAdd.orEmpty().map { it.toString() },
             capDrop = this?.capDrop.orEmpty().map { it.toString() },
             securityOptions = this?.securityOpts.orEmpty(),
-            dns = this?.dns.orEmpty().toList(),
-            dnsSearch = this?.dnsSearch.orEmpty().toList(),
-            dnsOptions = this?.dnsOptions.orEmpty(),
-            extraHosts = this?.extraHosts.orEmpty().toList(),
-            groupAdd = this?.groupAdd.orEmpty(),
             tmpfs = this?.tmpFs.orEmpty(),
-            sysctls = this?.sysctls.orEmpty(),
-            storageOptions = this?.storageOpt.orEmpty(),
-            logType = this?.logConfig?.type?.toString(),
-            logConfig = this?.logConfig?.config.orEmpty()
+            sysctls = this?.sysctls.orEmpty()
         )
     }
 
@@ -377,15 +346,7 @@ class LocalDockerAgentClient(
         return this?.let {
             DockerContainerHealth(
                 status = it.status,
-                failingStreak = it.failingStreak,
-                log = it.log.orEmpty().map { entry ->
-                    DockerContainerHealthLog(
-                        start = entry.start,
-                        end = entry.end,
-                        exitCode = entry.exitCodeLong,
-                        output = entry.output
-                    )
-                }
+                failingStreak = it.failingStreak
             )
         }
     }
@@ -401,21 +362,7 @@ class LocalDockerAgentClient(
                 ipv6Gateway = network.ipV6Gateway,
                 globalIpv6Address = network.globalIPv6Address,
                 globalIpv6PrefixLen = network.globalIPv6PrefixLen,
-                macAddress = network.macAddress,
                 aliases = network.aliases.orEmpty()
-            )
-        }
-    }
-
-    private fun GraphDriver?.toStorageInfo(): DockerStorageInfo? {
-        return this?.let {
-            DockerStorageInfo(
-                driverName = it.name,
-                rootDir = it.data?.rootDir,
-                deviceId = it.data?.deviceId,
-                deviceName = it.data?.deviceName,
-                deviceSize = it.data?.deviceSize,
-                dir = it.data?.dir
             )
         }
     }
@@ -453,6 +400,7 @@ class LocalDockerAgentClient(
 
     private fun Statistics.toContainerStats(): DockerContainerStats {
         val networkStats = networks.toNetworkStats()
+        val diskIo = blkioStats.toDiskIoBytes()
 
         return DockerContainerStats(
             cpuPercent = calculateCpuPercent(this),
@@ -467,7 +415,8 @@ class LocalDockerAgentClient(
             networkTxBytes = networks?.values?.sumOf { it.txBytes ?: 0L },
             networks = networkStats,
             pidsCurrent = pidsStats?.current,
-            blockIo = blkioStats.toBlockIoStats(),
+            diskReadBytes = diskIo.readBytes,
+            diskWriteBytes = diskIo.writeBytes,
             readAt = read,
             preReadAt = preread
         )
@@ -477,41 +426,26 @@ class LocalDockerAgentClient(
         return this.orEmpty().mapValues { (_, stats) ->
             DockerNetworkStats(
                 rxBytes = stats.rxBytes,
-                rxDropped = stats.rxDropped,
-                rxErrors = stats.rxErrors,
-                rxPackets = stats.rxPackets,
-                txBytes = stats.txBytes,
-                txDropped = stats.txDropped,
-                txErrors = stats.txErrors,
-                txPackets = stats.txPackets
+                txBytes = stats.txBytes
             )
         }
     }
 
-    private fun BlkioStatsConfig?.toBlockIoStats(): DockerBlockIoStats? {
-        return this?.let {
-            DockerBlockIoStats(
-                serviceBytes = it.ioServiceBytesRecursive.toBlockIoEntries(),
-                serviced = it.ioServicedRecursive.toBlockIoEntries(),
-                queued = it.ioQueueRecursive.toBlockIoEntries(),
-                serviceTime = it.ioServiceTimeRecursive.toBlockIoEntries(),
-                waitTime = it.ioWaitTimeRecursive.toBlockIoEntries(),
-                merged = it.ioMergedRecursive.toBlockIoEntries(),
-                time = it.ioTimeRecursive.toBlockIoEntries(),
-                sectors = it.sectorsRecursive.toBlockIoEntries()
-            )
-        }
+    private fun BlkioStatsConfig?.toDiskIoBytes(): DiskIoBytes {
+        val entries = this?.ioServiceBytesRecursive.orEmpty()
+
+        return DiskIoBytes(
+            readBytes = entries.sumOperation("Read"),
+            writeBytes = entries.sumOperation("Write")
+        )
     }
 
-    private fun List<BlkioStatEntry>?.toBlockIoEntries(): List<DockerBlockIoEntry> {
-        return this.orEmpty().map {
-            DockerBlockIoEntry(
-                major = it.major,
-                minor = it.minor,
-                operation = it.op,
-                value = it.value
-            )
-        }
+    private fun List<BlkioStatEntry>.sumOperation(operation: String): Long? {
+        val matchingEntries = filter { it.op.equals(operation, ignoreCase = true) }
+
+        return matchingEntries
+            .takeIf { it.isNotEmpty() }
+            ?.sumOf { it.value ?: 0L }
     }
 
     /*
@@ -582,4 +516,9 @@ class LocalDockerAgentClient(
         const val DOCKER_AGENT_UNAVAILABLE_MESSAGE = "Docker agent is unavailable"
         const val STATS_TIMEOUT_SECONDS = 5L
     }
+
+    private data class DiskIoBytes(
+        val readBytes: Long?,
+        val writeBytes: Long?
+    )
 }

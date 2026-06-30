@@ -77,5 +77,7 @@ data class ContainerStats(
     val memoryUsageBytes: Long?,
     val memoryLimitBytes: Long?,
     val networkRxBytes: Long?,
-    val networkTxBytes: Long?
+    val networkTxBytes: Long?,
+    val diskReadBytes: Long?,
+    val diskWriteBytes: Long?
 )

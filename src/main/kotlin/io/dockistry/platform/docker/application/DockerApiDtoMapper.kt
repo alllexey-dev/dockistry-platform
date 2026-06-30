@@ -74,7 +74,9 @@ class DockerApiDtoMapper {
             memoryUsageBytes = stats.memoryUsageBytes,
             memoryLimitBytes = stats.memoryLimitBytes,
             networkRxBytes = stats.networkRxBytes,
-            networkTxBytes = stats.networkTxBytes
+            networkTxBytes = stats.networkTxBytes,
+            diskReadBytes = stats.diskReadBytes,
+            diskWriteBytes = stats.diskWriteBytes
         )
     }
 
