@@ -75,8 +75,26 @@ allOpen {
 
 tasks.test {
 	useJUnitPlatform {
-		excludeTags("benchmark")
+		excludeTags("benchmark", "docker-stats")
 	}
+}
+
+tasks.register<Test>("dockerStatsTest") {
+	description = "Runs Docker stats integration tests"
+	group = "verification"
+	testClassesDirs = sourceSets.test.get().output.classesDirs
+	classpath = sourceSets.test.get().runtimeClasspath
+
+	useJUnitPlatform {
+		includeTags("docker-stats")
+	}
+
+	testLogging {
+		showStandardStreams = true
+		events("passed", "skipped", "failed", "standardOut", "standardError")
+	}
+
+	outputs.upToDateWhen { false }
 }
 
 tasks.register<Test>("benchmarkTest") {

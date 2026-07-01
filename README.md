@@ -214,9 +214,18 @@ Project container endpoints требуют `project.read`. Контейнер с
 # По шаблону имени
 ./gradlew test --tests "*JwtAuthentication*"
 
+# Docker stats tests, исключённые из обычного ./gradlew test
+./gradlew dockerStatsTest
+
 # Benchmark-like тесты, исключённые из обычного ./gradlew test
 ./gradlew benchmarkTest
 ```
+
+`dockerStatsTest` запускает Docker-in-Docker smoke tests для CPU/network/disk stats.
+Они исключены из обычного `test`/`build`, потому что Docker stats counters в nested
+Docker/cgroup окружениях, включая GitHub-hosted runners, могут быть нестабильными.
+Если меняется Docker stats mapping или сбор Docker metrics, локально запускайте
+`./gradlew dockerStatsTest`.
 
 > **Colima вместо Docker Desktop.** Если Docker запущен через Colima, Testcontainers
 > может не найти сокет (ошибка `Could not find a valid Docker environment`), так как

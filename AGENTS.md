@@ -340,6 +340,10 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `./gradlew test`.
 - Benchmark-like тесты исключены из обычного `test` и запускаются отдельно:
   `./gradlew benchmarkTest`.
+- Docker stats integration tests исключены из обычного `test`/`build`, потому что
+  nested Docker-in-Docker stats counters нестабильны на GitHub-hosted runners.
+  Если меняешь Docker stats mapping или сбор Docker metrics, локально запускай
+  `./gradlew dockerStatsTest`.
 - Для конкретного теста:
   `./gradlew test --tests "io.dockistry.platform.SomeTest"`.
 - Интеграционные тесты используют:
