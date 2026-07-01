@@ -359,7 +359,7 @@ class LocalDockerAgentClientDindIntegrationTests {
     }
 
     private fun pullImage(image: String) {
-        if (!pulledImages.add(image)) {
+        if (image in pulledImages) {
             return
         }
 
@@ -370,6 +370,7 @@ class LocalDockerAgentClientDindIntegrationTests {
             .awaitCompletion(IMAGE_PULL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
 
         assertTrue(completed, "Timed out pulling Docker image $image")
+        pulledImages += image
     }
 
     private fun cleanDockerEngine() {
