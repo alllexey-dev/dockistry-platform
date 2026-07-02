@@ -1,5 +1,8 @@
 package io.dockistry.platform.docker.domain.model
 
+import io.dockistry.platform.docker.domain.InvalidContainerLogsRequestException
+import java.time.Instant
+
 data class DockerAgentInfo(
     val state: DockerAgentAvailability,
     val engineVersion: String? = null,
@@ -21,6 +24,72 @@ enum class DockerAgentAvailability {
 data class DockerContainerFilter(
     val labels: Map<String, String> = emptyMap()
 )
+
+data class DockerContainerLogsRequest(
+    val tail: Int = DEFAULT_TAIL,
+    val since: Instant? = null,
+    val until: Instant? = null,
+    val timestamps: Boolean = false,
+    val streams: Set<DockerContainerLogStream> = setOf(
+        DockerContainerLogStream.STDOUT,
+        DockerContainerLogStream.STDERR
+    )
+) {
+    init {
+        if (tail < 0) {
+            throw InvalidContainerLogsRequestException("Container logs tail must not be negative")
+        }
+        if (tail > MAX_TAIL) {
+            throw InvalidContainerLogsRequestException(
+                "Container logs tail must not be greater than $MAX_TAIL"
+            )
+        }
+        if (streams.isEmpty()) {
+            throw InvalidContainerLogsRequestException(
+                "At least one container log stream must be requested"
+            )
+        }
+        if (since != null && until != null && since.isAfter(until)) {
+            throw InvalidContainerLogsRequestException(
+                "Container logs since timestamp must not be after until timestamp"
+            )
+        }
+        if (since != null && !since.isSupportedByDockerLogs()) {
+            throw InvalidContainerLogsRequestException(
+                "Container logs since timestamp is outside supported Docker range"
+            )
+        }
+        if (until != null && !until.isSupportedByDockerLogs()) {
+            throw InvalidContainerLogsRequestException(
+                "Container logs until timestamp is outside supported Docker range"
+            )
+        }
+    }
+
+    companion object {
+        const val DEFAULT_TAIL = 200
+        const val MAX_TAIL = 1_000
+    }
+
+    private fun Instant.isSupportedByDockerLogs(): Boolean {
+        return epochSecond in Int.MIN_VALUE..Int.MAX_VALUE
+    }
+}
+
+data class DockerContainerLogs(
+    val lines: List<DockerContainerLogLine>
+)
+
+data class DockerContainerLogLine(
+    val stream: DockerContainerLogStream,
+    val line: String
+)
+
+enum class DockerContainerLogStream {
+    STDOUT,
+    STDERR,
+    RAW
+}
 
 data class DockerContainerSummary(
     val id: String,

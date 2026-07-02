@@ -81,3 +81,18 @@ data class ContainerStats(
     val diskReadBytes: Long?,
     val diskWriteBytes: Long?
 )
+
+data class ContainerLogs(
+    val lines: List<ContainerLogLine>
+)
+
+data class ContainerLogLine(
+    val stream: ContainerLogStream,
+    val line: String
+)
+
+enum class ContainerLogStream {
+    STDOUT,
+    STDERR,
+    RAW
+}

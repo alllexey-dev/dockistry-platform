@@ -2,14 +2,20 @@ package io.dockistry.platform.docker.api
 
 import io.dockistry.platform.docker.application.ProjectContainerService
 import io.dockistry.platform.docker.domain.dto.ContainerDetails
+import io.dockistry.platform.docker.domain.dto.ContainerLogs
 import io.dockistry.platform.docker.domain.dto.ContainerStats
 import io.dockistry.platform.docker.domain.dto.ContainerSummary
+import io.dockistry.platform.docker.domain.InvalidContainerLogsRequestException
+import io.dockistry.platform.docker.domain.model.DockerContainerLogStream
+import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
 import io.dockistry.platform.iam.application.CurrentUserProvider
 import io.dockistry.platform.shared.api.ApiResponse
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import java.time.Instant
 import java.util.UUID
 
 @RestController
@@ -46,5 +52,53 @@ class ProjectContainerController(
         return ApiResponse(
             projectContainerService.getContainerStats(projectId, containerId, user.principal)
         )
+    }
+
+    @GetMapping("/{containerId}/logs")
+    fun logs(
+        @PathVariable projectId: UUID,
+        @PathVariable containerId: String,
+        @RequestParam(required = false) tail: Int?,
+        @RequestParam(required = false) since: Instant?,
+        @RequestParam(required = false) until: Instant?,
+        @RequestParam(required = false) timestamps: Boolean?,
+        @RequestParam(required = false) streams: String?
+    ): ApiResponse<ContainerLogs> {
+        val user = currentUserProvider.getUser()
+        val request = DockerContainerLogsRequest(
+            tail = tail ?: DockerContainerLogsRequest.DEFAULT_TAIL,
+            since = since,
+            until = until,
+            timestamps = timestamps ?: false,
+            streams = streams.toLogStreams()
+        )
+
+        return ApiResponse(
+            projectContainerService.getLogs(
+                projectId = projectId,
+                containerId = containerId,
+                principal = user.principal,
+                request = request
+            )
+        )
+    }
+
+    private fun String?.toLogStreams(): Set<DockerContainerLogStream> {
+        if (isNullOrBlank()) {
+            return setOf(DockerContainerLogStream.STDOUT, DockerContainerLogStream.STDERR)
+        }
+
+        return split(",")
+            .map { it.trim().lowercase() }
+            .map { stream ->
+                when (stream) {
+                    "stdout" -> DockerContainerLogStream.STDOUT
+                    "stderr" -> DockerContainerLogStream.STDERR
+                    else -> throw InvalidContainerLogsRequestException(
+                        "Container logs streams must contain only stdout or stderr"
+                    )
+                }
+            }
+            .toSet()
     }
 }

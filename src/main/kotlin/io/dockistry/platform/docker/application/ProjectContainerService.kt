@@ -4,10 +4,12 @@ import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.dto.ContainerDetails
+import io.dockistry.platform.docker.domain.dto.ContainerLogs
 import io.dockistry.platform.docker.domain.dto.ContainerStats
 import io.dockistry.platform.docker.domain.dto.ContainerSummary
 import io.dockistry.platform.docker.domain.model.DockerContainerDetails
 import io.dockistry.platform.docker.domain.model.DockerContainerFilter
+import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.application.ProjectAccessGuard
 import io.dockistry.platform.projects.domain.Project
@@ -57,6 +59,23 @@ class ProjectContainerService(
         }
 
         return dockerApiDtoMapper.toStatsDto(dockerAgentClient.getContainerStats(containerId))
+    }
+
+    @Transactional(readOnly = true)
+    fun getLogs(
+        projectId: UUID,
+        containerId: String,
+        principal: Principal,
+        request: DockerContainerLogsRequest
+    ): ContainerLogs {
+        val project = projectAccessGuard.requireReadable(projectId, principal)
+        val container = dockerAgentClient.inspectContainer(containerId)
+
+        if (!container.belongsTo(project)) {
+            throw notFound()
+        }
+
+        return dockerApiDtoMapper.toLogsDto(dockerAgentClient.getLogs(containerId, request))
     }
 
     private fun Project.toContainerFilter(): DockerContainerFilter {
