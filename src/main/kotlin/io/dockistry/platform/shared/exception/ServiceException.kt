@@ -10,3 +10,4 @@ open class UnauthorizedException(message: String, code: String) : ServiceExcepti
 open class ForbiddenException(message: String, code: String) : ServiceException(message, code)
 open class NotFoundException(message: String, code: String) : ServiceException(message, code)
 open class ConflictException(message: String, code: String) : ServiceException(message, code)
+open class ServiceUnavailableException(message: String, code: String) : ServiceException(message, code)

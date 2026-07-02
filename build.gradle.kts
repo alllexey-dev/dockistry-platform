@@ -36,6 +36,8 @@ dependencies {
 
 	implementation("com.github.slugify:slugify:4.0.0")
 	implementation("com.ibm.icu:icu4j:78.3")
+	implementation("com.github.docker-java:docker-java-core:3.7.1")
+	implementation("com.github.docker-java:docker-java-transport-zerodep:3.7.1")
 
 	implementation("org.springframework.boot:spring-boot-starter-flyway")
 	runtimeOnly("org.flywaydb:flyway-database-postgresql")
@@ -73,8 +75,26 @@ allOpen {
 
 tasks.test {
 	useJUnitPlatform {
-		excludeTags("benchmark")
+		excludeTags("benchmark", "docker-stats")
 	}
+}
+
+tasks.register<Test>("dockerStatsTest") {
+	description = "Runs Docker stats integration tests"
+	group = "verification"
+	testClassesDirs = sourceSets.test.get().output.classesDirs
+	classpath = sourceSets.test.get().runtimeClasspath
+
+	useJUnitPlatform {
+		includeTags("docker-stats")
+	}
+
+	testLogging {
+		showStandardStreams = true
+		events("passed", "skipped", "failed", "standardOut", "standardError")
+	}
+
+	outputs.upToDateWhen { false }
 }
 
 tasks.register<Test>("benchmarkTest") {

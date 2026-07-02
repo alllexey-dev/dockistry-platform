@@ -6,7 +6,7 @@
 
 > Текущее состояние: MVP-ядро — регистрация/вход пользователей (JWT, access + refresh токены),
 > базовая RBAC-модель (пользователи, группы, роли, права, scope), базовый Projects REST API,
-> миграции БД через Flyway.
+> read-only Docker agent API для локального Docker Engine, миграции БД через Flyway.
 
 ## Технологический стек
 
@@ -18,6 +18,7 @@
 | База данных    | PostgreSQL 18.4                                                           |
 | Миграции       | Flyway                                                                    |
 | Аутентификация | JWT (`com.auth0:java-jwt`)                                                |
+| Docker client   | docker-java                                                               |
 | Сборка         | Gradle 9.4.1 (wrapper)                                                    |
 | Тесты          | JUnit 5, Testcontainers, Spring Security Test                             |
 
@@ -25,8 +26,8 @@
 
 - **JDK 21+** — нужен для запуска Gradle. Сам проект собирается под Java 21 (toolchain
   при необходимости скачает нужную версию автоматически).
-- **Docker** + **Docker Compose** — для локальной БД PostgreSQL и для интеграционных
-  тестов (Testcontainers поднимает контейнер с Postgres).
+- **Docker** + **Docker Compose** — для локальной БД PostgreSQL, read-only Docker API
+  endpoints и интеграционных тестов (Testcontainers поднимает контейнер с Postgres).
 - Gradle ставить отдельно **не нужно** — используется wrapper (`./gradlew`).
 
 ## Быстрый старт
@@ -59,6 +60,7 @@ cp .env.example .env
 | `JWT_SECRET`             | секрет для подписи JWT         | `secret` (заменить!)   |
 | `JWT_ACCESS_EXPIRATION`  | время жизни access-токена, мс  | `3600000` (1 час)      |
 | `JWT_REFRESH_EXPIRATION` | время жизни refresh-токена, мс | `1209600000` (14 дней) |
+| `DOCKER_HOST`            | Docker endpoint для docker-java | локальный Docker socket |
 
 > ⚠️ Для любого окружения, кроме чисто локального, обязательно задайте свой `JWT_SECRET`.
 
@@ -172,6 +174,30 @@ permission `project.read`. Mutating member endpoints требуют permission
 оба отображаются как `404 project_not_found`; если read-access есть, но не хватает
 права на действие, возвращается `403 insufficient_permission_for_operation`.
 
+## Docker API
+
+Docker endpoints требуют access token и работают через локальный Docker Engine
+(`LocalDockerAgentClient` поверх docker-java). По умолчанию docker-java использует
+локальный Docker socket; для Colima/remote Docker можно задать стандартный
+`DOCKER_HOST`.
+
+| Метод | Endpoint                                             | Назначение                         |
+|-------|------------------------------------------------------|------------------------------------|
+| `GET` | `/api/docker/status`                                 | состояние доступности Docker agent |
+| `GET` | `/api/projects/{projectId}/containers`               | список контейнеров проекта         |
+| `GET` | `/api/projects/{projectId}/containers/{containerId}` | inspect-level детали контейнера    |
+| `GET` | `/api/projects/{projectId}/containers/{containerId}/stats` | текущие CPU/memory/network stats |
+
+Project container endpoints требуют `project.read`. Контейнер считается контейнером
+проекта только при наличии labels:
+
+- `io.dockistry.managed=true`
+- `io.dockistry.project-id=<projectId>`
+
+Если Docker Engine недоступен, Docker operations возвращают
+`503 docker_agent_unavailable`. Если контейнер отсутствует или не принадлежит
+проекту по labels, возвращается `404 docker_container_not_found`.
+
 ## Тестирование
 
 Тесты используют **Testcontainers**, поэтому для их запуска должен быть запущен
@@ -188,9 +214,18 @@ permission `project.read`. Mutating member endpoints требуют permission
 # По шаблону имени
 ./gradlew test --tests "*JwtAuthentication*"
 
+# Docker stats tests, исключённые из обычного ./gradlew test
+./gradlew dockerStatsTest
+
 # Benchmark-like тесты, исключённые из обычного ./gradlew test
 ./gradlew benchmarkTest
 ```
+
+`dockerStatsTest` запускает Docker-in-Docker smoke tests для CPU/network/disk stats.
+Они исключены из обычного `test`/`build`, потому что Docker stats counters в nested
+Docker/cgroup окружениях, включая GitHub-hosted runners, могут быть нестабильными.
+Если меняется Docker stats mapping или сбор Docker metrics, локально запускайте
+`./gradlew dockerStatsTest`.
 
 > **Colima вместо Docker Desktop.** Если Docker запущен через Colima, Testcontainers
 > может не найти сокет (ошибка `Could not find a valid Docker environment`), так как
