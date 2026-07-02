@@ -187,6 +187,7 @@ Docker endpoints требуют access token и работают через ло
 | `GET` | `/api/projects/{projectId}/containers`               | список контейнеров проекта         |
 | `GET` | `/api/projects/{projectId}/containers/{containerId}` | inspect-level детали контейнера    |
 | `GET` | `/api/projects/{projectId}/containers/{containerId}/stats` | текущие CPU/memory/network stats |
+| `GET` | `/api/projects/{projectId}/containers/{containerId}/logs` | последние строки логов контейнера |
 
 Project container endpoints требуют `project.read`. Контейнер считается контейнером
 проекта только при наличии labels:
@@ -197,6 +198,19 @@ Project container endpoints требуют `project.read`. Контейнер с
 Если Docker Engine недоступен, Docker operations возвращают
 `503 docker_agent_unavailable`. Если контейнер отсутствует или не принадлежит
 проекту по labels, возвращается `404 docker_container_not_found`.
+
+Container logs endpoint поддерживает query params:
+
+- `tail` — сколько последних строк вернуть, по умолчанию `200`, максимум `1000`;
+- `since` — вернуть логи начиная с ISO-8601 timestamp;
+- `until` — вернуть логи до ISO-8601 timestamp;
+- `timestamps` — включить runtime timestamp в каждой строке;
+- `streams` — `stdout`, `stderr` или `stdout,stderr`.
+
+Ответ возвращается как `ApiResponse<ContainerLogs>` со строками вида
+`{ "stream": "STDOUT", "line": "..." }`. Для TTY-контейнеров Docker может
+вернуть объединенный `RAW` stream. Некорректные параметры возвращают
+`400 invalid_container_logs_request`.
 
 ## Тестирование
 

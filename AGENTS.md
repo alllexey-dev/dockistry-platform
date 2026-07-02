@@ -320,6 +320,28 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Verification code/hash/link logic находится в auth infrastructure/application;
   не размазывай ее по controllers.
 
+### Docker API
+
+- Project container endpoints требуют `project.read` и должны проверять
+  принадлежность контейнера проекту через managed labels:
+  `io.dockistry.managed=true` и `io.dockistry.project-id=<projectId>`.
+- Для операций по container id сначала проверяй read-access к проекту через
+  `ProjectAccessGuard`, затем `inspectContainer`; missing container и контейнер
+  из другого проекта должны возвращать `docker_container_not_found`.
+- Container logs endpoint:
+  `GET /api/projects/{projectId}/containers/{containerId}/logs`.
+- Logs query params: `tail` (default `200`, max `1000`), `since`, `until`,
+  `timestamps`, `streams`.
+- `since`/`until` принимаются как ISO-8601 timestamps и маппятся на Docker
+  seconds range. `since > until`, отрицательный/слишком большой `tail` и
+  неизвестные streams должны возвращать `invalid_container_logs_request`.
+- `streams` поддерживает `stdout`, `stderr` и `stdout,stderr`; в docker-java это
+  маппится на `withStdOut`/`withStdErr`, а stream в ответе берется из
+  `Frame.streamType`. Для контейнеров с `Tty=true` Docker может склеивать
+  stdout/stderr в `RAW`, поэтому разделение потоков не гарантируется.
+- Логи возвращаются через `ApiResponse<ContainerLogs>` как список строк с
+  полями `stream` и `line`.
+
 ### Validation и DTO
 
 - Request DTO должны иметь Jakarta Validation annotations на fields через
