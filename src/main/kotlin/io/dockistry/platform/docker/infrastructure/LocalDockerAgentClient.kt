@@ -19,6 +19,7 @@ import com.github.dockerjava.api.model.HostConfig
 import com.github.dockerjava.api.model.Ports
 import com.github.dockerjava.api.model.StatisticNetworksConfig
 import com.github.dockerjava.api.model.Statistics
+import com.github.dockerjava.api.model.StreamType
 import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.DockerAgentUnavailableException
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
@@ -28,6 +29,10 @@ import io.dockistry.platform.docker.domain.model.DockerContainerConfig
 import io.dockistry.platform.docker.domain.model.DockerContainerDetails
 import io.dockistry.platform.docker.domain.model.DockerContainerFilter
 import io.dockistry.platform.docker.domain.model.DockerContainerHealth
+import io.dockistry.platform.docker.domain.model.DockerContainerLogLine
+import io.dockistry.platform.docker.domain.model.DockerContainerLogStream
+import io.dockistry.platform.docker.domain.model.DockerContainerLogs
+import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
 import io.dockistry.platform.docker.domain.model.DockerContainerHostConfig
 import io.dockistry.platform.docker.domain.model.DockerContainerState
 import io.dockistry.platform.docker.domain.model.DockerContainerStateDetails
@@ -45,6 +50,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.util.concurrent.TimeUnit
+import com.github.dockerjava.api.model.Frame as DockerLogFrame
 import com.github.dockerjava.api.command.InspectContainerResponse as DockerInspectContainerResponse
 import com.github.dockerjava.api.model.RestartPolicy as DockerJavaRestartPolicy
 
@@ -105,6 +111,15 @@ class LocalDockerAgentClient(
         }
     }
 
+    override fun getLogs(
+        containerId: String,
+        request: DockerContainerLogsRequest
+    ): DockerContainerLogs {
+        return dockerCall {
+            readLogs(containerId, request)
+        }
+    }
+
     private fun readSingleStats(containerId: String): Statistics {
         var stats: Statistics? = null
         /*
@@ -138,6 +153,58 @@ class LocalDockerAgentClient(
             dockerLogger.warn("Docker stats command completed without stats for container {}", containerId)
             throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
         }
+    }
+
+    private fun readLogs(
+        containerId: String,
+        request: DockerContainerLogsRequest
+    ): DockerContainerLogs {
+        val lines = mutableListOf<DockerContainerLogLine>()
+        val callback = object : ResultCallback.Adapter<DockerLogFrame>() {
+            override fun onNext(item: DockerLogFrame) {
+                lines += item.toLogLines()
+            }
+        }
+
+        val command = dockerClient.logContainerCmd(containerId)
+            .withFollowStream(false)
+            .withStdOut(DockerContainerLogStream.STDOUT in request.streams)
+            .withStdErr(DockerContainerLogStream.STDERR in request.streams)
+            .withTimestamps(request.timestamps)
+            .withTail(request.tail)
+
+        request.since?.let { command.withSince(it.epochSecond.toInt()) }
+        request.until?.let { command.withUntil(it.epochSecond.toInt()) }
+
+        val completed = try {
+            command.exec(callback)
+                .awaitCompletion(LOGS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        } catch (exception: InterruptedException) {
+            Thread.currentThread().interrupt()
+            dockerLogger.warn("Docker logs command was interrupted for container {}", containerId, exception)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+        }
+
+        if (!completed) {
+            dockerLogger.warn("Docker logs command timed out for container {}", containerId)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+        }
+
+        return DockerContainerLogs(lines = lines)
+    }
+
+    private fun DockerLogFrame.toLogLines(): List<DockerContainerLogLine> {
+        return payload
+            .decodeToString()
+            .trimEnd('\n')
+            .split('\n')
+            .filter { it.isNotEmpty() }
+            .map {
+                DockerContainerLogLine(
+                    stream = streamType.toLogStream(),
+                    line = it.trimEnd('\r')
+                )
+            }
     }
 
     private fun Container.toSummary(): DockerContainerSummary {
@@ -398,6 +465,15 @@ class LocalDockerAgentClient(
         )
     }
 
+    private fun StreamType?.toLogStream(): DockerContainerLogStream {
+        return when (this) {
+            StreamType.STDOUT -> DockerContainerLogStream.STDOUT
+            StreamType.STDERR -> DockerContainerLogStream.STDERR
+            StreamType.RAW -> DockerContainerLogStream.RAW
+            else -> DockerContainerLogStream.RAW
+        }
+    }
+
     private fun Statistics.toContainerStats(): DockerContainerStats {
         val networkStats = networks.toNetworkStats()
         val diskIo = blkioStats.toDiskIoBytes()
@@ -515,6 +591,7 @@ class LocalDockerAgentClient(
 
         const val DOCKER_AGENT_UNAVAILABLE_MESSAGE = "Docker agent is unavailable"
         const val STATS_TIMEOUT_SECONDS = 5L
+        const val LOGS_TIMEOUT_SECONDS = 10L
     }
 
     private data class DiskIoBytes(

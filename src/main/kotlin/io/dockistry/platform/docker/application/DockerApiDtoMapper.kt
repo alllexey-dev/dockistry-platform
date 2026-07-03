@@ -1,6 +1,9 @@
 package io.dockistry.platform.docker.application
 
 import io.dockistry.platform.docker.domain.dto.ContainerDetails
+import io.dockistry.platform.docker.domain.dto.ContainerLogLine
+import io.dockistry.platform.docker.domain.dto.ContainerLogStream
+import io.dockistry.platform.docker.domain.dto.ContainerLogs
 import io.dockistry.platform.docker.domain.dto.ContainerState
 import io.dockistry.platform.docker.domain.dto.ContainerStats
 import io.dockistry.platform.docker.domain.dto.ContainerSummary
@@ -13,6 +16,8 @@ import io.dockistry.platform.docker.domain.dto.RestartPolicyType
 import io.dockistry.platform.docker.domain.model.DockerAgentAvailability
 import io.dockistry.platform.docker.domain.model.DockerAgentInfo
 import io.dockistry.platform.docker.domain.model.DockerContainerDetails
+import io.dockistry.platform.docker.domain.model.DockerContainerLogStream
+import io.dockistry.platform.docker.domain.model.DockerContainerLogs
 import io.dockistry.platform.docker.domain.model.DockerContainerState
 import io.dockistry.platform.docker.domain.model.DockerContainerStats
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
@@ -80,6 +85,17 @@ class DockerApiDtoMapper {
         )
     }
 
+    fun toLogsDto(logs: DockerContainerLogs): ContainerLogs {
+        return ContainerLogs(
+            lines = logs.lines.map {
+                ContainerLogLine(
+                    stream = it.stream.toDto(),
+                    line = it.line
+                )
+            }
+        )
+    }
+
     private fun DockerAgentAvailability.toDto(): DockerAgentState {
         return when (this) {
             DockerAgentAvailability.AVAILABLE -> DockerAgentState.AVAILABLE
@@ -131,6 +147,14 @@ class DockerApiDtoMapper {
             DockerRestartPolicyType.ALWAYS -> RestartPolicyType.ALWAYS
             DockerRestartPolicyType.ON_FAILURE -> RestartPolicyType.ON_FAILURE
             DockerRestartPolicyType.UNLESS_STOPPED -> RestartPolicyType.UNLESS_STOPPED
+        }
+    }
+
+    private fun DockerContainerLogStream.toDto(): ContainerLogStream {
+        return when (this) {
+            DockerContainerLogStream.STDOUT -> ContainerLogStream.STDOUT
+            DockerContainerLogStream.STDERR -> ContainerLogStream.STDERR
+            DockerContainerLogStream.RAW -> ContainerLogStream.RAW
         }
     }
 
