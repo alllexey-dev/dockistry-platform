@@ -328,6 +328,13 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Для операций по container id сначала проверяй read-access к проекту через
   `ProjectAccessGuard`, затем `inspectContainer`; missing container и контейнер
   из другого проекта должны возвращать `docker_container_not_found`.
+- Container lifecycle endpoints требуют `project.containers.manage`, который
+  входит в system roles `PROJECT_ADMIN` и `PROJECT_OPERATOR`.
+- Проверку managed labels и `project.containers.manage` держи в
+  `ProjectContainerAccessGuard`, не в `ProjectContainerService`.
+- Container lifecycle endpoints:
+  `POST /api/projects/{projectId}/containers/{containerId}/start|stop|restart|pause|unpause`,
+  `DELETE /api/projects/{projectId}/containers/{containerId}`.
 - Container logs endpoint:
   `GET /api/projects/{projectId}/containers/{containerId}/logs`.
 - Logs query params: `tail` (default `200`, max `1000`), `since`, `until`,

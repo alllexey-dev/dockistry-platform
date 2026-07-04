@@ -12,6 +12,7 @@ import com.github.dockerjava.api.model.Ports
 import com.github.dockerjava.api.model.RestartPolicy
 import com.github.dockerjava.api.model.Volume
 import io.dockistry.platform.docker.application.ports.DockerAgentClient
+import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerAgentAvailability
 import io.dockistry.platform.docker.domain.model.DockerContainerFilter
@@ -30,6 +31,7 @@ import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -244,6 +246,41 @@ class LocalDockerAgentClientDindIntegrationTests {
         assertHasMount(details.mounts, type = "bind", target = "/mnt/bind")
         assertHasMount(details.mounts, type = "volume", target = "/mnt/volume")
         assertHasMount(details.mounts, type = "tmpfs", target = "/tmp")
+    }
+
+    @Test
+    fun `lifecycle actions move container through expected states and delete it`() {
+        val projectId = UUID.randomUUID()
+        val container = createContainer(
+            image = BUSYBOX_IMAGE,
+            name = containerName("lifecycle"),
+            labels = managedLabels(projectId),
+            command = keepAliveCommand()
+        ).start()
+
+        assertContainerState(container.id, DockerContainerState.RUNNING)
+
+        dockerAgentClient.stopContainer(container.id)
+        assertContainerState(container.id, DockerContainerState.EXITED)
+
+        dockerAgentClient.startContainer(container.id)
+        assertContainerState(container.id, DockerContainerState.RUNNING)
+
+        dockerAgentClient.pauseContainer(container.id)
+        assertContainerState(container.id, DockerContainerState.PAUSED)
+
+        dockerAgentClient.unpauseContainer(container.id)
+        assertContainerState(container.id, DockerContainerState.RUNNING)
+
+        dockerAgentClient.restartContainer(container.id)
+        assertContainerState(container.id, DockerContainerState.RUNNING)
+
+        dockerAgentClient.deleteContainer(container.id)
+        eventuallyAssert {
+            assertFailsWith<DockerContainerNotFoundException> {
+                dockerAgentClient.inspectContainer(container.id)
+            }
+        }
     }
 
     @Tag("docker-stats")
@@ -465,6 +502,12 @@ class LocalDockerAgentClientDindIntegrationTests {
             mounts.any { it.type == type && it.target == target },
             "Expected $type mount at $target, actual mounts: $mounts"
         )
+    }
+
+    private fun assertContainerState(containerId: String, state: DockerContainerState) {
+        eventuallyAssert {
+            assertEquals(state, dockerAgentClient.inspectContainer(containerId).state.state)
+        }
     }
 
     private fun eventuallyAssert(

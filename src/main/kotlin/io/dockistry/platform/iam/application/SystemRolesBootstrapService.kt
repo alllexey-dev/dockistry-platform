@@ -52,6 +52,10 @@ class SystemRolesBootstrapService(
             key = SystemPermissionNames.PROJECT_MEMBERS_MANAGE,
             description = "Allows adding and removing project member role bindings in the granted scope."
         )
+        val projectContainersManagePermission = permission(
+            key = SystemPermissionNames.PROJECT_CONTAINER_MANAGE,
+            description = "Allows managing lifecycle actions for project containers in the granted scope."
+        )
 
         val projectAdmin = role(
             name = SystemRoleNames.PROJECT_ADMIN,
@@ -72,11 +76,13 @@ class SystemRolesBootstrapService(
             projectUpdatePermission,
             projectDeletePermission,
             projectArchivePermission,
-            projectMembersManagePermission
+            projectMembersManagePermission,
+            projectContainersManagePermission
         )
         val operatorPermissions = setOf(
             projectReadPermission,
-            projectUpdatePermission
+            projectUpdatePermission,
+            projectContainersManagePermission
         )
         val viewerPermissions = setOf(projectReadPermission)
 

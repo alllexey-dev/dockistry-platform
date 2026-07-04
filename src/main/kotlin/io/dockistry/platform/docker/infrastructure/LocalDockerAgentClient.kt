@@ -120,6 +120,44 @@ class LocalDockerAgentClient(
         }
     }
 
+    override fun startContainer(containerId: String) {
+        dockerCall {
+            dockerClient.startContainerCmd(containerId).exec()
+        }
+    }
+
+    override fun stopContainer(containerId: String) {
+        dockerCall {
+            dockerClient.stopContainerCmd(containerId).exec()
+        }
+    }
+
+    override fun restartContainer(containerId: String) {
+        dockerCall {
+            dockerClient.restartContainerCmd(containerId).exec()
+        }
+    }
+
+    override fun pauseContainer(containerId: String) {
+        dockerCall {
+            dockerClient.pauseContainerCmd(containerId).exec()
+        }
+    }
+
+    override fun unpauseContainer(containerId: String) {
+        dockerCall {
+            dockerClient.unpauseContainerCmd(containerId).exec()
+        }
+    }
+
+    override fun deleteContainer(containerId: String) {
+        dockerCall {
+            dockerClient.removeContainerCmd(containerId)
+                .withForce(true)
+                .exec()
+        }
+    }
+
     private fun readSingleStats(containerId: String): Statistics {
         var stats: Statistics? = null
         /*
