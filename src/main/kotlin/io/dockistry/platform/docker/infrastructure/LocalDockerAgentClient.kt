@@ -5,7 +5,9 @@ import com.github.dockerjava.api.async.ResultCallback
 import com.github.dockerjava.api.command.HealthState
 import com.github.dockerjava.api.exception.DockerClientException
 import com.github.dockerjava.api.exception.DockerException
+import com.github.dockerjava.api.exception.ConflictException as DockerConflictException
 import com.github.dockerjava.api.exception.NotFoundException as DockerNotFoundException
+import com.github.dockerjava.api.exception.NotModifiedException as DockerNotModifiedException
 import com.github.dockerjava.api.model.BlkioStatEntry
 import com.github.dockerjava.api.model.BlkioStatsConfig
 import com.github.dockerjava.api.model.Container
@@ -22,7 +24,13 @@ import com.github.dockerjava.api.model.Statistics
 import com.github.dockerjava.api.model.StreamType
 import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.DockerAgentUnavailableException
+import io.dockistry.platform.docker.domain.DockerContainerAlreadyPausedException
+import io.dockistry.platform.docker.domain.DockerContainerAlreadyStartedException
+import io.dockistry.platform.docker.domain.DockerContainerAlreadyStoppedException
+import io.dockistry.platform.docker.domain.DockerContainerLifecycleConflictException
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
+import io.dockistry.platform.docker.domain.DockerContainerNotPausedException
+import io.dockistry.platform.docker.domain.DockerContainerNotRunningException
 import io.dockistry.platform.docker.domain.model.DockerAgentAvailability
 import io.dockistry.platform.docker.domain.model.DockerAgentInfo
 import io.dockistry.platform.docker.domain.model.DockerContainerConfig
@@ -121,31 +129,46 @@ class LocalDockerAgentClient(
     }
 
     override fun startContainer(containerId: String) {
-        dockerCall {
+        lifecycleDockerCall(
+            alreadyInTargetState = { DockerContainerAlreadyStartedException() },
+            conflict = { DockerContainerLifecycleConflictException(it.safeDockerMessage()) }
+        ) {
             dockerClient.startContainerCmd(containerId).exec()
         }
     }
 
     override fun stopContainer(containerId: String) {
-        dockerCall {
+        lifecycleDockerCall(
+            alreadyInTargetState = { DockerContainerAlreadyStoppedException() },
+            conflict = { DockerContainerLifecycleConflictException(it.safeDockerMessage()) }
+        ) {
             dockerClient.stopContainerCmd(containerId).exec()
         }
     }
 
     override fun restartContainer(containerId: String) {
-        dockerCall {
+        lifecycleDockerCall(
+            alreadyInTargetState = { DockerContainerLifecycleConflictException(it.safeDockerMessage()) },
+            conflict = { DockerContainerLifecycleConflictException(it.safeDockerMessage()) }
+        ) {
             dockerClient.restartContainerCmd(containerId).exec()
         }
     }
 
     override fun pauseContainer(containerId: String) {
-        dockerCall {
+        lifecycleDockerCall(
+            alreadyInTargetState = { DockerContainerAlreadyPausedException() },
+            conflict = { it.toPauseConflict() }
+        ) {
             dockerClient.pauseContainerCmd(containerId).exec()
         }
     }
 
     override fun unpauseContainer(containerId: String) {
-        dockerCall {
+        lifecycleDockerCall(
+            alreadyInTargetState = { DockerContainerNotPausedException() },
+            conflict = { it.toUnpauseConflict() }
+        ) {
             dockerClient.unpauseContainerCmd(containerId).exec()
         }
     }
@@ -616,6 +639,62 @@ class LocalDockerAgentClient(
         }
     }
 
+    private inline fun lifecycleDockerCall(
+        alreadyInTargetState: (DockerNotModifiedException) -> RuntimeException,
+        conflict: (DockerConflictException) -> RuntimeException,
+        operation: () -> Unit
+    ) {
+        try {
+            operation()
+        } catch (exception: DockerNotModifiedException) {
+            throw alreadyInTargetState(exception)
+        } catch (exception: DockerConflictException) {
+            throw conflict(exception)
+        } catch (_: DockerNotFoundException) {
+            throw DockerContainerNotFoundException("Docker container couldn't be found")
+        } catch (exception: DockerException) {
+            exception.toLifecycleStateConflict()?.let { throw it }
+            logDockerCallFailure(exception)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+        } catch (exception: DockerClientException) {
+            logDockerCallFailure(exception)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+        }
+    }
+
+    private fun DockerException.toLifecycleStateConflict(): RuntimeException? {
+        val message = safeDockerMessage()
+        val normalized = message.lowercase()
+
+        return when {
+            "already started" in normalized || "already running" in normalized ->
+                DockerContainerAlreadyStartedException()
+            "already stopped" in normalized ->
+                DockerContainerAlreadyStoppedException()
+            "already paused" in normalized ->
+                DockerContainerAlreadyPausedException()
+            "not paused" in normalized ->
+                DockerContainerNotPausedException()
+            "not running" in normalized ->
+                DockerContainerNotRunningException()
+            else -> null
+        }
+    }
+
+    private fun DockerConflictException.toPauseConflict(): RuntimeException {
+        return toLifecycleStateConflict()
+            ?: DockerContainerLifecycleConflictException(safeDockerMessage())
+    }
+
+    private fun DockerConflictException.toUnpauseConflict(): RuntimeException {
+        return toLifecycleStateConflict()
+            ?: DockerContainerLifecycleConflictException(safeDockerMessage())
+    }
+
+    private fun DockerException.safeDockerMessage(): String {
+        return message?.takeIf { it.isNotBlank() } ?: DOCKER_CONTAINER_LIFECYCLE_CONFLICT_MESSAGE
+    }
+
     private fun logDockerCallFailure(exception: RuntimeException) {
         dockerLogger.warn("Docker agent call failed: {}", exception.safeMessage(), exception)
     }
@@ -628,6 +707,7 @@ class LocalDockerAgentClient(
         val dockerLogger: Logger = LoggerFactory.getLogger(LocalDockerAgentClient::class.java)
 
         const val DOCKER_AGENT_UNAVAILABLE_MESSAGE = "Docker agent is unavailable"
+        const val DOCKER_CONTAINER_LIFECYCLE_CONFLICT_MESSAGE = "Docker container lifecycle state conflict"
         const val STATS_TIMEOUT_SECONDS = 5L
         const val LOGS_TIMEOUT_SECONDS = 10L
     }

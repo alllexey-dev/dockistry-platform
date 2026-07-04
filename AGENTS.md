@@ -332,6 +332,9 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   входит в system roles `PROJECT_ADMIN` и `PROJECT_OPERATOR`.
 - Проверку managed labels и `project.containers.manage` держи в
   `ProjectContainerAccessGuard`, не в `ProjectContainerService`.
+- Docker lifecycle state conflicts из docker-java (`NotModifiedException` и
+  `ConflictException`) маппь в typed Docker domain exceptions, а не в
+  `docker_agent_unavailable`.
 - Container lifecycle endpoints:
   `POST /api/projects/{projectId}/containers/{containerId}/start|stop|restart|pause|unpause`,
   `DELETE /api/projects/{projectId}/containers/{containerId}`.

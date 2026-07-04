@@ -12,7 +12,12 @@ import com.github.dockerjava.api.model.Ports
 import com.github.dockerjava.api.model.RestartPolicy
 import com.github.dockerjava.api.model.Volume
 import io.dockistry.platform.docker.application.ports.DockerAgentClient
+import io.dockistry.platform.docker.domain.DockerContainerAlreadyPausedException
+import io.dockistry.platform.docker.domain.DockerContainerAlreadyStartedException
+import io.dockistry.platform.docker.domain.DockerContainerAlreadyStoppedException
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
+import io.dockistry.platform.docker.domain.DockerContainerNotPausedException
+import io.dockistry.platform.docker.domain.DockerContainerNotRunningException
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerAgentAvailability
 import io.dockistry.platform.docker.domain.model.DockerContainerFilter
@@ -280,6 +285,44 @@ class LocalDockerAgentClientDindIntegrationTests {
             assertFailsWith<DockerContainerNotFoundException> {
                 dockerAgentClient.inspectContainer(container.id)
             }
+        }
+    }
+
+    @Test
+    fun `lifecycle no op actions throw explicit state exceptions`() {
+        val projectId = UUID.randomUUID()
+        val container = createContainer(
+            image = BUSYBOX_IMAGE,
+            name = containerName("lifecycle-noop"),
+            labels = managedLabels(projectId),
+            command = keepAliveCommand()
+        ).start()
+
+        assertContainerState(container.id, DockerContainerState.RUNNING)
+
+        assertFailsWith<DockerContainerAlreadyStartedException> {
+            dockerAgentClient.startContainer(container.id)
+        }
+
+        dockerAgentClient.pauseContainer(container.id)
+        assertContainerState(container.id, DockerContainerState.PAUSED)
+        assertFailsWith<DockerContainerAlreadyPausedException> {
+            dockerAgentClient.pauseContainer(container.id)
+        }
+
+        dockerAgentClient.unpauseContainer(container.id)
+        assertContainerState(container.id, DockerContainerState.RUNNING)
+        assertFailsWith<DockerContainerNotPausedException> {
+            dockerAgentClient.unpauseContainer(container.id)
+        }
+
+        dockerAgentClient.stopContainer(container.id)
+        assertContainerState(container.id, DockerContainerState.EXITED)
+        assertFailsWith<DockerContainerAlreadyStoppedException> {
+            dockerAgentClient.stopContainer(container.id)
+        }
+        assertFailsWith<DockerContainerNotRunningException> {
+            dockerAgentClient.pauseContainer(container.id)
         }
     }
 

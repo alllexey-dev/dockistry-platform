@@ -207,6 +207,11 @@ Project container endpoints требуют `project.read`. Контейнер с
 
 Lifecycle endpoints дополнительно требуют permission `project.containers.manage`.
 Эта permission входит в system roles `project_admin` и `project_operator`.
+Повторная или несовместимая lifecycle operation возвращает `409` с явным
+state-specific `errorCode`: `docker_container_already_started`,
+`docker_container_already_stopped`, `docker_container_already_paused`,
+`docker_container_not_paused`, `docker_container_not_running` или fallback
+`docker_container_lifecycle_conflict`.
 
 Container logs endpoint поддерживает query params:
 
