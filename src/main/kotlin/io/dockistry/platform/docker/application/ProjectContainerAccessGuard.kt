@@ -1,6 +1,5 @@
 package io.dockistry.platform.docker.application
 
-import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerContainerDetails
@@ -12,7 +11,7 @@ import java.util.UUID
 
 @Service
 class ProjectContainerAccessGuard(
-    private val dockerAgentClient: DockerAgentClient,
+    private val containerService: ContainerService,
     private val projectAccessGuard: ProjectAccessGuard
 ) {
     fun requireReadableContainer(
@@ -21,7 +20,7 @@ class ProjectContainerAccessGuard(
         principal: Principal
     ): ProjectContainerAccess {
         val project = projectAccessGuard.requireReadable(projectId, principal)
-        val container = dockerAgentClient.inspectContainer(containerId)
+        val container = containerService.inspectContainer(containerId)
 
         if (!container.belongsTo(project)) {
             throw notFound()

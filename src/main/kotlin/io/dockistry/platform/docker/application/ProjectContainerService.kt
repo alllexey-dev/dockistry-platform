@@ -1,6 +1,5 @@
 package io.dockistry.platform.docker.application
 
-import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.dto.ContainerDetails
 import io.dockistry.platform.docker.domain.dto.ContainerLogs
@@ -17,7 +16,7 @@ import java.util.UUID
 
 @Service
 class ProjectContainerService(
-    private val dockerAgentClient: DockerAgentClient,
+    private val containerService: ContainerService,
     private val projectAccessGuard: ProjectAccessGuard,
     private val projectContainerAccessGuard: ProjectContainerAccessGuard,
     private val dockerApiDtoMapper: DockerApiDtoMapper
@@ -26,7 +25,7 @@ class ProjectContainerService(
     fun listContainers(projectId: UUID, principal: Principal): List<ContainerSummary> {
         val project = projectAccessGuard.requireReadable(projectId, principal)
         return dockerApiDtoMapper.toSummaryDtos(
-            dockerAgentClient.listContainers(project.toContainerFilter())
+            containerService.listContainers(project.toContainerFilter())
         )
     }
 
@@ -56,7 +55,7 @@ class ProjectContainerService(
             principal
         )
         return dockerApiDtoMapper.toStatsDto(
-            dockerAgentClient.getContainerStats(access.container.id)
+            containerService.getContainerStats(access.container.id)
         )
     }
 
@@ -73,7 +72,7 @@ class ProjectContainerService(
             principal
         )
         return dockerApiDtoMapper.toLogsDto(
-            dockerAgentClient.getLogs(access.container.id, request)
+            containerService.getLogs(access.container.id, request)
         )
     }
 
@@ -84,7 +83,7 @@ class ProjectContainerService(
             containerId,
             principal
         )
-        dockerAgentClient.startContainer(access.container.id)
+        containerService.startContainer(access.container.id)
     }
 
     @Transactional(readOnly = true)
@@ -94,7 +93,7 @@ class ProjectContainerService(
             containerId,
             principal
         )
-        dockerAgentClient.stopContainer(access.container.id)
+        containerService.stopContainer(access.container.id)
     }
 
     @Transactional(readOnly = true)
@@ -104,7 +103,7 @@ class ProjectContainerService(
             containerId,
             principal
         )
-        dockerAgentClient.restartContainer(access.container.id)
+        containerService.restartContainer(access.container.id)
     }
 
     @Transactional(readOnly = true)
@@ -114,7 +113,7 @@ class ProjectContainerService(
             containerId,
             principal
         )
-        dockerAgentClient.pauseContainer(access.container.id)
+        containerService.pauseContainer(access.container.id)
     }
 
     @Transactional(readOnly = true)
@@ -124,7 +123,7 @@ class ProjectContainerService(
             containerId,
             principal
         )
-        dockerAgentClient.unpauseContainer(access.container.id)
+        containerService.unpauseContainer(access.container.id)
     }
 
     @Transactional(readOnly = true)
@@ -134,7 +133,7 @@ class ProjectContainerService(
             containerId,
             principal
         )
-        dockerAgentClient.deleteContainer(access.container.id)
+        containerService.deleteContainer(access.container.id)
     }
 
     private fun Project.toContainerFilter(): DockerContainerFilter {
