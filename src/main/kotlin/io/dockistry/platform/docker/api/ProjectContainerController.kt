@@ -10,8 +10,10 @@ import io.dockistry.platform.docker.domain.model.DockerContainerLogStream
 import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
 import io.dockistry.platform.iam.application.CurrentUserProvider
 import io.dockistry.platform.shared.api.ApiResponse
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
@@ -81,6 +83,66 @@ class ProjectContainerController(
                 request = request
             )
         )
+    }
+
+    @PostMapping("/{containerId}/start")
+    fun start(
+        @PathVariable projectId: UUID,
+        @PathVariable containerId: String
+    ): ApiResponse<String> {
+        val user = currentUserProvider.getUser()
+        projectContainerService.startContainer(projectId, containerId, user.principal)
+        return ApiResponse("ok")
+    }
+
+    @PostMapping("/{containerId}/stop")
+    fun stop(
+        @PathVariable projectId: UUID,
+        @PathVariable containerId: String
+    ): ApiResponse<String> {
+        val user = currentUserProvider.getUser()
+        projectContainerService.stopContainer(projectId, containerId, user.principal)
+        return ApiResponse("ok")
+    }
+
+    @PostMapping("/{containerId}/restart")
+    fun restart(
+        @PathVariable projectId: UUID,
+        @PathVariable containerId: String
+    ): ApiResponse<String> {
+        val user = currentUserProvider.getUser()
+        projectContainerService.restartContainer(projectId, containerId, user.principal)
+        return ApiResponse("ok")
+    }
+
+    @PostMapping("/{containerId}/pause")
+    fun pause(
+        @PathVariable projectId: UUID,
+        @PathVariable containerId: String
+    ): ApiResponse<String> {
+        val user = currentUserProvider.getUser()
+        projectContainerService.pauseContainer(projectId, containerId, user.principal)
+        return ApiResponse("ok")
+    }
+
+    @PostMapping("/{containerId}/unpause")
+    fun unpause(
+        @PathVariable projectId: UUID,
+        @PathVariable containerId: String
+    ): ApiResponse<String> {
+        val user = currentUserProvider.getUser()
+        projectContainerService.unpauseContainer(projectId, containerId, user.principal)
+        return ApiResponse("ok")
+    }
+
+    @DeleteMapping("/{containerId}")
+    fun delete(
+        @PathVariable projectId: UUID,
+        @PathVariable containerId: String
+    ): ApiResponse<String> {
+        val user = currentUserProvider.getUser()
+        projectContainerService.deleteContainer(projectId, containerId, user.principal)
+        return ApiResponse("ok")
     }
 
     private fun String?.toLogStreams(): Set<DockerContainerLogStream> {

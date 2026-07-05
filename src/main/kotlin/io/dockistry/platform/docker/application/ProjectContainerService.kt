@@ -1,13 +1,10 @@
 package io.dockistry.platform.docker.application
 
-import io.dockistry.platform.docker.application.ports.DockerAgentClient
-import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.dto.ContainerDetails
 import io.dockistry.platform.docker.domain.dto.ContainerLogs
 import io.dockistry.platform.docker.domain.dto.ContainerStats
 import io.dockistry.platform.docker.domain.dto.ContainerSummary
-import io.dockistry.platform.docker.domain.model.DockerContainerDetails
 import io.dockistry.platform.docker.domain.model.DockerContainerFilter
 import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
 import io.dockistry.platform.iam.domain.Principal
@@ -19,15 +16,16 @@ import java.util.UUID
 
 @Service
 class ProjectContainerService(
-    private val dockerAgentClient: DockerAgentClient,
+    private val containerService: ContainerService,
     private val projectAccessGuard: ProjectAccessGuard,
+    private val projectContainerAccessGuard: ProjectContainerAccessGuard,
     private val dockerApiDtoMapper: DockerApiDtoMapper
 ) {
     @Transactional(readOnly = true)
     fun listContainers(projectId: UUID, principal: Principal): List<ContainerSummary> {
         val project = projectAccessGuard.requireReadable(projectId, principal)
         return dockerApiDtoMapper.toSummaryDtos(
-            dockerAgentClient.listContainers(project.toContainerFilter())
+            containerService.listContainers(project.toContainerFilter())
         )
     }
 
@@ -37,12 +35,12 @@ class ProjectContainerService(
         containerId: String,
         principal: Principal
     ): ContainerDetails {
-        val project = projectAccessGuard.requireReadable(projectId, principal)
-        val container = dockerAgentClient.inspectContainer(containerId)
-        return container
-            .takeIf { it.belongsTo(project) }
-            ?.let { dockerApiDtoMapper.toDetailsDto(it) }
-            ?: throw notFound()
+        val access = projectContainerAccessGuard.requireReadableContainer(
+            projectId,
+            containerId,
+            principal
+        )
+        return dockerApiDtoMapper.toDetailsDto(access.container)
     }
 
     @Transactional(readOnly = true)
@@ -51,14 +49,14 @@ class ProjectContainerService(
         containerId: String,
         principal: Principal
     ): ContainerStats {
-        val project = projectAccessGuard.requireReadable(projectId, principal)
-        val container = dockerAgentClient.inspectContainer(containerId)
-
-        if (!container.belongsTo(project)) {
-            throw notFound()
-        }
-
-        return dockerApiDtoMapper.toStatsDto(dockerAgentClient.getContainerStats(containerId))
+        val access = projectContainerAccessGuard.requireReadableContainer(
+            projectId,
+            containerId,
+            principal
+        )
+        return dockerApiDtoMapper.toStatsDto(
+            containerService.getContainerStats(access.container.id)
+        )
     }
 
     @Transactional(readOnly = true)
@@ -68,14 +66,74 @@ class ProjectContainerService(
         principal: Principal,
         request: DockerContainerLogsRequest
     ): ContainerLogs {
-        val project = projectAccessGuard.requireReadable(projectId, principal)
-        val container = dockerAgentClient.inspectContainer(containerId)
+        val access = projectContainerAccessGuard.requireReadableContainer(
+            projectId,
+            containerId,
+            principal
+        )
+        return dockerApiDtoMapper.toLogsDto(
+            containerService.getLogs(access.container.id, request)
+        )
+    }
 
-        if (!container.belongsTo(project)) {
-            throw notFound()
-        }
+    @Transactional(readOnly = true)
+    fun startContainer(projectId: UUID, containerId: String, principal: Principal) {
+        val access = projectContainerAccessGuard.requireManageableContainer(
+            projectId,
+            containerId,
+            principal
+        )
+        containerService.startContainer(access.container.id)
+    }
 
-        return dockerApiDtoMapper.toLogsDto(dockerAgentClient.getLogs(containerId, request))
+    @Transactional(readOnly = true)
+    fun stopContainer(projectId: UUID, containerId: String, principal: Principal) {
+        val access = projectContainerAccessGuard.requireManageableContainer(
+            projectId,
+            containerId,
+            principal
+        )
+        containerService.stopContainer(access.container.id)
+    }
+
+    @Transactional(readOnly = true)
+    fun restartContainer(projectId: UUID, containerId: String, principal: Principal) {
+        val access = projectContainerAccessGuard.requireManageableContainer(
+            projectId,
+            containerId,
+            principal
+        )
+        containerService.restartContainer(access.container.id)
+    }
+
+    @Transactional(readOnly = true)
+    fun pauseContainer(projectId: UUID, containerId: String, principal: Principal) {
+        val access = projectContainerAccessGuard.requireManageableContainer(
+            projectId,
+            containerId,
+            principal
+        )
+        containerService.pauseContainer(access.container.id)
+    }
+
+    @Transactional(readOnly = true)
+    fun unpauseContainer(projectId: UUID, containerId: String, principal: Principal) {
+        val access = projectContainerAccessGuard.requireManageableContainer(
+            projectId,
+            containerId,
+            principal
+        )
+        containerService.unpauseContainer(access.container.id)
+    }
+
+    @Transactional(readOnly = true)
+    fun deleteContainer(projectId: UUID, containerId: String, principal: Principal) {
+        val access = projectContainerAccessGuard.requireManageableContainer(
+            projectId,
+            containerId,
+            principal
+        )
+        containerService.deleteContainer(access.container.id)
     }
 
     private fun Project.toContainerFilter(): DockerContainerFilter {
@@ -87,12 +145,4 @@ class ProjectContainerService(
         )
     }
 
-    private fun DockerContainerDetails.belongsTo(project: Project): Boolean {
-        return labels[DockerLabels.MANAGED] == "true" &&
-            labels[DockerLabels.PROJECT_ID] == project.id.toString()
-    }
-
-    private fun notFound(): DockerContainerNotFoundException {
-        return DockerContainerNotFoundException("Docker container couldn't be found")
-    }
 }

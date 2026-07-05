@@ -18,4 +18,16 @@ interface DockerAgentClient {
     fun getContainerStats(containerId: String): DockerContainerStats
 
     fun getLogs(containerId: String, request: DockerContainerLogsRequest): DockerContainerLogs
+
+    fun startContainer(containerId: String)
+
+    fun stopContainer(containerId: String)
+
+    fun restartContainer(containerId: String)
+
+    fun pauseContainer(containerId: String)
+
+    fun unpauseContainer(containerId: String)
+
+    fun deleteContainer(containerId: String)
 }

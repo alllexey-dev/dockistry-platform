@@ -188,6 +188,12 @@ Docker endpoints требуют access token и работают через ло
 | `GET` | `/api/projects/{projectId}/containers/{containerId}` | inspect-level детали контейнера    |
 | `GET` | `/api/projects/{projectId}/containers/{containerId}/stats` | текущие CPU/memory/network stats |
 | `GET` | `/api/projects/{projectId}/containers/{containerId}/logs` | последние строки логов контейнера |
+| `POST` | `/api/projects/{projectId}/containers/{containerId}/start` | запустить контейнер |
+| `POST` | `/api/projects/{projectId}/containers/{containerId}/stop` | остановить контейнер |
+| `POST` | `/api/projects/{projectId}/containers/{containerId}/restart` | перезапустить контейнер |
+| `POST` | `/api/projects/{projectId}/containers/{containerId}/pause` | поставить контейнер на паузу |
+| `POST` | `/api/projects/{projectId}/containers/{containerId}/unpause` | снять контейнер с паузы |
+| `DELETE` | `/api/projects/{projectId}/containers/{containerId}` | удалить контейнер |
 
 Project container endpoints требуют `project.read`. Контейнер считается контейнером
 проекта только при наличии labels:
@@ -198,6 +204,14 @@ Project container endpoints требуют `project.read`. Контейнер с
 Если Docker Engine недоступен, Docker operations возвращают
 `503 docker_agent_unavailable`. Если контейнер отсутствует или не принадлежит
 проекту по labels, возвращается `404 docker_container_not_found`.
+
+Lifecycle endpoints дополнительно требуют permission `project.containers.manage`.
+Эта permission входит в system roles `project_admin` и `project_operator`.
+Повторная или несовместимая lifecycle operation возвращает `409` с явным
+state-specific `errorCode`: `docker_container_already_started`,
+`docker_container_already_stopped`, `docker_container_already_paused`,
+`docker_container_not_paused`, `docker_container_not_running` или fallback
+`docker_container_lifecycle_conflict`.
 
 Container logs endpoint поддерживает query params:
 
