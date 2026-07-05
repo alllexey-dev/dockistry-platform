@@ -103,7 +103,7 @@ class ProjectServiceIntegrationTests {
         val fixtures = fixtures()
         val owner = fixtures.principal()
         fixtures.grantSystemPermission(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
-        val projectAdmin = roleRepository.findByName(SystemRoleNames.PROJECT_ADMIN)
+        val projectAdmin = roleRepository.findByNameAndIsSystemTrue(SystemRoleNames.PROJECT_ADMIN)
             ?: throw AssertionError("Expected project admin role to be bootstrapped")
         projectAdmin.permissions.clear()
         roleRepository.delete(projectAdmin)

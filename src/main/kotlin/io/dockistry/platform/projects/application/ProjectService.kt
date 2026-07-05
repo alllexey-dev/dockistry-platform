@@ -64,7 +64,7 @@ class ProjectService(
             scope = scope
         )
 
-        val systemAdminRole = roleRepository.findByName(SystemRoleNames.PROJECT_ADMIN)
+        val systemAdminRole = roleRepository.findByNameAndIsSystemTrue(SystemRoleNames.PROJECT_ADMIN)
             ?: throw InternalDataIntegrityException("Basic system role project_admin couldn't be found")
 
         ownerPrincipal.roleBindings.add(

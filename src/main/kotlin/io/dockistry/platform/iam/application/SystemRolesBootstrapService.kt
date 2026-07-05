@@ -116,7 +116,7 @@ class SystemRolesBootstrapService(
     }
 
     private fun role(name: String, description: String): Role {
-        return roleRepository.findByName(name)
+        return roleRepository.findByNameAndIsSystemTrue(name)
             ?: roleRepository.save(
                 Role(
                     name = name,
