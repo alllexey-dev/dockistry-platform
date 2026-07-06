@@ -108,7 +108,8 @@ class SystemRolesBootstrapServiceIntegrationTests {
         )
     }
 
-    private fun role(name: String) = assertNotNull(roleRepository.findByName(name))
+    private fun role(name: String) =
+        assertNotNull(roleRepository.findByNameAndIsSystemTrue(name))
 
     private object EmptyApplicationArguments : ApplicationArguments {
         override fun getSourceArgs(): Array<String> = emptyArray()

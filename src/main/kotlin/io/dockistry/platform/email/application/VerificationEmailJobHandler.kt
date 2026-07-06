@@ -1,7 +1,9 @@
-package io.dockistry.platform.email.application.ports
+package io.dockistry.platform.email.application
 
 import io.dockistry.platform.auth.application.EmailVerificationChallengeIssuer
 import io.dockistry.platform.auth.infrastructure.EmailVerificationLinks
+import io.dockistry.platform.email.application.ports.EmailJobHandler
+import io.dockistry.platform.email.application.ports.RawEmailSender
 import io.dockistry.platform.email.domain.EmailSendJobContext
 import io.dockistry.platform.email.domain.VerificationEmailJobContext
 import io.dockistry.platform.iam.infrastructure.UserRepository
@@ -42,7 +44,7 @@ class VerificationEmailJobHandler(
         } catch (_: ClassCastException) {
             throw InternalDataIntegrityException(
                 "Email job handler for ${getContextTypeKey()} expected ${getContextType().simpleName}, " +
-                    "but got ${context::class.simpleName}"
+                        "but got ${context::class.simpleName}"
             )
         }
 

@@ -371,7 +371,8 @@ class ProjectMemberControllerIntegrationTests {
         )
     }
 
-    private fun role(name: String): Role = assertNotNull(roleRepository.findByName(name))
+    private fun role(name: String): Role =
+        assertNotNull(roleRepository.findByNameAndIsSystemTrue(name))
 
     private fun IamProjectFixtures.grantRead(principal: Principal, project: Project) {
         grantSystemPermission(principal, project.scope, SystemPermissionNames.PROJECT_READ)
