@@ -45,17 +45,11 @@ data class DockerImageReference(
 
 data class DockerImageSummary(
     val id: String,
-    val reference: String?,
-    val registry: DockerImageRegistryInfo?,
-    val namespace: String?,
-    val repository: String?,
-    val tag: String?,
+    val references: List<DockerImageReference>,
     val repoDigests: List<String>,
     val parentId: String?,
     val createdEpochSeconds: Long?,
     val sizeBytes: Long?,
-    val virtualSizeBytes: Long?,
-    val sharedSizeBytes: Long?,
     val labels: Map<String, String>
 )
 
@@ -72,16 +66,13 @@ data class DockerImageInfo(
     val author: String?,
     val comment: String?,
     val sizeBytes: Long?,
-    val virtualSizeBytes: Long?,
     val graphDriver: DockerImageGraphDriver?,
     val rootFs: DockerImageRootFs?,
-    val config: DockerImageConfig?,
-    val containerConfig: DockerImageConfig?
+    val config: DockerImageConfig?
 )
 
 data class DockerImageConfig(
-    val image: String?,
-    val envNames: List<String>,
+    val env: Map<String, String?>,
     val cmd: List<String>,
     val entrypoint: List<String>,
     val workingDir: String?,

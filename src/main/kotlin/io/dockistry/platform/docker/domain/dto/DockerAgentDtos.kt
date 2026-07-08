@@ -25,11 +25,7 @@ data class PullImageRequest(
 
 data class ImageSummary(
     val id: String,
-    val reference: String?,
-    val registry: ImageRegistryInfo?,
-    val namespace: String?,
-    val repository: String?,
-    val tag: String?,
+    val references: List<ImageReference>,
     val repoDigests: List<String>,
     val createdEpochSeconds: Long?,
     val sizeBytes: Long?,
@@ -38,7 +34,6 @@ data class ImageSummary(
 
 data class ImageInfo(
     val id: String,
-    val parentId: String?,
     val repoTags: List<ImageReference>,
     val repoDigests: List<String>,
     val createdAt: String?,
@@ -49,10 +44,8 @@ data class ImageInfo(
     val author: String?,
     val comment: String?,
     val sizeBytes: Long?,
-    val virtualSizeBytes: Long?,
     val rootFs: ImageRootFs?,
-    val config: ImageConfig?,
-    val containerConfig: ImageConfig?
+    val config: ImageConfig?
 )
 
 data class ImageReference(
@@ -69,7 +62,6 @@ data class ImageRegistryInfo(
 )
 
 data class ImageConfig(
-    val image: String?,
     val envNames: List<String>,
     val cmd: List<String>,
     val entrypoint: List<String>,

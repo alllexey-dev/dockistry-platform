@@ -115,7 +115,7 @@ class LocalDockerAgentClient(
             dockerClient.listImagesCmd()
                 .withShowAll(true)
                 .exec()
-                .flatMap { it.toImageSummaries() }
+                .map { it.toImageSummary() }
         }
     }
 
@@ -343,31 +343,21 @@ class LocalDockerAgentClient(
         return DockerContainerLogs(lines = lines)
     }
 
-    private fun DockerJavaImage.toImageSummaries(): List<DockerImageSummary> {
+    private fun DockerJavaImage.toImageSummary(): DockerImageSummary {
         val references = repoTags
             ?.toList()
             .orEmpty()
-            .ifEmpty { listOf<String?>(null) }
+            .map { it.toImageReference() }
 
-        return references.map { repoTag ->
-            val reference = repoTag?.toImageReference()
-
-            DockerImageSummary(
-                id = id,
-                reference = repoTag,
-                registry = reference?.registry,
-                namespace = reference?.namespace,
-                repository = reference?.repository,
-                tag = reference?.tag,
-                repoDigests = repoDigests?.toList().orEmpty(),
-                parentId = parentId,
-                createdEpochSeconds = created,
-                sizeBytes = size,
-                virtualSizeBytes = virtualSize,
-                sharedSizeBytes = sharedSize,
-                labels = labels.orEmpty()
-            )
-        }
+        return DockerImageSummary(
+            id = id,
+            references = references,
+            repoDigests = repoDigests?.toList().orEmpty(),
+            parentId = parentId,
+            createdEpochSeconds = created,
+            sizeBytes = size,
+            labels = labels.orEmpty()
+        )
     }
 
     private fun DockerInspectImageResponse.toImageInfo(): DockerImageInfo {
@@ -384,11 +374,9 @@ class LocalDockerAgentClient(
             author = author,
             comment = comment,
             sizeBytes = size,
-            virtualSizeBytes = virtualSize,
             graphDriver = graphDriver.toImageGraphDriver(),
             rootFs = rootFS.toImageRootFs(),
-            config = config.toImageConfig(),
-            containerConfig = containerConfig.toImageConfig()
+            config = config.toImageConfig()
         )
     }
 
@@ -450,8 +438,7 @@ class LocalDockerAgentClient(
         val env = env.toEnvMap()
 
         return DockerImageConfig(
-            image = image,
-            envNames = env.keys.sorted(),
+            env = env,
             cmd = cmd.orEmpty().toList(),
             entrypoint = entrypoint.orEmpty().toList(),
             workingDir = workingDir,

@@ -65,7 +65,6 @@ class DockerApiDtoMapper {
     fun toImageInfoDto(image: DockerImageInfo): ImageInfo {
         return ImageInfo(
             id = image.id,
-            parentId = image.parentId,
             repoTags = image.repoTags.map { it.toDto() },
             repoDigests = image.repoDigests,
             createdAt = image.createdAt,
@@ -76,10 +75,8 @@ class DockerApiDtoMapper {
             author = image.author,
             comment = image.comment,
             sizeBytes = image.sizeBytes,
-            virtualSizeBytes = image.virtualSizeBytes,
             rootFs = image.rootFs?.toDto(),
-            config = image.config?.toDto(),
-            containerConfig = image.containerConfig?.toDto()
+            config = image.config?.toDto()
         )
     }
 
@@ -139,11 +136,7 @@ class DockerApiDtoMapper {
     private fun DockerImageSummary.toDto(): ImageSummary {
         return ImageSummary(
             id = id,
-            reference = reference,
-            registry = registry?.toDto(),
-            namespace = namespace,
-            repository = repository,
-            tag = tag,
+            references = references.map { it.toDto() },
             repoDigests = repoDigests,
             createdEpochSeconds = createdEpochSeconds,
             sizeBytes = sizeBytes,
@@ -170,8 +163,7 @@ class DockerApiDtoMapper {
 
     private fun DockerImageConfig.toDto(): ImageConfig {
         return ImageConfig(
-            image = image,
-            envNames = envNames,
+            envNames = env.keys.sorted(),
             cmd = cmd,
             entrypoint = entrypoint,
             workingDir = workingDir,
