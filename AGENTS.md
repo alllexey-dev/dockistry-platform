@@ -346,9 +346,8 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `GET /{imageId}` inspect, `POST /pull` pull и `DELETE /{imageId}` remove.
 - `DockerImageService` проверяет `GLOBAL` permissions и идет через общий
   `ContainerService`; прямой `DockerAgentClient` не внедряй в image service.
-- `DockerImageSummary` содержит распарсенный image reference: registry info
-  (`address`, `port`), namespace, repository и tag. `DockerImageInfo` — internal
-  remap inspect output из docker-java.
+- `DockerImageSummary` содержит список распарсенных image references.
+  `DockerImageInfo` — internal remap inspect output из docker-java.
 - Pull image сейчас blocking и ограничен `app.docker-agent.image-pull-timeout`.
   Timeout должен возвращать `docker_image_pull_timeout`.
 - Remove image conflict должен возвращать typed error
