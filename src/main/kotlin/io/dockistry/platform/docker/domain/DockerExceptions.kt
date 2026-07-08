@@ -17,6 +17,18 @@ class DockerContainerNotFoundException(
     message: String
 ) : NotFoundException(message, "docker_container_not_found")
 
+class DockerImageNotFoundException(
+    message: String
+) : NotFoundException(message, "docker_image_not_found")
+
+class DockerImagePullTimeoutException(
+    message: String = "Docker image pull timed out"
+) : ServiceUnavailableException(message, "docker_image_pull_timeout")
+
+class DockerImageRemoveConflictException(
+    message: String = "Docker image remove conflict"
+) : ConflictException(message, "docker_image_rm_conflict")
+
 class DockerContainerAlreadyStartedException(
     message: String = "Docker container is already started"
 ) : ConflictException(message, "docker_container_already_started")

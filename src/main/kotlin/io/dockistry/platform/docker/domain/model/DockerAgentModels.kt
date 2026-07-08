@@ -25,6 +25,72 @@ data class DockerContainerFilter(
     val labels: Map<String, String> = emptyMap()
 )
 
+data class DockerImageRef(
+    val repository: String,
+    val tag: String
+)
+
+data class DockerImageRegistryInfo(
+    val address: String,
+    val port: Int? = null
+)
+
+data class DockerImageReference(
+    val raw: String,
+    val registry: DockerImageRegistryInfo?,
+    val namespace: String?,
+    val repository: String?,
+    val tag: String?
+)
+
+data class DockerImageSummary(
+    val id: String,
+    val references: List<DockerImageReference>,
+    val repoDigests: List<String>,
+    val parentId: String?,
+    val createdEpochSeconds: Long?,
+    val sizeBytes: Long?,
+    val labels: Map<String, String>
+)
+
+data class DockerImageInfo(
+    val id: String,
+    val parentId: String?,
+    val repoTags: List<DockerImageReference>,
+    val repoDigests: List<String>,
+    val createdAt: String?,
+    val dockerVersion: String?,
+    val os: String?,
+    val osVersion: String?,
+    val architecture: String?,
+    val author: String?,
+    val comment: String?,
+    val sizeBytes: Long?,
+    val graphDriver: DockerImageGraphDriver?,
+    val rootFs: DockerImageRootFs?,
+    val config: DockerImageConfig?
+)
+
+data class DockerImageConfig(
+    val env: Map<String, String?>,
+    val cmd: List<String>,
+    val entrypoint: List<String>,
+    val workingDir: String?,
+    val user: String?,
+    val labels: Map<String, String>,
+    val exposedPorts: List<DockerExposedPort>
+)
+
+data class DockerImageGraphDriver(
+    val name: String?,
+    val data: Map<String, String>
+)
+
+data class DockerImageRootFs(
+    val type: String?,
+    val layers: List<String>
+)
+
 data class DockerContainerLogsRequest(
     val tail: Int = DEFAULT_TAIL,
     val since: Instant? = null,

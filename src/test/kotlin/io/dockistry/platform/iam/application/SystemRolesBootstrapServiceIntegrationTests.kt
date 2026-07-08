@@ -43,7 +43,9 @@ class SystemRolesBootstrapServiceIntegrationTests {
                 SystemPermissionNames.PROJECT_DELETE,
                 SystemPermissionNames.PROJECT_ARCHIVE,
                 SystemPermissionNames.PROJECT_MEMBERS_MANAGE,
-                SystemPermissionNames.PROJECT_CONTAINER_MANAGE
+                SystemPermissionNames.PROJECT_CONTAINER_MANAGE,
+                SystemPermissionNames.DOCKER_IMAGES_READ,
+                SystemPermissionNames.DOCKER_IMAGES_MANAGE
             ),
             admin.permissions.map { it.key }.toSet()
         )
@@ -67,7 +69,9 @@ class SystemRolesBootstrapServiceIntegrationTests {
             SystemPermissionNames.PROJECT_DELETE,
             SystemPermissionNames.PROJECT_ARCHIVE,
             SystemPermissionNames.PROJECT_MEMBERS_MANAGE,
-            SystemPermissionNames.PROJECT_CONTAINER_MANAGE
+            SystemPermissionNames.PROJECT_CONTAINER_MANAGE,
+            SystemPermissionNames.DOCKER_IMAGES_READ,
+            SystemPermissionNames.DOCKER_IMAGES_MANAGE
         ).forEach { key ->
             assertNotNull(permissionRepository.findByKey(key))
         }
@@ -102,7 +106,9 @@ class SystemRolesBootstrapServiceIntegrationTests {
                 SystemPermissionNames.PROJECT_DELETE,
                 SystemPermissionNames.PROJECT_ARCHIVE,
                 SystemPermissionNames.PROJECT_MEMBERS_MANAGE,
-                SystemPermissionNames.PROJECT_CONTAINER_MANAGE
+                SystemPermissionNames.PROJECT_CONTAINER_MANAGE,
+                SystemPermissionNames.DOCKER_IMAGES_READ,
+                SystemPermissionNames.DOCKER_IMAGES_MANAGE
             ),
             role(SystemRoleNames.PROJECT_ADMIN).permissions.map { it.key }.toSet()
         )

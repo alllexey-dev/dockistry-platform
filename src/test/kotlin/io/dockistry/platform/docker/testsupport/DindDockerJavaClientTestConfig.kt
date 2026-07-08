@@ -4,6 +4,7 @@ import com.github.dockerjava.api.DockerClient
 import com.github.dockerjava.core.DefaultDockerClientConfig
 import com.github.dockerjava.core.DockerClientImpl
 import com.github.dockerjava.zerodep.ZerodepDockerHttpClient
+import io.dockistry.platform.docker.infrastructure.DockerAgentProperties
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import java.time.Duration
@@ -30,6 +31,11 @@ class DindDockerJavaClientTestConfig {
             .build()
 
         return DockerClientImpl.getInstance(clientConfig, httpClient)
+    }
+
+    @Bean
+    fun dockerAgentProperties(): DockerAgentProperties {
+        return DockerAgentProperties(300_000)
     }
 
     private companion object {

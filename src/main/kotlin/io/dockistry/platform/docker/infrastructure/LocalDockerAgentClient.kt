@@ -3,6 +3,7 @@ package io.dockistry.platform.docker.infrastructure
 import com.github.dockerjava.api.DockerClient
 import com.github.dockerjava.api.async.ResultCallback
 import com.github.dockerjava.api.command.HealthState
+import com.github.dockerjava.api.command.PullImageResultCallback
 import com.github.dockerjava.api.exception.DockerClientException
 import com.github.dockerjava.api.exception.DockerException
 import com.github.dockerjava.api.exception.ConflictException as DockerConflictException
@@ -18,6 +19,7 @@ import com.github.dockerjava.api.model.ContainerPort
 import com.github.dockerjava.api.model.ExposedPort
 import com.github.dockerjava.api.model.HealthCheck
 import com.github.dockerjava.api.model.HostConfig
+import com.github.dockerjava.api.model.Image as DockerJavaImage
 import com.github.dockerjava.api.model.Ports
 import com.github.dockerjava.api.model.StatisticNetworksConfig
 import com.github.dockerjava.api.model.Statistics
@@ -31,6 +33,9 @@ import io.dockistry.platform.docker.domain.DockerContainerLifecycleConflictExcep
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerContainerNotPausedException
 import io.dockistry.platform.docker.domain.DockerContainerNotRunningException
+import io.dockistry.platform.docker.domain.DockerImageNotFoundException
+import io.dockistry.platform.docker.domain.DockerImagePullTimeoutException
+import io.dockistry.platform.docker.domain.DockerImageRemoveConflictException
 import io.dockistry.platform.docker.domain.model.DockerAgentAvailability
 import io.dockistry.platform.docker.domain.model.DockerAgentInfo
 import io.dockistry.platform.docker.domain.model.DockerContainerConfig
@@ -48,6 +53,14 @@ import io.dockistry.platform.docker.domain.model.DockerContainerStats
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
 import io.dockistry.platform.docker.domain.model.DockerExposedPort
 import io.dockistry.platform.docker.domain.model.DockerHealthcheck
+import io.dockistry.platform.docker.domain.model.DockerImageConfig
+import io.dockistry.platform.docker.domain.model.DockerImageGraphDriver
+import io.dockistry.platform.docker.domain.model.DockerImageInfo
+import io.dockistry.platform.docker.domain.model.DockerImageRef
+import io.dockistry.platform.docker.domain.model.DockerImageReference
+import io.dockistry.platform.docker.domain.model.DockerImageRegistryInfo
+import io.dockistry.platform.docker.domain.model.DockerImageRootFs
+import io.dockistry.platform.docker.domain.model.DockerImageSummary
 import io.dockistry.platform.docker.domain.model.DockerMountInfo
 import io.dockistry.platform.docker.domain.model.DockerNetworkEndpoint
 import io.dockistry.platform.docker.domain.model.DockerNetworkStats
@@ -59,12 +72,17 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.util.concurrent.TimeUnit
 import com.github.dockerjava.api.model.Frame as DockerLogFrame
+import com.github.dockerjava.api.command.GraphData as DockerJavaGraphData
+import com.github.dockerjava.api.command.GraphDriver as DockerJavaGraphDriver
 import com.github.dockerjava.api.command.InspectContainerResponse as DockerInspectContainerResponse
+import com.github.dockerjava.api.command.InspectImageResponse as DockerInspectImageResponse
+import com.github.dockerjava.api.command.RootFS as DockerJavaRootFs
 import com.github.dockerjava.api.model.RestartPolicy as DockerJavaRestartPolicy
 
 @Component
 class LocalDockerAgentClient(
-    private val dockerClient: DockerClient
+    private val dockerClient: DockerClient,
+    private val dockerAgentProperties: DockerAgentProperties
 ) : DockerAgentClient {
 
     override fun status(): DockerAgentInfo {
@@ -89,6 +107,77 @@ class LocalDockerAgentClient(
                 state = DockerAgentAvailability.UNAVAILABLE,
                 errorMessage = exception.safeMessage()
             )
+        }
+    }
+
+    override fun listImages(): List<DockerImageSummary> {
+        return imageDockerCall {
+            dockerClient.listImagesCmd()
+                .withShowAll(true)
+                .exec()
+                .map { it.toImageSummary() }
+        }
+    }
+
+    override fun inspectImage(imageId: String): DockerImageInfo {
+        return imageDockerCall {
+            dockerClient.inspectImageCmd(imageId)
+                .exec()
+                .toImageInfo()
+        }
+    }
+
+    override fun pullImage(imageRef: DockerImageRef) {
+        try {
+            val completed = dockerClient.pullImageCmd(imageRef.repository)
+                .withTag(imageRef.tag)
+                .exec(PullImageResultCallback())
+                .awaitCompletion(dockerAgentProperties.imagePullTimeout, TimeUnit.MILLISECONDS)
+
+            if (!completed) {
+                dockerLogger.warn(
+                    "Docker image pull timed out for {}:{} after {} ms",
+                    imageRef.repository,
+                    imageRef.tag,
+                    dockerAgentProperties.imagePullTimeout
+                )
+                throw DockerImagePullTimeoutException()
+            }
+        } catch (exception: InterruptedException) {
+            Thread.currentThread().interrupt()
+            dockerLogger.warn(
+                "Docker image pull was interrupted for {}:{}",
+                imageRef.repository,
+                imageRef.tag,
+                exception
+            )
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+        } catch (exception: DockerException) {
+            logDockerCallFailure(exception)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+        } catch (exception: DockerClientException) {
+            logDockerCallFailure(exception)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+        }
+    }
+
+    override fun removeImage(imageId: String, force: Boolean) {
+        try {
+            dockerClient.removeImageCmd(imageId)
+                .withForce(force)
+                .exec()
+        } catch (exception: DockerConflictException) {
+            throw DockerImageRemoveConflictException(
+                exception.safeDockerMessage(DOCKER_IMAGE_REMOVE_CONFLICT_MESSAGE)
+            )
+        } catch (_: DockerNotFoundException) {
+            throw DockerImageNotFoundException("Docker image couldn't be found")
+        } catch (exception: DockerException) {
+            logDockerCallFailure(exception)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+        } catch (exception: DockerClientException) {
+            logDockerCallFailure(exception)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
         }
     }
 
@@ -252,6 +341,150 @@ class LocalDockerAgentClient(
         }
 
         return DockerContainerLogs(lines = lines)
+    }
+
+    private fun DockerJavaImage.toImageSummary(): DockerImageSummary {
+        val references = repoTags
+            ?.toList()
+            .orEmpty()
+            .map { it.toImageReference() }
+
+        return DockerImageSummary(
+            id = id,
+            references = references,
+            repoDigests = repoDigests?.toList().orEmpty(),
+            parentId = parentId,
+            createdEpochSeconds = created,
+            sizeBytes = size,
+            labels = labels.orEmpty()
+        )
+    }
+
+    private fun DockerInspectImageResponse.toImageInfo(): DockerImageInfo {
+        return DockerImageInfo(
+            id = id.orEmpty(),
+            parentId = parent,
+            repoTags = repoTags.orEmpty().map { it.toImageReference() },
+            repoDigests = repoDigests.orEmpty(),
+            createdAt = created,
+            dockerVersion = dockerVersion,
+            os = os,
+            osVersion = osVersion,
+            architecture = arch,
+            author = author,
+            comment = comment,
+            sizeBytes = size,
+            graphDriver = graphDriver.toImageGraphDriver(),
+            rootFs = rootFS.toImageRootFs(),
+            config = config.toImageConfig()
+        )
+    }
+
+    private fun String.toImageReference(): DockerImageReference {
+        if (this == UNTAGGED_IMAGE_REFERENCE) {
+            return DockerImageReference(
+                raw = this,
+                registry = null,
+                namespace = null,
+                repository = null,
+                tag = null
+            )
+        }
+
+        val tagSeparatorIndex = lastIndexOf(':')
+            .takeIf { it > lastIndexOf('/') }
+        val imageName = tagSeparatorIndex
+            ?.let { substring(0, it) }
+            ?: this
+        val tag = tagSeparatorIndex?.let { substring(it + 1) }
+
+        val imageNameParts = imageName
+            .split("/")
+            .filter { it.isNotBlank() }
+        val firstPart = imageNameParts.firstOrNull()
+        val hasRegistry = firstPart != null &&
+            (firstPart.contains(".") || firstPart.contains(":") || firstPart == "localhost")
+        val registry = if (hasRegistry) firstPart.toRegistryInfo() else null
+        val pathParts = if (hasRegistry) imageNameParts.drop(1) else imageNameParts
+
+        return DockerImageReference(
+            raw = this,
+            registry = registry,
+            namespace = pathParts.dropLast(1)
+                .joinToString("/")
+                .takeIf { it.isNotBlank() },
+            repository = pathParts.lastOrNull(),
+            tag = tag
+        )
+    }
+
+    private fun String.toRegistryInfo(): DockerImageRegistryInfo {
+        val portSeparatorIndex = lastIndexOf(':')
+        val port = portSeparatorIndex
+            .takeIf { it >= 0 }
+            ?.let { substring(it + 1).toIntOrNull() }
+
+        return DockerImageRegistryInfo(
+            address = port?.let { substring(0, portSeparatorIndex) } ?: this,
+            port = port
+        )
+    }
+
+    private fun ContainerConfig?.toImageConfig(): DockerImageConfig? {
+        if (this == null) {
+            return null
+        }
+
+        val env = env.toEnvMap()
+
+        return DockerImageConfig(
+            env = env,
+            cmd = cmd.orEmpty().toList(),
+            entrypoint = entrypoint.orEmpty().toList(),
+            workingDir = workingDir,
+            user = user,
+            labels = labels.orEmpty(),
+            exposedPorts = exposedPorts.orEmpty().map {
+                DockerExposedPort(
+                    port = it.port,
+                    type = it.protocol.toString()
+                )
+            }
+        )
+    }
+
+    private fun DockerJavaGraphDriver?.toImageGraphDriver(): DockerImageGraphDriver? {
+        return this?.let {
+            DockerImageGraphDriver(
+                name = name,
+                data = data.toGraphDataMap()
+            )
+        }
+    }
+
+    private fun DockerJavaGraphData?.toGraphDataMap(): Map<String, String> {
+        if (this == null) {
+            return emptyMap()
+        }
+
+        return mapOf(
+            "rootDir" to rootDir,
+            "deviceId" to deviceId,
+            "deviceName" to deviceName,
+            "deviceSize" to deviceSize,
+            "dir" to dir
+        ).mapNotNull { (key, value) ->
+            value?.let { key to it }
+        }.toMap()
+    }
+
+    private fun DockerJavaRootFs?.toImageRootFs(): DockerImageRootFs? {
+        return this?.let {
+            DockerImageRootFs(
+                type = type,
+                layers = layers.orEmpty()
+            )
+        }
     }
 
     private fun DockerLogFrame.toLogLines(): List<DockerContainerLogLine> {
@@ -639,6 +872,20 @@ class LocalDockerAgentClient(
         }
     }
 
+    private inline fun <T> imageDockerCall(operation: () -> T): T {
+        return try {
+            operation()
+        } catch (_: DockerNotFoundException) {
+            throw DockerImageNotFoundException("Docker image couldn't be found")
+        } catch (exception: DockerException) {
+            logDockerCallFailure(exception)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+        } catch (exception: DockerClientException) {
+            logDockerCallFailure(exception)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+        }
+    }
+
     private inline fun lifecycleDockerCall(
         alreadyInTargetState: (DockerNotModifiedException) -> RuntimeException,
         conflict: (DockerConflictException) -> RuntimeException,
@@ -691,8 +938,10 @@ class LocalDockerAgentClient(
             ?: DockerContainerLifecycleConflictException(safeDockerMessage())
     }
 
-    private fun DockerException.safeDockerMessage(): String {
-        return message?.takeIf { it.isNotBlank() } ?: DOCKER_CONTAINER_LIFECYCLE_CONFLICT_MESSAGE
+    private fun DockerException.safeDockerMessage(
+        defaultMessage: String = DOCKER_CONTAINER_LIFECYCLE_CONFLICT_MESSAGE
+    ): String {
+        return message?.takeIf { it.isNotBlank() } ?: defaultMessage
     }
 
     private fun logDockerCallFailure(exception: RuntimeException) {
@@ -708,6 +957,8 @@ class LocalDockerAgentClient(
 
         const val DOCKER_AGENT_UNAVAILABLE_MESSAGE = "Docker agent is unavailable"
         const val DOCKER_CONTAINER_LIFECYCLE_CONFLICT_MESSAGE = "Docker container lifecycle state conflict"
+        const val DOCKER_IMAGE_REMOVE_CONFLICT_MESSAGE = "Docker image remove conflict"
+        const val UNTAGGED_IMAGE_REFERENCE = "<none>:<none>"
         const val STATS_TIMEOUT_SECONDS = 5L
         const val LOGS_TIMEOUT_SECONDS = 10L
     }
