@@ -9,6 +9,13 @@ import io.dockistry.platform.docker.domain.dto.ContainerStats
 import io.dockistry.platform.docker.domain.dto.ContainerSummary
 import io.dockistry.platform.docker.domain.dto.DockerAgentState
 import io.dockistry.platform.docker.domain.dto.DockerAgentStatus
+import io.dockistry.platform.docker.domain.dto.ExposedPortInfo
+import io.dockistry.platform.docker.domain.dto.ImageConfig
+import io.dockistry.platform.docker.domain.dto.ImageInfo
+import io.dockistry.platform.docker.domain.dto.ImageReference
+import io.dockistry.platform.docker.domain.dto.ImageRegistryInfo
+import io.dockistry.platform.docker.domain.dto.ImageRootFs
+import io.dockistry.platform.docker.domain.dto.ImageSummary
 import io.dockistry.platform.docker.domain.dto.MountInfo
 import io.dockistry.platform.docker.domain.dto.PortInfo
 import io.dockistry.platform.docker.domain.dto.RestartPolicy
@@ -21,6 +28,14 @@ import io.dockistry.platform.docker.domain.model.DockerContainerLogs
 import io.dockistry.platform.docker.domain.model.DockerContainerState
 import io.dockistry.platform.docker.domain.model.DockerContainerStats
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
+import io.dockistry.platform.docker.domain.model.DockerExposedPort
+import io.dockistry.platform.docker.domain.model.DockerImageConfig
+import io.dockistry.platform.docker.domain.model.DockerImageGraphDriver
+import io.dockistry.platform.docker.domain.model.DockerImageInfo
+import io.dockistry.platform.docker.domain.model.DockerImageReference
+import io.dockistry.platform.docker.domain.model.DockerImageRegistryInfo
+import io.dockistry.platform.docker.domain.model.DockerImageRootFs
+import io.dockistry.platform.docker.domain.model.DockerImageSummary
 import io.dockistry.platform.docker.domain.model.DockerMountInfo
 import io.dockistry.platform.docker.domain.model.DockerPortInfo
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicy
@@ -40,6 +55,31 @@ class DockerApiDtoMapper {
             } else {
                 null
             }
+        )
+    }
+
+    fun toImageSummaryDtos(images: List<DockerImageSummary>): List<ImageSummary> {
+        return images.map { it.toDto() }
+    }
+
+    fun toImageInfoDto(image: DockerImageInfo): ImageInfo {
+        return ImageInfo(
+            id = image.id,
+            parentId = image.parentId,
+            repoTags = image.repoTags.map { it.toDto() },
+            repoDigests = image.repoDigests,
+            createdAt = image.createdAt,
+            dockerVersion = image.dockerVersion,
+            os = image.os,
+            osVersion = image.osVersion,
+            architecture = image.architecture,
+            author = image.author,
+            comment = image.comment,
+            sizeBytes = image.sizeBytes,
+            virtualSizeBytes = image.virtualSizeBytes,
+            rootFs = image.rootFs?.toDto(),
+            config = image.config?.toDto(),
+            containerConfig = image.containerConfig?.toDto()
         )
     }
 
@@ -93,6 +133,65 @@ class DockerApiDtoMapper {
                     line = it.line
                 )
             }
+        )
+    }
+
+    private fun DockerImageSummary.toDto(): ImageSummary {
+        return ImageSummary(
+            id = id,
+            reference = reference,
+            registry = registry?.toDto(),
+            namespace = namespace,
+            repository = repository,
+            tag = tag,
+            repoDigests = repoDigests,
+            createdEpochSeconds = createdEpochSeconds,
+            sizeBytes = sizeBytes,
+            labels = labels
+        )
+    }
+
+    private fun DockerImageReference.toDto(): ImageReference {
+        return ImageReference(
+            raw = raw,
+            registry = registry?.toDto(),
+            namespace = namespace,
+            repository = repository,
+            tag = tag
+        )
+    }
+
+    private fun DockerImageRegistryInfo.toDto(): ImageRegistryInfo {
+        return ImageRegistryInfo(
+            address = address,
+            port = port
+        )
+    }
+
+    private fun DockerImageConfig.toDto(): ImageConfig {
+        return ImageConfig(
+            image = image,
+            envNames = envNames,
+            cmd = cmd,
+            entrypoint = entrypoint,
+            workingDir = workingDir,
+            user = user,
+            labels = labels,
+            exposedPorts = exposedPorts.map { it.toDto() }
+        )
+    }
+
+    private fun DockerExposedPort.toDto(): ExposedPortInfo {
+        return ExposedPortInfo(
+            port = port,
+            type = type
+        )
+    }
+
+    private fun DockerImageRootFs.toDto(): ImageRootFs {
+        return ImageRootFs(
+            type = type,
+            layers = layers
         )
     }
 

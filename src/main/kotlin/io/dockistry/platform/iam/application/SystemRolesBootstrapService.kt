@@ -56,6 +56,14 @@ class SystemRolesBootstrapService(
             key = SystemPermissionNames.PROJECT_CONTAINER_MANAGE,
             description = "Allows managing lifecycle actions for project containers in the granted scope."
         )
+        val dockerImagesReadPermission = permission(
+            key = SystemPermissionNames.DOCKER_IMAGES_READ,
+            description = "Allows viewing Docker image metadata through the Docker agent in the granted scope."
+        )
+        val dockerImagesManagePermission = permission(
+            key = SystemPermissionNames.DOCKER_IMAGES_MANAGE,
+            description = "Allows pulling and removing Docker images through the Docker agent in the granted scope."
+        )
 
         val projectAdmin = role(
             name = SystemRoleNames.PROJECT_ADMIN,
@@ -77,7 +85,9 @@ class SystemRolesBootstrapService(
             projectDeletePermission,
             projectArchivePermission,
             projectMembersManagePermission,
-            projectContainersManagePermission
+            projectContainersManagePermission,
+            dockerImagesReadPermission,
+            dockerImagesManagePermission
         )
         val operatorPermissions = setOf(
             projectReadPermission,

@@ -17,6 +17,9 @@ import io.dockistry.platform.docker.domain.model.DockerContainerState
 import io.dockistry.platform.docker.domain.model.DockerContainerStateDetails
 import io.dockistry.platform.docker.domain.model.DockerContainerStats
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
+import io.dockistry.platform.docker.domain.model.DockerImageInfo
+import io.dockistry.platform.docker.domain.model.DockerImageRef
+import io.dockistry.platform.docker.domain.model.DockerImageSummary
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicy
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
 import io.dockistry.platform.iam.domain.SystemPermissionNames
@@ -145,6 +148,22 @@ class ProjectContainerControllerIntegrationTests {
 
         override fun status(): DockerAgentInfo {
             return DockerAgentInfo(state = DockerAgentAvailability.AVAILABLE)
+        }
+
+        override fun listImages(): List<DockerImageSummary> {
+            error("Images are not used in this test")
+        }
+
+        override fun inspectImage(imageId: String): DockerImageInfo {
+            error("Images are not used in this test")
+        }
+
+        override fun pullImage(imageRef: DockerImageRef) {
+            error("Images are not used in this test")
+        }
+
+        override fun removeImage(imageId: String, force: Boolean) {
+            error("Images are not used in this test")
         }
 
         override fun listContainers(filter: DockerContainerFilter): List<DockerContainerSummary> {

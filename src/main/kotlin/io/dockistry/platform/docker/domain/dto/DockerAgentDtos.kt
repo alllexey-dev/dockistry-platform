@@ -1,5 +1,7 @@
 package io.dockistry.platform.docker.domain.dto
 
+import jakarta.validation.constraints.NotBlank
+
 data class DockerAgentStatus(
     val state: DockerAgentState,
     val engineVersion: String? = null,
@@ -12,6 +14,75 @@ enum class DockerAgentState {
     AVAILABLE,
     UNAVAILABLE
 }
+
+data class PullImageRequest(
+    @field:NotBlank
+    val repository: String,
+
+    @field:NotBlank
+    val tag: String
+)
+
+data class ImageSummary(
+    val id: String,
+    val reference: String?,
+    val registry: ImageRegistryInfo?,
+    val namespace: String?,
+    val repository: String?,
+    val tag: String?,
+    val repoDigests: List<String>,
+    val createdEpochSeconds: Long?,
+    val sizeBytes: Long?,
+    val labels: Map<String, String>
+)
+
+data class ImageInfo(
+    val id: String,
+    val parentId: String?,
+    val repoTags: List<ImageReference>,
+    val repoDigests: List<String>,
+    val createdAt: String?,
+    val dockerVersion: String?,
+    val os: String?,
+    val osVersion: String?,
+    val architecture: String?,
+    val author: String?,
+    val comment: String?,
+    val sizeBytes: Long?,
+    val virtualSizeBytes: Long?,
+    val rootFs: ImageRootFs?,
+    val config: ImageConfig?,
+    val containerConfig: ImageConfig?
+)
+
+data class ImageReference(
+    val raw: String,
+    val registry: ImageRegistryInfo?,
+    val namespace: String?,
+    val repository: String?,
+    val tag: String?
+)
+
+data class ImageRegistryInfo(
+    val address: String,
+    val port: Int? = null
+)
+
+data class ImageConfig(
+    val image: String?,
+    val envNames: List<String>,
+    val cmd: List<String>,
+    val entrypoint: List<String>,
+    val workingDir: String?,
+    val user: String?,
+    val labels: Map<String, String>,
+    val exposedPorts: List<ExposedPortInfo>
+)
+
+data class ImageRootFs(
+    val type: String?,
+    val layers: List<String>
+)
 
 data class ContainerSummary(
     val id: String,
@@ -71,6 +142,11 @@ enum class RestartPolicyType {
     ON_FAILURE,
     UNLESS_STOPPED
 }
+
+data class ExposedPortInfo(
+    val port: Int,
+    val type: String
+)
 
 data class ContainerStats(
     val cpuPercent: Double?,
