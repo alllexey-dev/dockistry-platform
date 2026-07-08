@@ -20,6 +20,8 @@ reverse proxy, деплоя, мониторинга и бэкапов.
   permissions;
 - начальная project-domain логика: создание, чтение, обновление, архивирование,
   удаление и список проектов;
+- Docker agent API: status, project-scoped container operations/logs/stats и
+  global image list/inspect/pull/remove operations;
 - единый формат API-ответов и ошибок через `ApiResponse`;
 - PostgreSQL schema management через Flyway migrations.
 
@@ -79,6 +81,8 @@ Runtime/config:
 - Hibernate работает с `spring.jpa.hibernate.ddl-auto=validate`;
 - Flyway включен через `spring.flyway.enabled=true`;
 - `.env.example` содержит локальные значения для PostgreSQL;
+- Docker image pull timeout настраивается через `DOCKER_IMAGE_PULL_TIMEOUT`
+  / `app.docker-agent.image-pull-timeout` в миллисекундах;
 - production profile защищен от дефолтного `jwt.secret=secret` через
   `ProductionSecretDefaultsGuard`.
 
@@ -297,6 +301,9 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `SystemRolesBootstrapService`.
 - Initial admin получает `SystemRoleNames.PROJECT_ADMIN` на `GLOBAL` scope;
   этот scope должен существовать до `InitialAdminService.initializeAdmin`.
+- Docker image operations сейчас проверяются только через `GLOBAL` permissions:
+  `docker.images.read` для list/inspect и `docker.images.manage` для
+  pull/remove. Обе permission входят в `SystemRoleNames.PROJECT_ADMIN`.
 - Race condition при создании initial admin закрывается через shared
   `SystemSetting` с ключом
   `SystemSettingKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED`: insert marker'а
@@ -335,6 +342,17 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Project-level container services and guards должны использовать общий
   `ContainerService`; прямое обращение к `DockerAgentClient` держи внутри
   `ContainerService` и infrastructure adapter.
+- Docker image endpoints находятся под `/api/docker/images`: `GET` list,
+  `GET /{imageId}` inspect, `POST /pull` pull и `DELETE /{imageId}` remove.
+- `DockerImageService` проверяет `GLOBAL` permissions и идет через общий
+  `ContainerService`; прямой `DockerAgentClient` не внедряй в image service.
+- `DockerImageSummary` содержит распарсенный image reference: registry info
+  (`address`, `port`), namespace, repository и tag. `DockerImageInfo` — internal
+  remap inspect output из docker-java.
+- Pull image сейчас blocking и ограничен `app.docker-agent.image-pull-timeout`.
+  Timeout должен возвращать `docker_image_pull_timeout`.
+- Remove image conflict должен возвращать typed error
+  `docker_image_rm_conflict`, а не `docker_agent_unavailable`.
 - Docker lifecycle state conflicts из docker-java (`NotModifiedException` и
   `ConflictException`) маппь в typed Docker domain exceptions, а не в
   `docker_agent_unavailable`.

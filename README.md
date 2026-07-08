@@ -61,6 +61,7 @@ cp .env.example .env
 | `JWT_ACCESS_EXPIRATION`  | время жизни access-токена, мс  | `3600000` (1 час)      |
 | `JWT_REFRESH_EXPIRATION` | время жизни refresh-токена, мс | `1209600000` (14 дней) |
 | `DOCKER_HOST`            | Docker endpoint для docker-java | локальный Docker socket |
+| `DOCKER_IMAGE_PULL_TIMEOUT` | timeout pull image операции, мс | `300000` (5 минут) |
 
 > ⚠️ Для любого окружения, кроме чисто локального, обязательно задайте свой `JWT_SECRET`.
 
@@ -184,6 +185,10 @@ Docker endpoints требуют access token и работают через ло
 | Метод | Endpoint                                             | Назначение                         |
 |-------|------------------------------------------------------|------------------------------------|
 | `GET` | `/api/docker/status`                                 | состояние доступности Docker agent |
+| `GET` | `/api/docker/images`                                 | список Docker images               |
+| `GET` | `/api/docker/images/{imageId}`                       | inspect-level детали Docker image  |
+| `POST` | `/api/docker/images/pull`                           | pull Docker image                  |
+| `DELETE` | `/api/docker/images/{imageId}`                    | удалить Docker image               |
 | `GET` | `/api/projects/{projectId}/containers`               | список контейнеров проекта         |
 | `GET` | `/api/projects/{projectId}/containers/{containerId}` | inspect-level детали контейнера    |
 | `GET` | `/api/projects/{projectId}/containers/{containerId}/stats` | текущие CPU/memory/network stats |
@@ -225,6 +230,25 @@ Container logs endpoint поддерживает query params:
 `{ "stream": "STDOUT", "line": "..." }`. Для TTY-контейнеров Docker может
 вернуть объединенный `RAW` stream. Некорректные параметры возвращают
 `400 invalid_container_logs_request`.
+
+Image endpoints сейчас работают только через `GLOBAL` permissions:
+
+- `docker.images.read` — список и inspect images;
+- `docker.images.manage` — pull и remove images.
+
+Обе permission входят в system role `project_admin`. Pull endpoint принимает body:
+
+```json
+{
+  "repository": "nginx",
+  "tag": "latest"
+}
+```
+
+Успешные pull/remove ответы возвращают `data="ok"`. Timeout pull operation
+возвращает `503 docker_image_pull_timeout`; конфликт удаления image без `force`
+возвращает `409 docker_image_rm_conflict`. Для принудительного удаления используйте
+`DELETE /api/docker/images/{imageId}?force=true`.
 
 ## Тестирование
 
