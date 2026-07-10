@@ -20,6 +20,8 @@ reverse proxy, деплоя, мониторинга и бэкапов.
   permissions;
 - начальная project-domain логика: создание, чтение, обновление, архивирование,
   удаление и список проектов;
+- Managed Services API для хранения project-scoped container configuration как
+  durable source of truth;
 - Docker agent API: status, project-scoped container operations/logs/stats и
   global image list/inspect/pull/remove operations;
 - единый формат API-ответов и ошибок через `ApiResponse`;
@@ -35,6 +37,8 @@ reverse proxy, деплоя, мониторинга и бэкапов.
   пользователь получает права как напрямую, так и через группы;
 - projects: каждый проект имеет owner principal, отдельный scope и проверяется
   через `PermissionCheckService`;
+- managed services: конфигурация будущих контейнеров хранится как project-scoped
+  entity `ManagedService`, а не извлекается из одноразовых Docker containers;
 - email jobs: отправка verification email не происходит напрямую в auth flow,
   вместо этого создается `EmailSendJob`, который позже забирает scheduler.
 
@@ -122,6 +126,7 @@ CI:
 - `email` — persisted email send jobs и email sender port;
 - `iam` — users, groups, principals, roles, permissions, scopes, RBAC checks;
 - `projects` — project domain и project permission checks;
+- `services` — durable ManagedService configuration для будущих containers;
 - `security` — JWT filter, Spring Security config, auth entry point;
 - `shared` — общие API DTO, exception handling, config и глобальные
   cross-domain entities вроде `SystemSetting`.
@@ -144,6 +149,8 @@ CI:
 
 - `auth` зависит от `iam` для пользователя и от `email` для verification jobs;
 - `projects` зависит от `iam` для principals/scopes/permissions;
+- `services` зависит от `projects` для project ownership/access guard и от
+  `docker` только для Docker-facing config enums вроде restart policy;
 - `security` использует `auth.application.JwtTokenProvider` и `iam` user lookup;
 - `email` содержит общий job processor/dispatcher и не должен знать детали auth
   сверх конкретного `VerificationEmailJobContext`/handler;
@@ -304,6 +311,9 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Docker image operations сейчас проверяются только через `GLOBAL` permissions:
   `docker.images.read` для list/inspect и `docker.images.manage` для
   pull/remove. Обе permission входят в `SystemRoleNames.PROJECT_ADMIN`.
+- Managed Service read operations используют `project.read`, а mutating
+  operations используют `projects.services.manage`. Эта permission входит в
+  `SystemRoleNames.PROJECT_ADMIN` и `SystemRoleNames.PROJECT_OPERATOR`.
 - Race condition при создании initial admin закрывается через shared
   `SystemSetting` с ключом
   `SystemSettingKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED`: insert marker'а
@@ -332,6 +342,8 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Project container endpoints требуют `project.read` и должны проверять
   принадлежность контейнера проекту через managed labels:
   `io.dockistry.managed=true` и `io.dockistry.project-id=<projectId>`.
+- Контейнеры, созданные из Managed Service, должны дополнительно получать label
+  `io.dockistry.service-id=<serviceId>` через `DockerLabels.SERVICE_ID`.
 - Для операций по container id сначала проверяй read-access к проекту через
   `ProjectAccessGuard`, затем `inspectContainer`; missing container и контейнер
   из другого проекта должны возвращать `docker_container_not_found`.
@@ -371,6 +383,43 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   stdout/stderr в `RAW`, поэтому разделение потоков не гарантируется.
 - Логи возвращаются через `ApiResponse<ContainerLogs>` как список строк с
   полями `stream` и `line`.
+
+### Managed Services API
+
+- ManagedService хранится в таблице `services` и является captured, durable,
+  reusable container configuration.
+- Service `name` immutable, уникален внутри проекта, валидируется через общий
+  `SlugValidator` как slug до 40 символов.
+- ManagedService configuration проходит через raw
+  `ManagedServiceConfigurationDraft`; entity принимает только закрытую
+  `ManagedServiceConfiguration`, созданную централизованной validation factory.
+  Одинаковые annotations между create/update DTO не дублируй.
+- `imageRef` нормализуется к `repository:tag`; если tag отсутствует, используется
+  `latest`. В entity repository и tag хранятся раздельно; services-domain использует
+  собственный `ManagedServiceImageRef`, а не Docker agent model. Custom registries и
+  digest refs пока не поддерживаются.
+- JSONB поля (`command`, `args`, `env`, `endpoints`, `volumes`) должны оставаться
+  типизированными через `@JdbcTypeCode(SqlTypes.JSON)` и
+  `@Column(columnDefinition = "jsonb")`.
+- `ServiceEndpoint.mode` поддерживает `DIRECT` и `EDGE`: для `DIRECT` требуется
+  `externalPort`, для `EDGE` `externalPort` не задается. DIRECT endpoints не могут
+  повторять пару `(externalPort, protocol)`, но один номер порта разрешен одновременно
+  для TCP и UDP.
+- Имена managed volumes содержат минимум два символа и следуют Docker-compatible
+  pattern: начинаются с alphanumeric symbol и далее используют только alphanumeric,
+  `_`, `.`, `-`.
+- `restartMaxRetries` допустим только для `DockerRestartPolicyType.ON_FAILURE`.
+- Full update требует `expectedVersion`. Stale request возвращает текущее состояние,
+  если оно уже совпадает с запрошенным, иначе возвращает
+  `409 managed_service_version_conflict`. Реальная optimistic-lock race повторно
+  проверяется в новой транзакции после rollback проигравшей записи.
+- ManagedService endpoints:
+  `GET/POST /api/projects/{projectId}/services` и
+  `GET/PATCH/DELETE /api/projects/{projectId}/services/{serviceId}`.
+- Protected service-id operations сначала проверяют readable project через
+  `ProjectAccessGuard`; missing service внутри readable project возвращается как
+  `managed_service_not_found`, а недостаток manage permission — как
+  `insufficient_permission_for_operation`.
 
 ### Validation и DTO
 

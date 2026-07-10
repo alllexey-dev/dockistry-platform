@@ -44,6 +44,7 @@ class SystemRolesBootstrapServiceIntegrationTests {
                 SystemPermissionNames.PROJECT_ARCHIVE,
                 SystemPermissionNames.PROJECT_MEMBERS_MANAGE,
                 SystemPermissionNames.PROJECT_CONTAINER_MANAGE,
+                SystemPermissionNames.PROJECT_SERVICES_MANAGE,
                 SystemPermissionNames.DOCKER_IMAGES_READ,
                 SystemPermissionNames.DOCKER_IMAGES_MANAGE
             ),
@@ -53,7 +54,8 @@ class SystemRolesBootstrapServiceIntegrationTests {
             setOf(
                 SystemPermissionNames.PROJECT_READ,
                 SystemPermissionNames.PROJECT_UPDATE,
-                SystemPermissionNames.PROJECT_CONTAINER_MANAGE
+                SystemPermissionNames.PROJECT_CONTAINER_MANAGE,
+                SystemPermissionNames.PROJECT_SERVICES_MANAGE
             ),
             operator.permissions.map { it.key }.toSet()
         )
@@ -70,6 +72,7 @@ class SystemRolesBootstrapServiceIntegrationTests {
             SystemPermissionNames.PROJECT_ARCHIVE,
             SystemPermissionNames.PROJECT_MEMBERS_MANAGE,
             SystemPermissionNames.PROJECT_CONTAINER_MANAGE,
+            SystemPermissionNames.PROJECT_SERVICES_MANAGE,
             SystemPermissionNames.DOCKER_IMAGES_READ,
             SystemPermissionNames.DOCKER_IMAGES_MANAGE
         ).forEach { key ->
@@ -107,6 +110,7 @@ class SystemRolesBootstrapServiceIntegrationTests {
                 SystemPermissionNames.PROJECT_ARCHIVE,
                 SystemPermissionNames.PROJECT_MEMBERS_MANAGE,
                 SystemPermissionNames.PROJECT_CONTAINER_MANAGE,
+                SystemPermissionNames.PROJECT_SERVICES_MANAGE,
                 SystemPermissionNames.DOCKER_IMAGES_READ,
                 SystemPermissionNames.DOCKER_IMAGES_MANAGE
             ),
