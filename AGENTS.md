@@ -61,7 +61,11 @@ reverse proxy, деплоя, мониторинга и бэкапов.
 - Flyway migrations;
 - Gradle wrapper `9.4.1`;
 - JWT через `com.auth0:java-jwt`;
-- JSON через Jackson Kotlin module (`tools.jackson.module:jackson-module-kotlin`);
+- HTTP JSON через Jackson Kotlin module
+  (`tools.jackson.module:jackson-module-kotlin`);
+- Hibernate JSONB mapping дополнительно использует Jackson 2 Kotlin module,
+  потому что встроенный Hibernate `JacksonJsonFormatMapper` работает через
+  `com.fasterxml.jackson`;
 - validation через `spring-boot-starter-validation` и Jakarta Validation;
 - scheduling через Spring `@EnableScheduling` / `@Scheduled`;
 - slug generation через `com.github.slugify:slugify` и ICU4J;
@@ -409,6 +413,9 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   pattern: начинаются с alphanumeric symbol и далее используют только alphanumeric,
   `_`, `.`, `-`.
 - `restartMaxRetries` допустим только для `DockerRestartPolicyType.ON_FAILURE`.
+- Create выполняется через отдельный transactional executor. Внешний orchestration
+  после rollback повторно проверяет project-scoped name при unique-constraint race,
+  чтобы конкурентный дубль стабильно возвращал `managed_service_already_exists`.
 - Full update требует `expectedVersion`. Stale request возвращает текущее состояние,
   если оно уже совпадает с запрошенным, иначе возвращает
   `409 managed_service_version_conflict`. Реальная optimistic-lock race повторно

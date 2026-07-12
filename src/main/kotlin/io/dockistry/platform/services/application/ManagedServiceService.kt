@@ -2,7 +2,6 @@ package io.dockistry.platform.services.application
 
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.application.ProjectAccessGuard
-import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.services.application.dto.ManagedServiceCreateCommand
 import io.dockistry.platform.services.application.dto.ManagedServiceUpdateCommand
 import io.dockistry.platform.services.domain.ManagedService
@@ -13,14 +12,12 @@ import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.time.Clock
 import java.util.UUID
 
 @Service
 class ManagedServiceService(
-    private val clock: Clock,
     private val projectAccessGuard: ProjectAccessGuard,
-    private val commandValidator: ManagedServiceCommandValidator,
+    private val createExecutor: ManagedServiceCreateExecutor,
     private val updateExecutor: ManagedServiceUpdateExecutor,
     private val managedServiceRepository: ManagedServiceRepository
 ) {
@@ -36,28 +33,16 @@ class ManagedServiceService(
         return getExisting(projectId, serviceId)
     }
 
-    @Transactional
     fun create(command: ManagedServiceCreateCommand): ManagedService {
-        val project = projectAccessGuard.requireServicesManageable(
-            command.projectId,
-            command.principal
-        )
-        val configuration = commandValidator.validate(command)
+        return try {
+            createExecutor.execute(command)
+        } catch (exception: DataIntegrityViolationException) {
+            if (createExecutor.nameExists(command.projectId, command.name)) {
+                throw alreadyExists(command.projectId, command.name)
+            }
 
-        if (managedServiceRepository.existsByProjectIdAndName(project.id, command.name)) {
-            throw alreadyExists(project.id, command.name)
+            throw exception
         }
-
-        val now = clock.instant()
-        val service = ManagedService(
-            project = project,
-            name = command.name,
-            configuration = configuration,
-            createdAt = now,
-            updatedAt = now
-        )
-
-        return saveNew(project, service)
     }
 
     fun update(command: ManagedServiceUpdateCommand): ManagedService {
@@ -84,18 +69,6 @@ class ManagedServiceService(
     private fun getExisting(projectId: UUID, serviceId: UUID): ManagedService {
         return managedServiceRepository.findByProjectIdAndId(projectId, serviceId)
             ?: throw notFound(projectId, serviceId)
-    }
-
-    private fun saveNew(project: Project, service: ManagedService): ManagedService {
-        return try {
-            managedServiceRepository.saveAndFlush(service)
-        } catch (exception: DataIntegrityViolationException) {
-            if (managedServiceRepository.existsByProjectIdAndName(project.id, service.name)) {
-                throw alreadyExists(project.id, service.name)
-            }
-
-            throw exception
-        }
     }
 
     private fun alreadyExists(
