@@ -38,7 +38,7 @@ class ManagedServiceService(
             createExecutor.execute(command)
         } catch (exception: DataIntegrityViolationException) {
             if (createExecutor.nameExists(command.projectId, command.name)) {
-                throw alreadyExists(command.projectId, command.name)
+                throw ManagedServiceAlreadyExistsException(command.projectId, command.name)
             }
 
             throw exception
@@ -69,15 +69,6 @@ class ManagedServiceService(
     private fun getExisting(projectId: UUID, serviceId: UUID): ManagedService {
         return managedServiceRepository.findByProjectIdAndId(projectId, serviceId)
             ?: throw notFound(projectId, serviceId)
-    }
-
-    private fun alreadyExists(
-        projectId: UUID,
-        serviceName: String
-    ): ManagedServiceAlreadyExistsException {
-        return ManagedServiceAlreadyExistsException(
-            "Managed service '$serviceName' already exists in project $projectId"
-        )
     }
 
     private fun notFound(projectId: UUID, serviceId: UUID): ManagedServiceNotFoundException {

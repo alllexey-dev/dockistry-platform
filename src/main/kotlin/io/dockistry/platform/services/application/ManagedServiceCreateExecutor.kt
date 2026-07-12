@@ -26,7 +26,7 @@ class ManagedServiceCreateExecutor(
         val configuration = commandValidator.validate(command)
 
         if (managedServiceRepository.existsByProjectIdAndName(project.id, command.name)) {
-            throw alreadyExists(project.id, command.name)
+            throw ManagedServiceAlreadyExistsException(project.id, command.name)
         }
 
         val now = clock.instant()
@@ -44,14 +44,5 @@ class ManagedServiceCreateExecutor(
     @Transactional(readOnly = true)
     fun nameExists(projectId: UUID, serviceName: String): Boolean {
         return managedServiceRepository.existsByProjectIdAndName(projectId, serviceName)
-    }
-
-    private fun alreadyExists(
-        projectId: UUID,
-        serviceName: String
-    ): ManagedServiceAlreadyExistsException {
-        return ManagedServiceAlreadyExistsException(
-            "Managed service '$serviceName' already exists in project $projectId"
-        )
     }
 }
