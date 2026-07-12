@@ -1,0 +1,143 @@
+package io.dockistry.platform.services.infrastructure
+
+import io.dockistry.platform.TestcontainersConfig
+import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
+import io.dockistry.platform.services.domain.ManagedService
+import io.dockistry.platform.services.domain.ManagedServiceDesiredState
+import io.dockistry.platform.services.domain.ServiceEndpoint
+import io.dockistry.platform.services.domain.ServiceEndpointMode
+import io.dockistry.platform.services.domain.ServiceEndpointProtocol
+import io.dockistry.platform.services.domain.ServiceVolumeMount
+import io.dockistry.platform.services.testsupport.managedService
+import io.dockistry.platform.services.testsupport.managedServiceDraft
+import io.dockistry.platform.testsupport.IamProjectFixtures
+import jakarta.persistence.EntityManager
+import jakarta.persistence.PersistenceContext
+import org.hibernate.Hibernate
+import org.junit.jupiter.api.Test
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest
+import org.springframework.context.annotation.Import
+import org.testcontainers.junit.jupiter.Testcontainers
+import java.time.Instant
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+@DataJpaTest
+@Import(TestcontainersConfig::class)
+@Testcontainers
+class ManagedServicePersistenceIntegrationTests {
+
+    @PersistenceContext
+    private lateinit var entityManager: EntityManager
+
+    @Test
+    fun `managed service configuration survives PostgreSQL JSONB round trip`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val project = fixtures.project()
+        val draft = managedServiceDraft(
+            imageRef = "Library/Postgres:16-Alpine",
+            command = listOf("docker-entrypoint.sh"),
+            args = listOf("postgres", "-c", "shared_buffers=256MB"),
+            env = mapOf("APP_ENV" to "production", "LOG_LEVEL" to "info"),
+            endpoints = listOf(
+                ServiceEndpoint(
+                    port = 5432,
+                    protocol = ServiceEndpointProtocol.TCP,
+                    mode = ServiceEndpointMode.DIRECT,
+                    externalPort = 15432
+                ),
+                ServiceEndpoint(
+                    port = 8125,
+                    protocol = ServiceEndpointProtocol.UDP,
+                    mode = ServiceEndpointMode.EDGE
+                )
+            ),
+            volumes = listOf(
+                ServiceVolumeMount(name = "postgres.data", mountPath = "/var/lib/postgresql"),
+                ServiceVolumeMount(name = "config_01", mountPath = "/etc/app", readOnly = true)
+            ),
+            restartPolicy = DockerRestartPolicyType.ON_FAILURE,
+            restartMaxRetries = 5,
+            memoryLimitBytes = 1_073_741_824,
+            cpuLimitNanoCpus = 2_000_000_000,
+            desiredState = ManagedServiceDesiredState.STOPPED
+        )
+        val service = managedService(
+            project = project,
+            name = "postgres-api",
+            draft = draft,
+            createdAt = CREATED_AT,
+            updatedAt = UPDATED_AT
+        )
+        entityManager.persist(service)
+        entityManager.flush()
+        val serviceId = service.id
+        entityManager.clear()
+
+        val saved = entityManager.find(ManagedService::class.java, serviceId)
+
+        assertNotNull(saved)
+        assertEquals(project.id, saved.project.id)
+        assertEquals("postgres-api", saved.name)
+        assertEquals("library/postgres", saved.imageRepository)
+        assertEquals("16-Alpine", saved.imageTag)
+        assertEquals("library/postgres:16-Alpine", saved.imageRef.asString())
+        assertEquals(draft.command, saved.command)
+        assertEquals(draft.args, saved.args)
+        assertEquals(draft.env, saved.env)
+        assertEquals(draft.endpoints, saved.endpoints)
+        assertEquals(draft.volumes, saved.volumes)
+        assertEquals(DockerRestartPolicyType.ON_FAILURE, saved.restartPolicy)
+        assertEquals(5, saved.restartMaxRetries)
+        assertEquals(1_073_741_824, saved.memoryLimitBytes)
+        assertEquals(2_000_000_000, saved.cpuLimitNanoCpus)
+        assertEquals(ManagedServiceDesiredState.STOPPED, saved.desiredState)
+        assertEquals(0, saved.version)
+        assertEquals(CREATED_AT, saved.createdAt)
+        assertEquals(UPDATED_AT, saved.updatedAt)
+
+        val jsonColumnTypes = entityManager.createNativeQuery(
+            """
+                SELECT pg_typeof(command)::text,
+                       pg_typeof(args)::text,
+                       pg_typeof(env)::text,
+                       pg_typeof(endpoints)::text,
+                       pg_typeof(volumes)::text
+                  FROM services
+                 WHERE id = :serviceId
+            """.trimIndent()
+        )
+            .setParameter("serviceId", serviceId)
+            .singleResult as Array<*>
+
+        assertEquals(listOf("jsonb", "jsonb", "jsonb", "jsonb", "jsonb"), jsonColumnTypes.toList())
+    }
+
+    @Test
+    fun `managed service remains proxyable and lazy getter initializes reference`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val project = fixtures.project()
+        val service = managedService(
+            project = project,
+            name = "proxy-service",
+            draft = managedServiceDraft(args = listOf("--serve"))
+        )
+        entityManager.persist(service)
+        entityManager.flush()
+        val serviceId = service.id
+        entityManager.clear()
+
+        val reference = entityManager.getReference(ManagedService::class.java, serviceId)
+
+        assertFalse(Hibernate.isInitialized(reference))
+        assertEquals(listOf("--serve"), reference.args)
+        assertTrue(Hibernate.isInitialized(reference))
+    }
+
+    companion object {
+        private val CREATED_AT = Instant.parse("2026-01-01T00:00:00Z")
+        private val UPDATED_AT = Instant.parse("2026-01-01T01:00:00Z")
+    }
+}
