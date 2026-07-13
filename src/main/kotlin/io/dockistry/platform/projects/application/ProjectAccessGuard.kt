@@ -87,6 +87,18 @@ class ProjectAccessGuard(
         return project
     }
 
+    fun requireServicesManageable(projectId: UUID, principal: Principal): Project {
+        val project = requireReadable(projectId, principal)
+
+        if (!projectAccessService.hasProjectServicesManagePermission(project.scope, principal)) {
+            throw InsufficientPermissionException(
+                "This principal is not allowed to manage services of specified project"
+            )
+        }
+
+        return project
+    }
+
     private fun notFound(): ProjectNotFoundException =
         ProjectNotFoundException("Project with provided ID couldn't be found")
 }

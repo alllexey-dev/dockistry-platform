@@ -14,6 +14,7 @@ object SystemPermissionNames {
     const val PROJECT_ARCHIVE = "project.archive"
     const val PROJECT_MEMBERS_MANAGE = "project.members.manage"
     const val PROJECT_CONTAINER_MANAGE = "project.containers.manage"
+    const val PROJECT_SERVICES_MANAGE = "projects.services.manage"
     const val DOCKER_IMAGES_READ = "docker.images.read"
     const val DOCKER_IMAGES_MANAGE = "docker.images.manage"
 }

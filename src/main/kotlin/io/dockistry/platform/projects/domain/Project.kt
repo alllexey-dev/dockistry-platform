@@ -3,6 +3,7 @@ package io.dockistry.platform.projects.domain
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.Role
 import io.dockistry.platform.iam.domain.Scope
+import io.dockistry.platform.shared.domain.SlugValidator
 import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -56,9 +57,13 @@ class Project(
         }
 
     @field:Column(unique = true, nullable = false)
-    var slug: String = ProjectSlugValidator.validate(slug)
+    var slug: String = SlugValidator.validate(slug) {
+        InvalidProjectSlugException("Project slug '$it' is invalid")
+    }
         set(value) {
-            field = ProjectSlugValidator.validate(value)
+            field = SlugValidator.validate(value) {
+                InvalidProjectSlugException("Project slug '$it' is invalid")
+            }
         }
 
     @OneToMany(mappedBy = "project", cascade = [CascadeType.ALL], fetch = FetchType.LAZY)

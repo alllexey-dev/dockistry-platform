@@ -15,6 +15,10 @@ class MutableClock(
     override fun getZone(): ZoneId = zone
     override fun withZone(zone: ZoneId): Clock = MutableClock(current, zone)
 
+    fun set(instant: Instant) {
+        current = instant
+    }
+
     fun advance(duration: Duration) {
         current += duration
     }

@@ -43,6 +43,7 @@ dependencies {
 	runtimeOnly("org.flywaydb:flyway-database-postgresql")
 
 	runtimeOnly("org.postgresql:postgresql")
+	runtimeOnly("com.fasterxml.jackson.module:jackson-module-kotlin:2.21.2")
 
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jdbc-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")

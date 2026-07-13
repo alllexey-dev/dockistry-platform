@@ -6,7 +6,8 @@
 
 > Текущее состояние: MVP-ядро — регистрация/вход пользователей (JWT, access + refresh токены),
 > базовая RBAC-модель (пользователи, группы, роли, права, scope), базовый Projects REST API,
-> read-only Docker agent API для локального Docker Engine, миграции БД через Flyway.
+> Managed Services API для durable container configuration, Docker agent API для локального
+> Docker Engine, миграции БД через Flyway.
 
 ## Технологический стек
 
@@ -26,7 +27,7 @@
 
 - **JDK 21+** — нужен для запуска Gradle. Сам проект собирается под Java 21 (toolchain
   при необходимости скачает нужную версию автоматически).
-- **Docker** + **Docker Compose** — для локальной БД PostgreSQL, read-only Docker API
+- **Docker** + **Docker Compose** — для локальной БД PostgreSQL, Docker API
   endpoints и интеграционных тестов (Testcontainers поднимает контейнер с Postgres).
 - Gradle ставить отдельно **не нужно** — используется wrapper (`./gradlew`).
 
@@ -175,6 +176,44 @@ permission `project.read`. Mutating member endpoints требуют permission
 оба отображаются как `404 project_not_found`; если read-access есть, но не хватает
 права на действие, возвращается `403 insufficient_permission_for_operation`.
 
+## Managed Services API
+
+Managed Service — сохраненная project-scoped конфигурация будущего контейнера:
+image reference, command/args, env, endpoints, volumes, restart policy, resource
+limits и ожидаемое состояние. Это durable source of truth в таблице `services`;
+сам Docker container остается runtime artifact.
+
+| Метод    | Endpoint                                       | Назначение                                      |
+|----------|------------------------------------------------|-------------------------------------------------|
+| `GET`    | `/api/projects/{projectId}/services`           | список managed services проекта                |
+| `POST`   | `/api/projects/{projectId}/services`           | создать managed service                         |
+| `GET`    | `/api/projects/{projectId}/services/{serviceId}` | получить managed service                      |
+| `PATCH`  | `/api/projects/{projectId}/services/{serviceId}` | заменить изменяемую конфигурацию service      |
+| `DELETE` | `/api/projects/{projectId}/services/{serviceId}` | удалить managed service, `data="ok"`          |
+
+Read endpoints требуют `project.read`. Mutating endpoints требуют
+`projects.services.manage`; эта permission входит в system roles `project_admin`
+и `project_operator`.
+
+`name` immutable, уникален внутри проекта, валидируется как slug до 40 символов
+вроде `example-service-name`. `imageRef` нормализуется к виду `repository:tag`;
+если tag не передан, используется `latest`. Repository и tag хранятся раздельно,
+но API возвращает каноническую строку. Custom registries и digest refs пока не
+поддерживаются. JSONB-поля (`command`, `args`, `env`, `endpoints`, `volumes`)
+возвращаются типизированной структурой в `ApiResponse<ManagedServiceDto>`.
+
+Имена volumes содержат минимум два символа и соответствуют Docker name rules:
+первый символ alphanumeric, оставшиеся символы — alphanumeric, `_`, `.` или `-`.
+DIRECT endpoints могут использовать одинаковый `externalPort` для разных
+протоколов, но пара `(externalPort, protocol)` должна быть уникальна внутри
+managed service.
+
+`PATCH` выполняет full replacement изменяемой конфигурации и требует
+`expectedVersion` из последнего `ManagedServiceDto`. Если версия устарела, но
+запрошенное состояние уже достигнуто, API возвращает актуальный service с `200`.
+Если актуальная конфигурация отличается, возвращается
+`409 managed_service_version_conflict`.
+
 ## Docker API
 
 Docker endpoints требуют access token и работают через локальный Docker Engine
@@ -205,6 +244,7 @@ Project container endpoints требуют `project.read`. Контейнер с
 
 - `io.dockistry.managed=true`
 - `io.dockistry.project-id=<projectId>`
+- `io.dockistry.service-id=<serviceId>` для контейнеров, связанных с Managed Service
 
 Если Docker Engine недоступен, Docker operations возвращают
 `503 docker_agent_unavailable`. Если контейнер отсутствует или не принадлежит
