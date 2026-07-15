@@ -20,6 +20,8 @@ import com.github.dockerjava.api.model.ExposedPort
 import com.github.dockerjava.api.model.HealthCheck
 import com.github.dockerjava.api.model.HostConfig
 import com.github.dockerjava.api.model.Image as DockerJavaImage
+import com.github.dockerjava.api.model.Mount
+import com.github.dockerjava.api.model.MountType
 import com.github.dockerjava.api.model.Ports
 import com.github.dockerjava.api.model.StatisticNetworksConfig
 import com.github.dockerjava.api.model.Statistics
@@ -36,9 +38,12 @@ import io.dockistry.platform.docker.domain.DockerContainerNotRunningException
 import io.dockistry.platform.docker.domain.DockerImageNotFoundException
 import io.dockistry.platform.docker.domain.DockerImagePullTimeoutException
 import io.dockistry.platform.docker.domain.DockerImageRemoveConflictException
+import io.dockistry.platform.docker.domain.DockerNetworkNotFoundException
+import io.dockistry.platform.docker.domain.DockerVolumeNotFoundException
 import io.dockistry.platform.docker.domain.model.DockerAgentAvailability
 import io.dockistry.platform.docker.domain.model.DockerAgentInfo
 import io.dockistry.platform.docker.domain.model.DockerContainerConfig
+import io.dockistry.platform.docker.domain.model.DockerContainerCreateCommand
 import io.dockistry.platform.docker.domain.model.DockerContainerDetails
 import io.dockistry.platform.docker.domain.model.DockerContainerFilter
 import io.dockistry.platform.docker.domain.model.DockerContainerHealth
@@ -63,8 +68,10 @@ import io.dockistry.platform.docker.domain.model.DockerImageRootFs
 import io.dockistry.platform.docker.domain.model.DockerImageSummary
 import io.dockistry.platform.docker.domain.model.DockerMountInfo
 import io.dockistry.platform.docker.domain.model.DockerNetworkEndpoint
+import io.dockistry.platform.docker.domain.model.DockerNetworkRef
 import io.dockistry.platform.docker.domain.model.DockerNetworkStats
 import io.dockistry.platform.docker.domain.model.DockerPortInfo
+import io.dockistry.platform.docker.domain.model.DockerPortProtocol
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicy
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
 import org.slf4j.Logger
@@ -181,8 +188,112 @@ class LocalDockerAgentClient(
         }
     }
 
+    override fun findNetworkByName(name: String): DockerNetworkRef? {
+        return dockerClient.listNetworksCmd()
+            .withNameFilter(name)
+            .exec()
+            .firstOrNull { network -> network.name == name }
+            ?.let { network ->
+                DockerNetworkRef(
+                    id = network.id,
+                    name = network.name
+                )
+            }
+    }
+
+    override fun createNetwork(
+        name: String,
+        labels: Map<String, String>
+    ): DockerNetworkRef {
+        val response = dockerClient.createNetworkCmd()
+            .withName(name)
+            .withLabels(labels)
+            .exec()
+
+        return DockerNetworkRef(
+            id = response.id,
+            name = name
+        )
+    }
+
+    override fun removeNetwork(networkId: String) {
+        dockerCall(DockerNetworkNotFoundException("Docker network couldn't be found")) {
+            dockerClient.removeNetworkCmd(networkId).exec()
+        }
+    }
+
+    override fun createVolume(
+        name: String,
+        labels: Map<String, String>
+    ) {
+        dockerClient.createVolumeCmd().withName(name).withLabels(labels).exec()
+    }
+
+    override fun removeVolume(name: String) {
+        dockerCall(DockerVolumeNotFoundException("Docker volume couldn't be found")) {
+            dockerClient.removeVolumeCmd(name).exec()
+        }
+    }
+
+    override fun createContainer(command: DockerContainerCreateCommand): String {
+        return dockerCall(DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)) {
+            val portBindings = Ports()
+            val exposedPorts = command.portBindings.map { binding ->
+                val exposedPort = when (binding.protocol) {
+                    DockerPortProtocol.TCP -> ExposedPort.tcp(binding.containerPort)
+                    DockerPortProtocol.UDP -> ExposedPort.udp(binding.containerPort)
+                }
+                portBindings.bind(exposedPort, Ports.Binding.bindPort(binding.hostPort))
+                exposedPort
+            }
+            val volumeMounts = command.volumeBindings.map { binding ->
+                Mount()
+                    .withType(MountType.VOLUME)
+                    .withSource(binding.volumeName)
+                    .withTarget(binding.mountPath)
+                    .withReadOnly(binding.readOnly)
+            }
+            val restartPolicy = when (command.restartPolicy.type) {
+                DockerRestartPolicyType.NO -> DockerJavaRestartPolicy.noRestart()
+                DockerRestartPolicyType.ALWAYS -> DockerJavaRestartPolicy.alwaysRestart()
+                DockerRestartPolicyType.ON_FAILURE -> DockerJavaRestartPolicy.onFailureRestart(
+                    command.restartPolicy.maxRetries ?: 0
+                )
+                DockerRestartPolicyType.UNLESS_STOPPED ->
+                    DockerJavaRestartPolicy.unlessStoppedRestart()
+            }
+            val hostConfig = HostConfig.newHostConfig()
+                .withNetworkMode(command.networkName)
+                .withPortBindings(portBindings)
+                .withMounts(volumeMounts)
+                .withRestartPolicy(restartPolicy)
+
+            command.memoryLimitBytes?.let(hostConfig::withMemory)
+            command.cpuLimitNanoCpus?.let(hostConfig::withNanoCPUs)
+
+            val createCommand = dockerClient.createContainerCmd(
+                "${command.image.repository}:${command.image.tag}"
+            )
+                .withName(command.name)
+                .withEnv(command.env.map { (name, value) -> "$name=$value" })
+                .withLabels(command.labels)
+                .withHostConfig(hostConfig)
+
+            command.command?.let(createCommand::withEntrypoint)
+            command.args?.let(createCommand::withCmd)
+            if (command.networkAliases.isNotEmpty()) {
+                createCommand.withAliases(command.networkAliases)
+            }
+            if (exposedPorts.isNotEmpty()) {
+                createCommand.withExposedPorts(exposedPorts)
+            }
+
+            createCommand.exec().id
+        }
+    }
+
     override fun listContainers(filter: DockerContainerFilter): List<DockerContainerSummary> {
-        return dockerCall {
+        return dockerCall(containerNotFound()) {
             val command = dockerClient.listContainersCmd()
                 .withShowAll(true)
 
@@ -195,7 +306,7 @@ class LocalDockerAgentClient(
     }
 
     override fun inspectContainer(containerId: String): DockerContainerDetails {
-        return dockerCall {
+        return dockerCall(containerNotFound()) {
             dockerClient.inspectContainerCmd(containerId)
                 .exec()
                 .toDetails()
@@ -203,7 +314,7 @@ class LocalDockerAgentClient(
     }
 
     override fun getContainerStats(containerId: String): DockerContainerStats {
-        return dockerCall {
+        return dockerCall(containerNotFound()) {
             readSingleStats(containerId).toContainerStats()
         }
     }
@@ -212,7 +323,7 @@ class LocalDockerAgentClient(
         containerId: String,
         request: DockerContainerLogsRequest
     ): DockerContainerLogs {
-        return dockerCall {
+        return dockerCall(containerNotFound()) {
             readLogs(containerId, request)
         }
     }
@@ -263,7 +374,7 @@ class LocalDockerAgentClient(
     }
 
     override fun deleteContainer(containerId: String) {
-        dockerCall {
+        dockerCall(containerNotFound()) {
             dockerClient.removeContainerCmd(containerId)
                 .withForce(true)
                 .exec()
@@ -858,11 +969,14 @@ class LocalDockerAgentClient(
         }
     }
 
-    private inline fun <T> dockerCall(operation: () -> T): T {
+    private inline fun <T> dockerCall(
+        notFoundException: Throwable,
+        operation: () -> T
+    ): T {
         return try {
             operation()
-        } catch (exception: DockerNotFoundException) {
-            throw DockerContainerNotFoundException("Docker container couldn't be found")
+        } catch (_: DockerNotFoundException) {
+            throw notFoundException
         } catch (exception: DockerException) {
             logDockerCallFailure(exception)
             throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
@@ -951,6 +1065,9 @@ class LocalDockerAgentClient(
     private fun RuntimeException.safeMessage(): String {
         return message?.takeIf { it.isNotBlank() } ?: this::class.simpleName.orEmpty()
     }
+
+    private fun containerNotFound(): DockerContainerNotFoundException =
+        DockerContainerNotFoundException("Docker container couldn't be found")
 
     private companion object {
         val dockerLogger: Logger = LoggerFactory.getLogger(LocalDockerAgentClient::class.java)

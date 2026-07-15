@@ -52,3 +52,11 @@ class DockerContainerNotRunningException(
 class DockerContainerLifecycleConflictException(
     message: String
 ) : ConflictException(message, "docker_container_lifecycle_conflict")
+
+class DockerNetworkNotFoundException(
+    message: String
+) : NotFoundException(message, "docker_network_not_found")
+
+class DockerVolumeNotFoundException(
+    message: String
+) : NotFoundException(message, "docker_volume_not_found")

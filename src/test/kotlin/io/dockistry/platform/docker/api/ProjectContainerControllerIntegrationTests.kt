@@ -8,6 +8,7 @@ import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerAgentAvailability
 import io.dockistry.platform.docker.domain.model.DockerAgentInfo
 import io.dockistry.platform.docker.domain.model.DockerContainerConfig
+import io.dockistry.platform.docker.domain.model.DockerContainerCreateCommand
 import io.dockistry.platform.docker.domain.model.DockerContainerDetails
 import io.dockistry.platform.docker.domain.model.DockerContainerFilter
 import io.dockistry.platform.docker.domain.model.DockerContainerHostConfig
@@ -20,6 +21,7 @@ import io.dockistry.platform.docker.domain.model.DockerContainerSummary
 import io.dockistry.platform.docker.domain.model.DockerImageInfo
 import io.dockistry.platform.docker.domain.model.DockerImageRef
 import io.dockistry.platform.docker.domain.model.DockerImageSummary
+import io.dockistry.platform.docker.domain.model.DockerNetworkRef
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicy
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
 import io.dockistry.platform.iam.domain.SystemPermissionNames
@@ -164,6 +166,36 @@ class ProjectContainerControllerIntegrationTests {
 
         override fun removeImage(imageId: String, force: Boolean) {
             error("Images are not used in this test")
+        }
+
+        override fun findNetworkByName(name: String): DockerNetworkRef? {
+            TODO("Not yet implemented")
+        }
+
+        override fun createNetwork(
+            name: String,
+            labels: Map<String, String>
+        ): DockerNetworkRef {
+            TODO("Not yet implemented")
+        }
+
+        override fun removeNetwork(networkId: String) {
+            TODO("Not yet implemented")
+        }
+
+        override fun createVolume(
+            name: String,
+            labels: Map<String, String>
+        ) {
+            TODO("Not yet implemented")
+        }
+
+        override fun removeVolume(name: String) {
+            TODO("Not yet implemented")
+        }
+
+        override fun createContainer(command: DockerContainerCreateCommand): String {
+            TODO("Not yet implemented")
         }
 
         override fun listContainers(filter: DockerContainerFilter): List<DockerContainerSummary> {
