@@ -3,6 +3,9 @@ package io.dockistry.platform.services.infrastructure
 import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
 import io.dockistry.platform.services.domain.ManagedService
+import io.dockistry.platform.services.domain.ManagedServiceConfiguration
+import io.dockistry.platform.services.domain.ManagedServiceDeployment
+import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
 import io.dockistry.platform.services.domain.ManagedServiceDesiredState
 import io.dockistry.platform.services.domain.ServiceEndpoint
 import io.dockistry.platform.services.domain.ServiceEndpointMode
@@ -134,6 +137,77 @@ class ManagedServicePersistenceIntegrationTests {
         assertFalse(Hibernate.isInitialized(reference))
         assertEquals(listOf("--serve"), reference.args)
         assertTrue(Hibernate.isInitialized(reference))
+    }
+
+    @Test
+    fun `managed service deployment survives PostgreSQL JSONB round trip`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val project = fixtures.project()
+        val draft = managedServiceDraft(
+            imageRef = "nginx:1.29-alpine",
+            command = listOf("nginx"),
+            args = listOf("-g", "daemon off;"),
+            env = mapOf("APP_ENV" to "production"),
+            endpoints = listOf(
+                ServiceEndpoint(
+                    port = 80,
+                    protocol = ServiceEndpointProtocol.TCP,
+                    mode = ServiceEndpointMode.DIRECT,
+                    externalPort = 8080
+                )
+            ),
+            volumes = listOf(
+                ServiceVolumeMount(name = "nginx-data", mountPath = "/usr/share/nginx/html")
+            ),
+            restartPolicy = DockerRestartPolicyType.UNLESS_STOPPED,
+            memoryLimitBytes = 536_870_912,
+            cpuLimitNanoCpus = 1_000_000_000
+        )
+        val service = managedService(
+            project = project,
+            name = "nginx-web",
+            draft = draft,
+            createdAt = CREATED_AT,
+            updatedAt = UPDATED_AT
+        )
+        entityManager.persist(service)
+        entityManager.flush()
+
+        val deployment = ManagedServiceDeployment(
+            service = service,
+            configSnapshot = ManagedServiceConfiguration.validated(draft),
+            serviceVersion = service.version,
+            createdAt = CREATED_AT,
+            updatedAt = UPDATED_AT
+        ).also {
+            it.containerId = "container-123"
+            it.status = ManagedServiceDeploymentStatus.RUNNING
+        }
+        entityManager.persist(deployment)
+        entityManager.flush()
+        val deploymentId = deployment.id
+        entityManager.clear()
+
+        val saved = entityManager.find(ManagedServiceDeployment::class.java, deploymentId)
+
+        assertNotNull(saved)
+        assertEquals(service.id, saved.service.id)
+        assertEquals("container-123", saved.containerId)
+        assertEquals("nginx", saved.imageRepository)
+        assertEquals("1.29-alpine", saved.imageTag)
+        assertEquals(service.version, saved.serviceVersion)
+        assertEquals(ManagedServiceDeploymentStatus.RUNNING, saved.status)
+        assertEquals(CREATED_AT, saved.createdAt)
+        assertEquals(UPDATED_AT, saved.updatedAt)
+        assertEquals("nginx:1.29-alpine", saved.configSnapshot.imageRef.asString())
+        assertEquals(draft.command, saved.configSnapshot.command)
+        assertEquals(draft.args, saved.configSnapshot.args)
+        assertEquals(draft.env, saved.configSnapshot.env)
+        assertEquals(draft.endpoints, saved.configSnapshot.endpoints)
+        assertEquals(draft.volumes, saved.configSnapshot.volumes)
+        assertEquals(draft.restartPolicy, saved.configSnapshot.restartPolicy)
+        assertEquals(draft.memoryLimitBytes, saved.configSnapshot.memoryLimitBytes)
+        assertEquals(draft.cpuLimitNanoCpus, saved.configSnapshot.cpuLimitNanoCpus)
     }
 
     companion object {
