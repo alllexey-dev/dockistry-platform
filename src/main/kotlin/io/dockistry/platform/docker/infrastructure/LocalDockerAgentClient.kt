@@ -31,6 +31,8 @@ import io.dockistry.platform.docker.domain.DockerAgentUnavailableException
 import io.dockistry.platform.docker.domain.DockerContainerAlreadyPausedException
 import io.dockistry.platform.docker.domain.DockerContainerAlreadyStartedException
 import io.dockistry.platform.docker.domain.DockerContainerAlreadyStoppedException
+import io.dockistry.platform.docker.domain.DockerContainerCreateDependencyNotFoundException
+import io.dockistry.platform.docker.domain.DockerContainerCreateNameConflictException
 import io.dockistry.platform.docker.domain.DockerContainerLifecycleConflictException
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerContainerNotPausedException
@@ -236,7 +238,11 @@ class LocalDockerAgentClient(
     }
 
     override fun createContainer(command: DockerContainerCreateCommand): String {
-        return dockerCall(DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)) {
+        return dockerCall(
+            DockerContainerCreateDependencyNotFoundException(
+                "Docker container create dependency couldn't be found"
+            )
+        ) {
             val portBindings = Ports()
             val exposedPorts = command.portBindings.map { binding ->
                 val exposedPort = when (binding.protocol) {
@@ -288,7 +294,13 @@ class LocalDockerAgentClient(
                 createCommand.withExposedPorts(exposedPorts)
             }
 
-            createCommand.exec().id
+            try {
+                createCommand.exec().id
+            } catch (exception: DockerConflictException) {
+                throw DockerContainerCreateNameConflictException(
+                    exception.safeDockerMessage("Docker container name is already in use")
+                )
+            }
         }
     }
 

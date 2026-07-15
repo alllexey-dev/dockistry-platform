@@ -53,6 +53,14 @@ class DockerContainerLifecycleConflictException(
     message: String
 ) : ConflictException(message, "docker_container_lifecycle_conflict")
 
+class DockerContainerCreateDependencyNotFoundException(
+    message: String
+) : NotFoundException(message, "docker_container_create_dependency_not_found")
+
+class DockerContainerCreateNameConflictException(
+    message: String
+) : ConflictException(message, "docker_container_create_name_conflict")
+
 class DockerNetworkNotFoundException(
     message: String
 ) : NotFoundException(message, "docker_network_not_found")
