@@ -143,4 +143,8 @@ class ManagedService(
         desiredState = configuration.desiredState
         this.updatedAt = updatedAt
     }
+
+    fun updateDesiredState(state: ManagedServiceDesiredState) {
+        desiredState = state
+    }
 }

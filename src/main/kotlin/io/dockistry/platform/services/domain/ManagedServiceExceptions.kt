@@ -32,3 +32,17 @@ class InvalidManagedServiceImageRefException(
 class InvalidManagedServiceConfigException(
     message: String
 ) : BadRequestException(message, "invalid_managed_service_config")
+
+class DeployAlreadyInProcessException(
+    message: String
+) : ConflictException(message, "deploy_already_in_process")
+
+class ContainerNameConflictDeletionRequiredException() : ConflictException(
+    message = "Container with same name is already connected to your project, please delete it and try again",
+    code = "container_name_conflict_deletion_required"
+)
+
+class ContainerNameConflictSupportRequiredException() : ConflictException(
+    message = "Container name conflicts with our system, please contact support",
+    code = "container_name_conflict_support_required"
+)

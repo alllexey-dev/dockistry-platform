@@ -97,3 +97,18 @@ class ManagedServiceDtoMapper {
             desiredState = desiredState
         )
 }
+
+fun ManagedService.toConfigurationDraft() =
+    ManagedServiceConfigurationDraft(
+        imageRef = imageRef.asString(),
+        command = command,
+        args = args,
+        env = env,
+        endpoints = endpoints,
+        volumes = volumes,
+        restartPolicy = restartPolicy,
+        restartMaxRetries = restartMaxRetries,
+        memoryLimitBytes = memoryLimitBytes,
+        cpuLimitNanoCpus = cpuLimitNanoCpus,
+        desiredState = desiredState
+    )

@@ -50,3 +50,7 @@ CREATE INDEX service_deployments_service_id_idx
 ALTER TABLE service_deployments
     ADD CONSTRAINT FK_SERVICE_DEPLOYMENTS_ON_SERVICE
         FOREIGN KEY (service_id) REFERENCES services (id) ON DELETE CASCADE;
+
+CREATE UNIQUE INDEX uc_service_deployments_status_in_process
+    ON service_deployments (service_id, status)
+    WHERE status = 'IN_PROCESS';

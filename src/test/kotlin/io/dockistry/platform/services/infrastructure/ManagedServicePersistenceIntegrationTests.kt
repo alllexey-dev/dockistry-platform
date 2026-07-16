@@ -181,7 +181,7 @@ class ManagedServicePersistenceIntegrationTests {
             updatedAt = UPDATED_AT
         ).also {
             it.containerId = "container-123"
-            it.status = ManagedServiceDeploymentStatus.RUNNING
+            it.status = ManagedServiceDeploymentStatus.FINISHED
         }
         entityManager.persist(deployment)
         entityManager.flush()
@@ -196,7 +196,7 @@ class ManagedServicePersistenceIntegrationTests {
         assertEquals("nginx", saved.imageRepository)
         assertEquals("1.29-alpine", saved.imageTag)
         assertEquals(service.version, saved.serviceVersion)
-        assertEquals(ManagedServiceDeploymentStatus.RUNNING, saved.status)
+        assertEquals(ManagedServiceDeploymentStatus.FINISHED, saved.status)
         assertEquals(CREATED_AT, saved.createdAt)
         assertEquals(UPDATED_AT, saved.updatedAt)
         assertEquals("nginx:1.29-alpine", saved.configSnapshot.imageRef.asString())
