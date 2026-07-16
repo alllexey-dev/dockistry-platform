@@ -169,33 +169,37 @@ class ProjectContainerControllerIntegrationTests {
         }
 
         override fun findNetworkByName(name: String): DockerNetworkRef? {
-            TODO("Not yet implemented")
+            error("Network lifecycle is not used in this test")
         }
 
         override fun createNetwork(
             name: String,
             labels: Map<String, String>
         ): DockerNetworkRef {
-            TODO("Not yet implemented")
+            error("Network lifecycle is not used in this test")
         }
 
         override fun removeNetwork(networkId: String) {
-            TODO("Not yet implemented")
+            error("Network lifecycle is not used in this test")
         }
 
         override fun createVolume(
             name: String,
             labels: Map<String, String>
         ) {
-            TODO("Not yet implemented")
+            error("Volume lifecycle is not used in this test")
+        }
+
+        override fun existsVolumeByName(name: String): Boolean {
+            error("Volume lifecycle is not used in this test")
         }
 
         override fun removeVolume(name: String) {
-            TODO("Not yet implemented")
+            error("Volume lifecycle is not used in this test")
         }
 
         override fun createContainer(command: DockerContainerCreateCommand): String {
-            TODO("Not yet implemented")
+            error("Container creation is not used in this test")
         }
 
         override fun listContainers(filter: DockerContainerFilter): List<DockerContainerSummary> {

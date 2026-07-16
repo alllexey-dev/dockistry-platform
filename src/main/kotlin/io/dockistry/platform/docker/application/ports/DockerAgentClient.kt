@@ -32,6 +32,8 @@ interface DockerAgentClient {
 
     fun createVolume(name: String, labels: Map<String, String>)
 
+    fun existsVolumeByName(name: String): Boolean
+
     fun removeVolume(name: String)
 
     fun createContainer(command: DockerContainerCreateCommand): String

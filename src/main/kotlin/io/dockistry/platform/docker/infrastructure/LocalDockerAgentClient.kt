@@ -231,6 +231,14 @@ class LocalDockerAgentClient(
         dockerClient.createVolumeCmd().withName(name).withLabels(labels).exec()
     }
 
+    override fun existsVolumeByName(name: String): Boolean {
+        return dockerClient.listVolumesCmd()
+            .withFilter(name, emptyList())
+            .exec()
+            .volumes
+            .any { it.name == name }
+    }
+
     override fun removeVolume(name: String) {
         dockerCall(DockerVolumeNotFoundException("Docker volume couldn't be found")) {
             dockerClient.removeVolumeCmd(name).exec()
