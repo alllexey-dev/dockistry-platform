@@ -2,6 +2,7 @@ package io.dockistry.platform.services.application
 
 import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.DockerLabels
+import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import org.springframework.stereotype.Service
 import java.util.UUID
 
@@ -30,6 +31,22 @@ class ProjectVolumeService(private val dockerAgentClient: DockerAgentClient) {
     ): String? {
         val name = fullVolumeName(projectSlug, serviceName, volumeName)
         return if (dockerAgentClient.existsVolumeByName(name)) name else null
+    }
+
+    fun removeServiceVolumesByLabels(
+        projectId: UUID,
+        serviceId: UUID
+    ) {
+        dockerAgentClient.listVolumes(
+            DockerLabelsFilter(
+                DockerLabels.forService(
+                    projectId = projectId,
+                    serviceId = serviceId
+                )
+            )
+        ).forEach {
+            dockerAgentClient.removeVolume(it.name)
+        }
     }
 
     fun fullVolumeName(
