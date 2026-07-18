@@ -10,6 +10,7 @@ import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.iam.domain.SystemRoleNames
 import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.iam.infrastructure.PrincipalRepository
+import io.dockistry.platform.iam.infrastructure.RoleBindingRepository
 import io.dockistry.platform.iam.infrastructure.RoleRepository
 import io.dockistry.platform.iam.infrastructure.ScopeQueryRepository
 import io.dockistry.platform.projects.domain.InvalidProjectSlugException
@@ -34,7 +35,8 @@ class ProjectService(
     private val roleRepository: RoleRepository,
     private val principalRepository: PrincipalRepository,
     private val permissionCheckService: PermissionCheckService,
-    private val scopeQueryRepository: ScopeQueryRepository
+    private val scopeQueryRepository: ScopeQueryRepository,
+    private val roleBindingRepository: RoleBindingRepository
 ) {
     @Transactional
     fun create(
@@ -67,17 +69,19 @@ class ProjectService(
         val systemAdminRole = roleRepository.findByNameAndIsSystemTrue(SystemRoleNames.PROJECT_ADMIN)
             ?: throw InternalDataIntegrityException("Basic system role project_admin couldn't be found")
 
-        ownerPrincipal.roleBindings.add(
-            RoleBinding(ownerPrincipal, scope, systemAdminRole)
-        )
-
-        try {
-            return projectRepository.saveAndFlush(project)
+        val savedProject = try {
+            projectRepository.saveAndFlush(project)
         } catch (_: ConstraintViolationException) {
             throw InvalidProjectSlugException("Project slug '$slug' is invalid")
         } catch (_: DataIntegrityViolationException) {
             throw ProjectAlreadyExistsException("Project with such name/slug already exists")
         }
+
+        roleBindingRepository.saveAndFlush(
+            RoleBinding(ownerPrincipal, savedProject.scope, systemAdminRole)
+        )
+
+        return savedProject
     }
 
     @Transactional
@@ -122,12 +126,9 @@ class ProjectService(
     ): Project {
         val project = projectAccessGuard.requireDeletable(projectId, principal)
 
-        project.scope.roleBindings.toList().forEach { binding ->
-            binding.subjectPrincipal.roleBindings.remove(binding)
-            binding.role.roleBindings.remove(binding)
-            project.scope.roleBindings.remove(binding)
-        }
         projectRepository.delete(project)
+        projectRepository.flush()
+
         return project
     }
 

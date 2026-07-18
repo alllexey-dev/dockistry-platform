@@ -108,6 +108,7 @@ class InitialAdminServiceIntegrationTests {
             password = "password-123"
         )
         entityManager.flush()
+        entityManager.clear()
 
         val persistedAdmin = assertNotNull(userRepository.findUserByUsername("initial-admin"))
         assertEquals(admin.id, persistedAdmin.id)
@@ -141,7 +142,7 @@ class InitialAdminServiceIntegrationTests {
         }
 
         entityManager.persist(user)
-        user.principal.roleBindings.add(
+        entityManager.persist(
             RoleBinding(
                 subjectPrincipal = user.principal,
                 scope = globalScope,

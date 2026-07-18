@@ -6,6 +6,7 @@ import io.dockistry.platform.iam.domain.ScopeType
 import io.dockistry.platform.iam.domain.SystemRoleNames
 import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.iam.domain.UserCredentialsValidator
+import io.dockistry.platform.iam.infrastructure.RoleBindingRepository
 import io.dockistry.platform.iam.infrastructure.RoleRepository
 import io.dockistry.platform.iam.infrastructure.ScopeRepository
 import io.dockistry.platform.setup.domain.InitialAdminAlreadyExistsException
@@ -26,6 +27,7 @@ class InitialAdminService(
     private val clock: Clock,
     private val scopeRepository: ScopeRepository,
     private val roleRepository: RoleRepository,
+    private val roleBindingRepository: RoleBindingRepository,
     private val systemSettingRepository: SystemSettingRepository,
 ) {
     @Transactional
@@ -46,7 +48,7 @@ class InitialAdminService(
             password = password
         ).apply { emailVerifiedAt = clock.instant() }
 
-        user.principal.roleBindings.add(
+        roleBindingRepository.saveAndFlush(
             RoleBinding(
                 subjectPrincipal = user.principal,
                 scope = scopeRepository.findByScopeType(ScopeType.GLOBAL).singleOrNull()
