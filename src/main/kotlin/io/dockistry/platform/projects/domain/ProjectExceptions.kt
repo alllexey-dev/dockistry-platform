@@ -39,3 +39,10 @@ class ProjectMemberNotFoundException(
 class ProjectMemberPrincipalNotFoundException(
     message: String
 ) : NotFoundException(message, "project_member_principal_not_found")
+
+class ProjectDeletionBlockedByManagedServicesException(
+    message: String
+) : ConflictException(
+    message = message,
+    code = "project_deletion_blocked_by_managed_services"
+)

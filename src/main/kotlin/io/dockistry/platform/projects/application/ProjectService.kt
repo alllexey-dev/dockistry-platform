@@ -13,9 +13,11 @@ import io.dockistry.platform.iam.infrastructure.PrincipalRepository
 import io.dockistry.platform.iam.infrastructure.RoleBindingRepository
 import io.dockistry.platform.iam.infrastructure.RoleRepository
 import io.dockistry.platform.iam.infrastructure.ScopeQueryRepository
+import io.dockistry.platform.projects.application.ports.ProjectManagedServicesExistencePort
 import io.dockistry.platform.projects.domain.InvalidProjectSlugException
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.projects.domain.ProjectAlreadyExistsException
+import io.dockistry.platform.projects.domain.ProjectDeletionBlockedByManagedServicesException
 import io.dockistry.platform.projects.domain.ProjectStatus
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
@@ -36,7 +38,8 @@ class ProjectService(
     private val principalRepository: PrincipalRepository,
     private val permissionCheckService: PermissionCheckService,
     private val scopeQueryRepository: ScopeQueryRepository,
-    private val roleBindingRepository: RoleBindingRepository
+    private val roleBindingRepository: RoleBindingRepository,
+    private val projectManagedServicesExistencePort: ProjectManagedServicesExistencePort
 ) {
     @Transactional
     fun create(
@@ -126,8 +129,16 @@ class ProjectService(
     ): Project {
         val project = projectAccessGuard.requireDeletable(projectId, principal)
 
-        projectRepository.delete(project)
-        projectRepository.flush()
+        try {
+            projectRepository.delete(project)
+            projectRepository.flush()
+        } catch (exception: DataIntegrityViolationException) {
+            if (projectManagedServicesExistencePort.existsByProjectId(projectId)) {
+                throw ProjectDeletionBlockedByManagedServicesException("Project $projectId has services attached to it hence can't be deleted")
+            }
+
+            throw exception
+        }
 
         return project
     }

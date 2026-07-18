@@ -26,7 +26,7 @@ CREATE INDEX services_project_id_idx
     ON services (project_id);
 
 ALTER TABLE services
-    ADD CONSTRAINT FK_SERVICES_ON_PROJECT FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE;
+    ADD CONSTRAINT FK_SERVICES_ON_PROJECT FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE RESTRICT;
 
 CREATE TABLE service_deployments
 (
