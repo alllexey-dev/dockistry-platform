@@ -47,7 +47,6 @@ import io.dockistry.platform.docker.domain.model.DockerAgentInfo
 import io.dockistry.platform.docker.domain.model.DockerContainerConfig
 import io.dockistry.platform.docker.domain.model.DockerContainerCreateCommand
 import io.dockistry.platform.docker.domain.model.DockerContainerDetails
-import io.dockistry.platform.docker.domain.model.DockerContainerFilter
 import io.dockistry.platform.docker.domain.model.DockerContainerHealth
 import io.dockistry.platform.docker.domain.model.DockerContainerLogLine
 import io.dockistry.platform.docker.domain.model.DockerContainerLogStream
@@ -68,6 +67,7 @@ import io.dockistry.platform.docker.domain.model.DockerImageReference
 import io.dockistry.platform.docker.domain.model.DockerImageRegistryInfo
 import io.dockistry.platform.docker.domain.model.DockerImageRootFs
 import io.dockistry.platform.docker.domain.model.DockerImageSummary
+import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.docker.domain.model.DockerMountInfo
 import io.dockistry.platform.docker.domain.model.DockerNetworkEndpoint
 import io.dockistry.platform.docker.domain.model.DockerNetworkRef
@@ -76,6 +76,7 @@ import io.dockistry.platform.docker.domain.model.DockerPortInfo
 import io.dockistry.platform.docker.domain.model.DockerPortProtocol
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicy
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
+import io.dockistry.platform.docker.domain.model.DockerVolumeRef
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -231,6 +232,18 @@ class LocalDockerAgentClient(
         dockerClient.createVolumeCmd().withName(name).withLabels(labels).exec()
     }
 
+    override fun listVolumes(filter: DockerLabelsFilter): List<DockerVolumeRef> {
+        val command = dockerClient.listVolumesCmd()
+        if (filter.labels.isNotEmpty()) {
+            command.withFilter(
+                "label",
+                filter.labels.map { (name, value) -> "$name=$value" }
+            )
+        }
+
+        return command.exec().volumes.map { DockerVolumeRef(it.name) }
+    }
+
     override fun existsVolumeByName(name: String): Boolean {
         return dockerClient.listVolumesCmd()
             .withFilter(name, emptyList())
@@ -312,7 +325,7 @@ class LocalDockerAgentClient(
         }
     }
 
-    override fun listContainers(filter: DockerContainerFilter): List<DockerContainerSummary> {
+    override fun listContainers(filter: DockerLabelsFilter): List<DockerContainerSummary> {
         return dockerCall(containerNotFound()) {
             val command = dockerClient.listContainersCmd()
                 .withShowAll(true)

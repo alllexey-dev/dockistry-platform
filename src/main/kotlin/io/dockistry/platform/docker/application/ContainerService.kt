@@ -3,7 +3,6 @@ package io.dockistry.platform.docker.application
 import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.model.DockerAgentInfo
 import io.dockistry.platform.docker.domain.model.DockerContainerDetails
-import io.dockistry.platform.docker.domain.model.DockerContainerFilter
 import io.dockistry.platform.docker.domain.model.DockerContainerLogs
 import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
 import io.dockistry.platform.docker.domain.model.DockerContainerStats
@@ -11,6 +10,7 @@ import io.dockistry.platform.docker.domain.model.DockerContainerSummary
 import io.dockistry.platform.docker.domain.model.DockerImageInfo
 import io.dockistry.platform.docker.domain.model.DockerImageRef
 import io.dockistry.platform.docker.domain.model.DockerImageSummary
+import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import org.springframework.stereotype.Service
 
 @Service
@@ -37,7 +37,7 @@ class ContainerService(
         dockerAgentClient.removeImage(imageId, force)
     }
 
-    fun listContainers(filter: DockerContainerFilter): List<DockerContainerSummary> {
+    fun listContainers(filter: DockerLabelsFilter): List<DockerContainerSummary> {
         return dockerAgentClient.listContainers(filter)
     }
 

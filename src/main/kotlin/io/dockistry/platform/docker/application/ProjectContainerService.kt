@@ -5,8 +5,8 @@ import io.dockistry.platform.docker.domain.dto.ContainerDetails
 import io.dockistry.platform.docker.domain.dto.ContainerLogs
 import io.dockistry.platform.docker.domain.dto.ContainerStats
 import io.dockistry.platform.docker.domain.dto.ContainerSummary
-import io.dockistry.platform.docker.domain.model.DockerContainerFilter
 import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
+import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.application.ProjectAccessGuard
 import io.dockistry.platform.projects.domain.Project
@@ -136,12 +136,9 @@ class ProjectContainerService(
         containerService.deleteContainer(access.container.id)
     }
 
-    private fun Project.toContainerFilter(): DockerContainerFilter {
-        return DockerContainerFilter(
-            labels = mapOf(
-                DockerLabels.MANAGED to "true",
-                DockerLabels.PROJECT_ID to id.toString()
-            )
+    private fun Project.toContainerFilter(): DockerLabelsFilter {
+        return DockerLabelsFilter(
+            labels = DockerLabels.forProject(id)
         )
     }
 

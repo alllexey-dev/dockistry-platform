@@ -12,10 +12,7 @@ class ProjectNetworkService(
     fun createNetwork(projectId: UUID, projectSlug: String): String {
         return dockerAgentClient.createNetwork(
             name = projectNetworkName(projectSlug),
-            labels = mapOf(
-                DockerLabels.MANAGED to "true",
-                DockerLabels.PROJECT_ID to projectId.toString()
-            )
+            labels = DockerLabels.forProject(projectId)
         ).name
     }
 

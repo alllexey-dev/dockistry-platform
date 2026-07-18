@@ -18,11 +18,7 @@ class ProjectVolumeService(private val dockerAgentClient: DockerAgentClient) {
 
         dockerAgentClient.createVolume(
             name = name,
-            labels = mapOf(
-                DockerLabels.MANAGED to "true",
-                DockerLabels.PROJECT_ID to projectId.toString(),
-                DockerLabels.SERVICE_ID to serviceId.toString()
-            )
+            labels = DockerLabels.forService(projectId, serviceId)
         )
         return name
     }

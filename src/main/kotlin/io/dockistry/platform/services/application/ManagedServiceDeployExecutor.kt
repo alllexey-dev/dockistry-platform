@@ -5,9 +5,9 @@ import io.dockistry.platform.docker.domain.DockerContainerCreateNameConflictExce
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerContainerCreateCommand
-import io.dockistry.platform.docker.domain.model.DockerContainerFilter
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
 import io.dockistry.platform.docker.domain.model.DockerImageRef
+import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.docker.domain.model.DockerPortBinding
 import io.dockistry.platform.docker.domain.model.DockerPortProtocol
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicy
@@ -93,11 +93,10 @@ class ManagedServiceDeployExecutor(
             name = containerName(plan),
             image = imageRef,
             env = plan.snapshot.env,
-            labels = mapOf(
-                DockerLabels.MANAGED to "true",
-                DockerLabels.PROJECT_ID to plan.projectId.toString(),
-                DockerLabels.SERVICE_ID to plan.serviceId.toString(),
-                DockerLabels.DEPLOYMENT_ID to plan.deploymentId.toString()
+            labels = DockerLabels.forDeployment(
+                projectId = plan.projectId,
+                serviceId = plan.serviceId,
+                deploymentId = plan.deploymentId
             ),
             command = plan.snapshot.command,
             args = plan.snapshot.args,
@@ -171,12 +170,8 @@ class ManagedServiceDeployExecutor(
         plan: ManagedServiceDeploymentPlan
     ): DockerContainerSummary? {
         return dockerAgentClient.listContainers(
-            DockerContainerFilter(
-                labels = mapOf(
-                    DockerLabels.MANAGED to "true",
-                    DockerLabels.PROJECT_ID to plan.projectId.toString(),
-                    DockerLabels.SERVICE_ID to plan.serviceId.toString()
-                )
+            DockerLabelsFilter(
+                labels = DockerLabels.forService(plan.projectId, plan.serviceId)
             )
         ).firstOrNull {
             it.name == containerName(plan)
