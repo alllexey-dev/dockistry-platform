@@ -15,6 +15,7 @@ import io.dockistry.platform.docker.domain.model.DockerVolumeBinding
 import io.dockistry.platform.services.application.dto.ManagedServiceDeploymentPlan
 import io.dockistry.platform.services.domain.ContainerNameConflictDeletionRequiredException
 import io.dockistry.platform.services.domain.ContainerNameConflictSupportRequiredException
+import io.dockistry.platform.services.domain.ManagedServiceDeploymentCanceled
 import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
 import io.dockistry.platform.services.domain.ManagedServiceImageRef
 import io.dockistry.platform.services.domain.ServiceEndpointMode
@@ -41,7 +42,6 @@ class ManagedServiceDeployExecutor(
             LoggerFactory.getLogger(ManagedServiceDeployExecutor::class.java)
     }
 
-    // TODO: support for deploy cancellation by user
     fun deploy(serviceId: UUID) {
         val plan = deploymentLifecycleService.begin(serviceId)
 
@@ -62,31 +62,47 @@ class ManagedServiceDeployExecutor(
             throw exception
         }
 
+        dockerAgentClient.startContainer(containerId)
+
         deploymentLifecycleService.finish(plan.deploymentId, containerId)
     }
 
     private fun deployToDocker(plan: ManagedServiceDeploymentPlan): String {
         val command = createCommand(plan)
 
+        throwIfDeploymentCanceled(plan)
+
         return try {
             dockerAgentClient.createContainer(command)
         } catch (exception: DockerContainerCreateNameConflictException) {
+            throwIfDeploymentCanceled(plan)
+
             if (!handleConflict(plan)) {
                 throw exception
             }
 
             // If conflicting container was automatically deleted, try again once
+            throwIfDeploymentCanceled(plan)
             dockerAgentClient.createContainer(command)
+        }
+    }
+
+    private fun throwIfDeploymentCanceled(plan: ManagedServiceDeploymentPlan) {
+        if (deploymentLifecycleService.isCanceled(plan.deploymentId)) {
+            throw ManagedServiceDeploymentCanceled("This deployment was canceled")
         }
     }
 
     private fun createCommand(
         plan: ManagedServiceDeploymentPlan
     ): DockerContainerCreateCommand {
+        throwIfDeploymentCanceled(plan)
         val networkName = ensureNetworkAndGetName(plan)
+        throwIfDeploymentCanceled(plan)
         val bindings = ensureAndMapVolumes(plan)
 
         val imageRef = plan.snapshot.imageRef.toDockerImageRef()
+        throwIfDeploymentCanceled(plan)
         dockerAgentClient.pullImage(imageRef)
 
         return DockerContainerCreateCommand(

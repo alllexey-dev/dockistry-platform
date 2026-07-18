@@ -46,3 +46,19 @@ class ContainerNameConflictSupportRequiredException() : ConflictException(
     message = "Container name conflicts with our system, please contact support",
     code = "container_name_conflict_support_required"
 )
+
+class ManagedServiceNotDeployedException(
+    message: String
+) : ConflictException(message = message, code = "managed_service_not_deployed")
+
+class ManagedServiceNotRunningException(
+    message: String
+) : ConflictException(message = message, code = "managed_service_not_running")
+
+class ManagedServiceDeploymentCanceled(
+    message: String
+) : ConflictException(message = message, code = "managed_service_deployment_canceled")
+
+class ManagedServiceDeletionBlockedByDeployment(
+    message: String
+) : ConflictException(message = message, code = "managed_service_deployment_blocked_by_deployment")

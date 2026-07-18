@@ -144,7 +144,11 @@ class ManagedService(
         this.updatedAt = updatedAt
     }
 
-    fun updateDesiredState(state: ManagedServiceDesiredState) {
+    fun updateDesiredState(
+        state: ManagedServiceDesiredState,
+        updatedAt: Instant
+    ) {
         desiredState = state
+        this.updatedAt = updatedAt
     }
 }

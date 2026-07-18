@@ -5,6 +5,7 @@ import io.dockistry.platform.services.domain.DeployAlreadyInProcessException
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceConfiguration
 import io.dockistry.platform.services.domain.ManagedServiceDeployment
+import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
 import io.dockistry.platform.services.domain.ManagedServiceDesiredState
 import io.dockistry.platform.services.domain.ManagedServiceNotFoundException
 import io.dockistry.platform.services.infrastructure.ManagedServiceDeploymentRepository
@@ -35,7 +36,7 @@ class ManagedServiceDeploymentLifecycleService(
         )
         val deployment = saveDeployment(service, snapshot)
 
-        service.updateDesiredState(ManagedServiceDesiredState.RUNNING)
+        service.updateDesiredState(ManagedServiceDesiredState.RUNNING, clock.instant())
 
         return ManagedServiceDeploymentPlan(
             deploymentId = deployment.id,
@@ -62,6 +63,9 @@ class ManagedServiceDeploymentLifecycleService(
             updatedAt = clock.instant()
         )
     }
+
+    fun isCanceled(deploymentId: UUID): Boolean =
+        getDeployment(deploymentId).status == ManagedServiceDeploymentStatus.CANCELLED
 
     private fun getDeployment(deploymentId: UUID): ManagedServiceDeployment {
         return deploymentRepository.findById(deploymentId)

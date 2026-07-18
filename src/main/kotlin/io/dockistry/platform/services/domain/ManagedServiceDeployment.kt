@@ -84,7 +84,6 @@ class ManagedServiceDeployment(
 enum class ManagedServiceDeploymentStatus {
     IN_PROCESS,
     FINISHED,
-    STOPPED,
-    FAILED,
-    REMOVED
+    CANCELLED,
+    FAILED
 }
