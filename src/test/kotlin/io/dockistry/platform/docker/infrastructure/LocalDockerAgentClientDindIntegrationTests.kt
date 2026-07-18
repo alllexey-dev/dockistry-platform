@@ -37,6 +37,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -100,6 +101,14 @@ class LocalDockerAgentClientDindIntegrationTests {
 
         assertTrue(dockerAgentClient.listContainers(projectFilter(projectId)).isEmpty())
         assertEquals(1, dockerAgentClient.listContainers(projectFilter(otherProjectId)).size)
+    }
+
+    @Test
+    fun `exists volume by name uses Docker name filter`() {
+        val volumeName = createVolume("exists-volume")
+
+        assertTrue(dockerAgentClient.existsVolumeByName(volumeName))
+        assertFalse(dockerAgentClient.existsVolumeByName("$volumeName-missing"))
     }
 
     @Test

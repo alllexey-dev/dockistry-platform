@@ -246,7 +246,7 @@ class LocalDockerAgentClient(
 
     override fun existsVolumeByName(name: String): Boolean {
         return dockerClient.listVolumesCmd()
-            .withFilter(name, emptyList())
+            .withFilter("name", listOf(name))
             .exec()
             .volumes
             .any { it.name == name }
