@@ -196,7 +196,7 @@ class ProjectContainerControllerIntegrationTests {
             error("Volume lifecycle is not used in this test")
         }
 
-        override fun existsVolumeByName(name: String): Boolean {
+        override fun findVolumeByName(name: String): DockerVolumeRef? {
             error("Volume lifecycle is not used in this test")
         }
 

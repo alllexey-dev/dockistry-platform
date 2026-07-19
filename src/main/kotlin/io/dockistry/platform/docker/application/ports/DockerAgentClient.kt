@@ -33,9 +33,9 @@ interface DockerAgentClient {
 
     fun createVolume(name: String, labels: Map<String, String>)
 
-    fun listVolumes(filter: DockerLabelsFilter): List<DockerVolumeRef>
+    fun findVolumeByName(name: String): DockerVolumeRef?
 
-    fun existsVolumeByName(name: String): Boolean
+    fun listVolumes(filter: DockerLabelsFilter): List<DockerVolumeRef>
 
     fun removeVolume(name: String)
 

@@ -35,5 +35,6 @@ data class DockerVolumeBinding(
 
 data class DockerNetworkRef(
     val id: String,
-    val name: String
+    val name: String,
+    val labels: Map<String, String>
 )

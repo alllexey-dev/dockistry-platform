@@ -233,6 +233,10 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - `InternalDataIntegrityException` используй только для невозможных внутренних
   инвариантов: например, когда ID/username только что был найден, но entity уже
   не находится.
+- Для внутренних ошибок, которым нужен безопасный user-facing message и стабильный
+  error code, используй typed `InternalServerErrorException`. В отличие от
+  `InternalDataIntegrityException`, он намеренно возвращает клиенту свой message/code
+  с HTTP 500 и логируется на уровне ERROR.
 - Не добавляй `@ExceptionHandler(MethodArgumentNotValidException::class)` в
   `GlobalExceptionHandler`: класс наследуется от `ResponseEntityExceptionHandler`,
   поэтому нужно override-ить framework methods, как уже сделано для

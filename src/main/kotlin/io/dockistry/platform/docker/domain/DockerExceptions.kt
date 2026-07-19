@@ -2,6 +2,7 @@ package io.dockistry.platform.docker.domain
 
 import io.dockistry.platform.shared.exception.BadRequestException
 import io.dockistry.platform.shared.exception.ConflictException
+import io.dockistry.platform.shared.exception.InternalServerErrorException
 import io.dockistry.platform.shared.exception.NotFoundException
 import io.dockistry.platform.shared.exception.ServiceUnavailableException
 
@@ -65,6 +66,43 @@ class DockerNetworkNotFoundException(
     message: String
 ) : NotFoundException(message, "docker_network_not_found")
 
+class DockerNetworkCreateNameConflictException(
+    message: String
+) : ConflictException(message, "docker_network_create_name_conflict")
+
+class DockerNetworkNameAmbiguityException(
+    name: String
+) : ConflictException(
+    "Multiple Docker networks use name '$name'; contact an administrator",
+    "docker_network_name_ambiguity"
+)
+
+class DockerNetworkOwnershipConflictException(
+    message: String = "Docker network ownership mismatch; contact an administrator"
+) : ConflictException(message, "docker_network_ownership_conflict")
+
+class DockerNetworkCreateVerificationFailedException(
+    name: String
+) : InternalServerErrorException(
+    "Docker network '$name' couldn't be verified after creation; contact an administrator",
+    "docker_network_create_verification_failed"
+)
+
 class DockerVolumeNotFoundException(
     message: String
 ) : NotFoundException(message, "docker_volume_not_found")
+
+class DockerVolumeCreateNameConflictException(
+    message: String
+) : ConflictException(message, "docker_volume_create_name_conflict")
+
+class DockerVolumeOwnershipConflictException(
+    message: String = "Docker volume ownership mismatch; contact an administrator"
+) : ConflictException(message, "docker_volume_ownership_conflict")
+
+class DockerVolumeCreateVerificationFailedException(
+    name: String
+) : InternalServerErrorException(
+    "Docker volume '$name' couldn't be verified after creation; contact an administrator",
+    "docker_volume_create_verification_failed"
+)

@@ -231,7 +231,7 @@ class ManagedServiceDeployExecutor(
     }
 
     private fun ensureNetworkAndGetName(plan: ManagedServiceDeploymentPlan): String {
-        return projectNetworkService.findNetwork(plan.projectSlug)
+        return projectNetworkService.findNetwork(plan.projectId, plan.projectSlug)
             ?: projectNetworkService.createNetwork(
                 projectId = plan.projectId,
                 projectSlug = plan.projectSlug
@@ -255,13 +255,16 @@ class ManagedServiceDeployExecutor(
         volumeName: String
     ): String {
         return projectVolumeService.findVolume(
+            projectId = plan.projectId,
             projectSlug = plan.projectSlug,
+            serviceId = plan.serviceId,
             serviceName = plan.serviceName,
             volumeName = volumeName
         ) ?: projectVolumeService.createVolume(
             projectId = plan.projectId,
             projectSlug = plan.projectSlug,
             serviceId = plan.serviceId,
+            deploymentId = plan.deploymentId,
             serviceName = plan.serviceName,
             volumeName = volumeName
         )

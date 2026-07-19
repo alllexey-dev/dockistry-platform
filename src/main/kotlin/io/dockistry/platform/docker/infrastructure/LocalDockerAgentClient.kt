@@ -40,7 +40,10 @@ import io.dockistry.platform.docker.domain.DockerContainerNotRunningException
 import io.dockistry.platform.docker.domain.DockerImageNotFoundException
 import io.dockistry.platform.docker.domain.DockerImagePullTimeoutException
 import io.dockistry.platform.docker.domain.DockerImageRemoveConflictException
+import io.dockistry.platform.docker.domain.DockerNetworkCreateNameConflictException
+import io.dockistry.platform.docker.domain.DockerNetworkNameAmbiguityException
 import io.dockistry.platform.docker.domain.DockerNetworkNotFoundException
+import io.dockistry.platform.docker.domain.DockerVolumeCreateNameConflictException
 import io.dockistry.platform.docker.domain.DockerVolumeNotFoundException
 import io.dockistry.platform.docker.domain.model.DockerAgentAvailability
 import io.dockistry.platform.docker.domain.model.DockerAgentInfo
@@ -192,35 +195,56 @@ class LocalDockerAgentClient(
     }
 
     override fun findNetworkByName(name: String): DockerNetworkRef? {
-        return dockerClient.listNetworksCmd()
-            .withNameFilter(name)
-            .exec()
-            .firstOrNull { network -> network.name == name }
-            ?.let { network ->
+        return dockerCall {
+            val networks = dockerClient.listNetworksCmd()
+                .withNameFilter(name)
+                .exec()
+                .filter { network -> network.name == name }
+
+            if (networks.size > 1) {
+                throw DockerNetworkNameAmbiguityException(name)
+            }
+
+            networks.singleOrNull()?.let { network ->
                 DockerNetworkRef(
                     id = network.id,
-                    name = network.name
+                    name = network.name,
+                    labels = network.labels.orEmpty()
                 )
             }
+        }
     }
 
     override fun createNetwork(
         name: String,
         labels: Map<String, String>
     ): DockerNetworkRef {
-        val response = dockerClient.createNetworkCmd()
-            .withName(name)
-            .withLabels(labels)
-            .exec()
+        return dockerCall {
+            val response = try {
+                dockerClient.createNetworkCmd()
+                    .withName(name)
+                    .withLabels(labels)
+                    .exec()
+            } catch (exception: DockerConflictException) {
+                throw DockerNetworkCreateNameConflictException(
+                    exception.safeDockerMessage("Docker network name is already in use")
+                )
+            }
 
-        return DockerNetworkRef(
-            id = response.id,
-            name = name
-        )
+            DockerNetworkRef(
+                id = response.id,
+                name = name,
+                labels = labels
+            )
+        }
     }
 
     override fun removeNetwork(networkId: String) {
-        dockerCall(DockerNetworkNotFoundException("Docker network couldn't be found")) {
+        dockerCall(
+            notFound = {
+                DockerNetworkNotFoundException("Docker network couldn't be found")
+            }
+        ) {
             dockerClient.removeNetworkCmd(networkId).exec()
         }
     }
@@ -229,40 +253,69 @@ class LocalDockerAgentClient(
         name: String,
         labels: Map<String, String>
     ) {
-        dockerClient.createVolumeCmd().withName(name).withLabels(labels).exec()
+        dockerCall {
+            try {
+                dockerClient.createVolumeCmd().withName(name).withLabels(labels).exec()
+            } catch (exception: DockerConflictException) {
+                throw DockerVolumeCreateNameConflictException(
+                    exception.safeDockerMessage("Docker volume name is already in use")
+                )
+            }
+        }
+    }
+
+    override fun findVolumeByName(name: String): DockerVolumeRef? {
+        return dockerCall {
+            dockerClient.listVolumesCmd()
+                .withFilter("name", listOf(name))
+                .exec()
+                .volumes
+                .firstOrNull { volume -> volume.name == name }
+                ?.let { volume ->
+                    DockerVolumeRef(
+                        name = volume.name,
+                        labels = volume.labels.orEmpty()
+                    )
+                }
+        }
     }
 
     override fun listVolumes(filter: DockerLabelsFilter): List<DockerVolumeRef> {
-        val command = dockerClient.listVolumesCmd()
-        if (filter.labels.isNotEmpty()) {
-            command.withFilter(
-                "label",
-                filter.labels.map { (name, value) -> "$name=$value" }
-            )
+        return dockerCall {
+            val command = dockerClient.listVolumesCmd()
+            if (filter.labels.isNotEmpty()) {
+                command.withFilter(
+                    "label",
+                    filter.labels.map { (name, value) -> "$name=$value" }
+                )
+            }
+
+            command.exec().volumes.map { volume ->
+                DockerVolumeRef(
+                    name = volume.name,
+                    labels = volume.labels.orEmpty()
+                )
+            }
         }
-
-        return command.exec().volumes.map { DockerVolumeRef(it.name) }
-    }
-
-    override fun existsVolumeByName(name: String): Boolean {
-        return dockerClient.listVolumesCmd()
-            .withFilter("name", listOf(name))
-            .exec()
-            .volumes
-            .any { it.name == name }
     }
 
     override fun removeVolume(name: String) {
-        dockerCall(DockerVolumeNotFoundException("Docker volume couldn't be found")) {
+        dockerCall(
+            notFound = {
+                DockerVolumeNotFoundException("Docker volume couldn't be found")
+            }
+        ) {
             dockerClient.removeVolumeCmd(name).exec()
         }
     }
 
     override fun createContainer(command: DockerContainerCreateCommand): String {
         return dockerCall(
-            DockerContainerCreateDependencyNotFoundException(
-                "Docker container create dependency couldn't be found"
-            )
+            notFound = {
+                DockerContainerCreateDependencyNotFoundException(
+                    "Docker container create dependency couldn't be found"
+                )
+            }
         ) {
             val portBindings = Ports()
             val exposedPorts = command.portBindings.map { binding ->
@@ -326,7 +379,7 @@ class LocalDockerAgentClient(
     }
 
     override fun listContainers(filter: DockerLabelsFilter): List<DockerContainerSummary> {
-        return dockerCall(containerNotFound()) {
+        return dockerCall {
             val command = dockerClient.listContainersCmd()
                 .withShowAll(true)
 
@@ -339,7 +392,7 @@ class LocalDockerAgentClient(
     }
 
     override fun inspectContainer(containerId: String): DockerContainerDetails {
-        return dockerCall(containerNotFound()) {
+        return dockerCall(notFound = ::containerNotFound) {
             dockerClient.inspectContainerCmd(containerId)
                 .exec()
                 .toDetails()
@@ -347,7 +400,7 @@ class LocalDockerAgentClient(
     }
 
     override fun getContainerStats(containerId: String): DockerContainerStats {
-        return dockerCall(containerNotFound()) {
+        return dockerCall(notFound = ::containerNotFound) {
             readSingleStats(containerId).toContainerStats()
         }
     }
@@ -356,7 +409,7 @@ class LocalDockerAgentClient(
         containerId: String,
         request: DockerContainerLogsRequest
     ): DockerContainerLogs {
-        return dockerCall(containerNotFound()) {
+        return dockerCall(notFound = ::containerNotFound) {
             readLogs(containerId, request)
         }
     }
@@ -407,7 +460,7 @@ class LocalDockerAgentClient(
     }
 
     override fun deleteContainer(containerId: String) {
-        dockerCall(containerNotFound()) {
+        dockerCall(notFound = ::containerNotFound) {
             dockerClient.removeContainerCmd(containerId)
                 .withForce(true)
                 .exec()
@@ -1003,13 +1056,34 @@ class LocalDockerAgentClient(
     }
 
     private inline fun <T> dockerCall(
-        notFoundException: Throwable,
+        operation: () -> T
+    ): T {
+        return dockerCallInternal(
+            notFound = null,
+            operation = operation
+        )
+    }
+
+    private inline fun <T> dockerCall(
+        noinline notFound: () -> RuntimeException,
+        operation: () -> T
+    ): T {
+        return dockerCallInternal(
+            notFound = notFound,
+            operation = operation
+        )
+    }
+
+    private inline fun <T> dockerCallInternal(
+        noinline notFound: (() -> RuntimeException)?,
         operation: () -> T
     ): T {
         return try {
             operation()
-        } catch (_: DockerNotFoundException) {
-            throw notFoundException
+        } catch (exception: DockerNotFoundException) {
+            notFound?.let { throw it() }
+            logDockerCallFailure(exception)
+            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
         } catch (exception: DockerException) {
             logDockerCallFailure(exception)
             throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)

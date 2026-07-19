@@ -26,7 +26,8 @@ data class DockerLabelsFilter(
 )
 
 data class DockerVolumeRef(
-    val name: String
+    val name: String,
+    val labels: Map<String, String>
 )
 
 data class DockerImageRef(

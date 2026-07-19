@@ -104,11 +104,11 @@ class LocalDockerAgentClientDindIntegrationTests {
     }
 
     @Test
-    fun `exists volume by name uses Docker name filter`() {
+    fun `find volume by name returns exact Docker volume`() {
         val volumeName = createVolume("exists-volume")
 
-        assertTrue(dockerAgentClient.existsVolumeByName(volumeName))
-        assertFalse(dockerAgentClient.existsVolumeByName("$volumeName-missing"))
+        assertEquals(volumeName, dockerAgentClient.findVolumeByName(volumeName)?.name)
+        assertNull(dockerAgentClient.findVolumeByName("$volumeName-missing"))
     }
 
     @Test
