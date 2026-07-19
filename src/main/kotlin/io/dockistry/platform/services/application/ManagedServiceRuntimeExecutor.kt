@@ -5,12 +5,10 @@ import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
 import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.docker.infrastructure.LocalDockerAgentClient
-import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
 import io.dockistry.platform.services.domain.ManagedServiceDesiredState
 import io.dockistry.platform.services.domain.ManagedServiceNotDeployedException
 import io.dockistry.platform.services.domain.ManagedServiceNotFoundException
 import io.dockistry.platform.services.domain.ManagedServiceNotRunningException
-import io.dockistry.platform.services.infrastructure.ManagedServiceDeploymentRepository
 import io.dockistry.platform.services.infrastructure.ManagedServiceRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.springframework.stereotype.Service
@@ -21,7 +19,7 @@ import java.util.UUID
 @Service
 class ManagedServiceRuntimeExecutor(
     private val managedServiceRepository: ManagedServiceRepository,
-    private val deploymentRepository: ManagedServiceDeploymentRepository,
+    private val deploymentLifecycleService: ManagedServiceDeploymentLifecycleService,
     private val dockerAgentClient: LocalDockerAgentClient,
     private val clock: Clock
 ) {
@@ -50,8 +48,9 @@ class ManagedServiceRuntimeExecutor(
 
         val stopSucceeded =
             stopContainer(projectId = service.project.id, serviceId = serviceId)
-                .or(
-                    markDeploymentAsStopped(serviceId)
+                || requestDeploymentCancellation(
+                    projectId = service.project.id,
+                    serviceId = serviceId
                 )
 
         if (!stopSucceeded) {
@@ -71,18 +70,28 @@ class ManagedServiceRuntimeExecutor(
     }
 
     private fun stopContainer(projectId: UUID, serviceId: UUID): Boolean {
-        return findServiceContainer(
+        val container = findServiceContainer(
             projectId = projectId,
             serviceId = serviceId
         )
-            ?.let {
-                try {
-                    dockerAgentClient.stopContainer(it.id)
-                } catch (_: DockerContainerAlreadyStoppedException) {
-                    // Target service state is already reached
-                }
-                true
-            } ?: false
+            ?: return false
+
+        val deploymentIsActive = deploymentLifecycleService.hasActiveDeployment(serviceId)
+        stopContainer(container.id)
+
+        // Stopping a container is not enough while its deploy executor may still
+        // start it again. Returning false forces the short-circuited caller to CAS
+        // the active deployment into CANCELING as part of the same stop use case.
+        return !deploymentIsActive
+    }
+
+    private fun stopContainer(containerId: String): Boolean {
+        try {
+            dockerAgentClient.stopContainer(containerId)
+        } catch (_: DockerContainerAlreadyStoppedException) {
+            // Target service state is already reached
+        }
+        return true
     }
 
     private fun findServiceContainer(
@@ -102,20 +111,20 @@ class ManagedServiceRuntimeExecutor(
         }
     }
 
-    private fun markDeploymentAsStopped(serviceId: UUID): Boolean {
-        return deploymentRepository.findByServiceId(serviceId)
-            .filter { it.status == ManagedServiceDeploymentStatus.IN_PROCESS }
-            .let {
-                if (it.size > 1) {
-                    throw InternalDataIntegrityException("Service $serviceId has more than one deployments in process")
-                }
-                it.singleOrNull()
-            }
-            ?.let {
-                it.status = ManagedServiceDeploymentStatus.CANCELLED
-                it.updatedAt = clock.instant()
-                true
-            } ?: false
+    private fun requestDeploymentCancellation(
+        projectId: UUID,
+        serviceId: UUID
+    ): Boolean {
+        return when (
+            val result = deploymentLifecycleService.requestDeploymentCancellation(serviceId)
+        ) {
+            ManagedServiceDeploymentCancellationResult.Requested -> true
+            ManagedServiceDeploymentCancellationResult.NoDeploymentInProcess ->
+                stopContainer(projectId = projectId, serviceId = serviceId)
+
+            is ManagedServiceDeploymentCancellationResult.DeploymentFinished ->
+                stopContainer(result.containerId)
+        }
     }
 
     fun containerFilter(projectId: UUID, serviceId: UUID): DockerLabelsFilter =

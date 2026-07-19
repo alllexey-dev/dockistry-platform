@@ -18,6 +18,7 @@ import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
 import org.hibernate.Hibernate
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest
 import org.springframework.context.annotation.Import
 import org.testcontainers.junit.jupiter.Testcontainers
@@ -31,6 +32,9 @@ import kotlin.test.assertTrue
 @Import(TestcontainersConfig::class)
 @Testcontainers
 class ManagedServicePersistenceIntegrationTests {
+
+    @Autowired
+    private lateinit var deploymentRepository: ManagedServiceDeploymentRepository
 
     @PersistenceContext
     private lateinit var entityManager: EntityManager
@@ -179,13 +183,18 @@ class ManagedServicePersistenceIntegrationTests {
             serviceVersion = service.version,
             createdAt = CREATED_AT,
             updatedAt = UPDATED_AT
-        ).also {
-            it.containerId = "container-123"
-            it.status = ManagedServiceDeploymentStatus.FINISHED
-        }
+        )
         entityManager.persist(deployment)
         entityManager.flush()
         val deploymentId = deployment.id
+        assertEquals(
+            1,
+            deploymentRepository.markFinishedIfInProcess(
+                deploymentId = deploymentId,
+                containerId = "container-123",
+                updatedAt = UPDATED_AT
+            )
+        )
         entityManager.clear()
 
         val saved = entityManager.find(ManagedServiceDeployment::class.java, deploymentId)

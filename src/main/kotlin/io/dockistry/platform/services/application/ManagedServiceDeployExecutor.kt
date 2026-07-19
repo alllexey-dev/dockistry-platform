@@ -45,26 +45,30 @@ class ManagedServiceDeployExecutor(
     fun deploy(serviceId: UUID) {
         val plan = deploymentLifecycleService.begin(serviceId)
 
-        val containerId = try {
-            deployToDocker(plan)
+        var containerId: String? = null
+        try {
+            containerId = deployToDocker(plan)
+            throwIfDeploymentCanceled(plan)
+            dockerAgentClient.startContainer(containerId)
         } catch (_: DockerContainerCreateNameConflictException) {
             val conflictException = properConflictException(plan)
-            deploymentLifecycleService.fail(
-                deploymentId = plan.deploymentId,
-                errorMessage = conflictException.message
-            )
+            if (handleDeploymentFailure(plan, containerId, conflictException)) return
             throw conflictException
         } catch (exception: RuntimeException) {
-            deploymentLifecycleService.fail(
-                deploymentId = plan.deploymentId,
-                errorMessage = exception.message
-            )
+            if (handleDeploymentFailure(plan, containerId, exception)) return
             throw exception
         }
 
-        dockerAgentClient.startContainer(containerId)
-
-        deploymentLifecycleService.finish(plan.deploymentId, containerId)
+        when (
+            deploymentLifecycleService.finish(
+                deploymentId = plan.deploymentId,
+                containerId = containerId
+            )
+        ) {
+            ManagedServiceDeploymentFinalizationResult.APPLIED -> Unit
+            ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED ->
+                cleanupCanceledDeployment(plan, containerId)
+        }
     }
 
     private fun deployToDocker(plan: ManagedServiceDeploymentPlan): String {
@@ -88,9 +92,41 @@ class ManagedServiceDeployExecutor(
     }
 
     private fun throwIfDeploymentCanceled(plan: ManagedServiceDeploymentPlan) {
-        if (deploymentLifecycleService.isCanceled(plan.deploymentId)) {
+        if (deploymentLifecycleService.isCancellationRequested(plan.deploymentId)) {
             throw ManagedServiceDeploymentCanceled("This deployment was canceled")
         }
+    }
+
+    private fun handleDeploymentFailure(
+        plan: ManagedServiceDeploymentPlan,
+        containerId: String?,
+        exception: RuntimeException
+    ): Boolean {
+        return when (
+            deploymentLifecycleService.fail(
+                deploymentId = plan.deploymentId,
+                errorMessage = exception.message
+            )
+        ) {
+            ManagedServiceDeploymentFinalizationResult.APPLIED -> false
+            ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED -> {
+                cleanupCanceledDeployment(plan, containerId)
+                true
+            }
+        }
+    }
+
+    private fun cleanupCanceledDeployment(
+        plan: ManagedServiceDeploymentPlan,
+        containerId: String?
+    ) {
+        logger.error(
+            "Cleanup for canceled deployment {} is not implemented yet; " +
+                    "deployment remains CANCELING (containerId={})",
+            plan.deploymentId,
+            containerId
+        )
+        // TODO: delete Docker resources, then CAS the deployment from CANCELING to CANCELED.
     }
 
     private fun createCommand(

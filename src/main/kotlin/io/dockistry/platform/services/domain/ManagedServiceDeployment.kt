@@ -42,6 +42,7 @@ class ManagedServiceDeployment(
 
     @Column(name = "container_id")
     var containerId: String? = null
+        protected set
 
     @Column(
         name = "image_repository",
@@ -60,30 +61,17 @@ class ManagedServiceDeployment(
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     var status: ManagedServiceDeploymentStatus = ManagedServiceDeploymentStatus.IN_PROCESS
+        protected set
 
     @Column(name = "error_message", columnDefinition = "text")
     var errorMessage: String? = null
-
-    fun finish(containerId: String, updatedAt: Instant) {
-        check(status == ManagedServiceDeploymentStatus.IN_PROCESS)
-
-        this.containerId = containerId
-        status = ManagedServiceDeploymentStatus.FINISHED
-        this.updatedAt = updatedAt
-    }
-
-    fun fail(errorMessage: String?, updatedAt: Instant) {
-        check(status == ManagedServiceDeploymentStatus.IN_PROCESS)
-
-        status = ManagedServiceDeploymentStatus.FAILED
-        this.errorMessage = errorMessage
-        this.updatedAt = updatedAt
-    }
+        protected set
 }
 
 enum class ManagedServiceDeploymentStatus {
     IN_PROCESS,
+    CANCELING,
     FINISHED,
-    CANCELLED,
+    CANCELED,
     FAILED
 }

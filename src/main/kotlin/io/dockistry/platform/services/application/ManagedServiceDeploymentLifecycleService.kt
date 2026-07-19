@@ -49,23 +49,147 @@ class ManagedServiceDeploymentLifecycleService(
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    fun finish(deploymentId: UUID, containerId: String) {
-        getDeployment(deploymentId).finish(
+    fun finish(
+        deploymentId: UUID,
+        containerId: String
+    ): ManagedServiceDeploymentFinalizationResult {
+        val updatedRows = deploymentRepository.markFinishedIfInProcess(
+            deploymentId = deploymentId,
             containerId = containerId,
             updatedAt = clock.instant()
+        )
+
+        return resolveFinalization(
+            deploymentId = deploymentId,
+            operation = "finish",
+            updatedRows = updatedRows
         )
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    fun fail(deploymentId: UUID, errorMessage: String?) {
-        getDeployment(deploymentId).fail(
+    fun fail(
+        deploymentId: UUID,
+        errorMessage: String?
+    ): ManagedServiceDeploymentFinalizationResult {
+        val updatedRows = deploymentRepository.markFailedIfInProcess(
+            deploymentId = deploymentId,
             errorMessage = errorMessage,
             updatedAt = clock.instant()
         )
+
+        return resolveFinalization(
+            deploymentId = deploymentId,
+            operation = "fail",
+            updatedRows = updatedRows
+        )
     }
 
-    fun isCanceled(deploymentId: UUID): Boolean =
-        getDeployment(deploymentId).status == ManagedServiceDeploymentStatus.CANCELLED
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun requestDeploymentCancellation(
+        serviceId: UUID
+    ): ManagedServiceDeploymentCancellationResult {
+        val activeDeployments = deploymentRepository.findActiveByServiceId(serviceId)
+        if (activeDeployments.size > 1) {
+            throw InternalDataIntegrityException(
+                "Service $serviceId has more than one active deployment"
+            )
+        }
+
+        val deployment = activeDeployments.singleOrNull()
+            ?: return ManagedServiceDeploymentCancellationResult.NoDeploymentInProcess
+
+        if (deployment.status == ManagedServiceDeploymentStatus.CANCELING) {
+            return ManagedServiceDeploymentCancellationResult.Requested
+        }
+        if (deployment.status != ManagedServiceDeploymentStatus.IN_PROCESS) {
+            throw unexpectedState(
+                deploymentId = deployment.id,
+                operation = "request cancellation",
+                status = deployment.status
+            )
+        }
+
+        return when (
+            val updatedRows = deploymentRepository.markCancelingIfInProcess(
+                deploymentId = deployment.id,
+                updatedAt = clock.instant()
+            )
+        ) {
+            1 -> ManagedServiceDeploymentCancellationResult.Requested
+            0 -> resolveCancellationRace(deployment.id)
+            else -> throw unexpectedUpdatedRows(
+                deploymentId = deployment.id,
+                operation = "request cancellation",
+                updatedRows = updatedRows
+            )
+        }
+    }
+
+    @Transactional(
+        readOnly = true,
+        propagation = Propagation.REQUIRES_NEW
+    )
+    fun isCancellationRequested(deploymentId: UUID): Boolean {
+        return when (getDeployment(deploymentId).status) {
+            ManagedServiceDeploymentStatus.CANCELING,
+            ManagedServiceDeploymentStatus.CANCELED -> true
+
+            else -> false
+        }
+    }
+
+    @Transactional(
+        readOnly = true,
+        propagation = Propagation.REQUIRES_NEW
+    )
+    fun hasActiveDeployment(serviceId: UUID): Boolean {
+        return deploymentRepository.hasActiveDeployments(serviceId)
+    }
+
+    private fun resolveFinalization(
+        deploymentId: UUID,
+        operation: String,
+        updatedRows: Int
+    ): ManagedServiceDeploymentFinalizationResult {
+        return when (updatedRows) {
+            1 -> ManagedServiceDeploymentFinalizationResult.APPLIED
+            0 -> when (val status = getDeployment(deploymentId).status) {
+                ManagedServiceDeploymentStatus.CANCELING,
+                ManagedServiceDeploymentStatus.CANCELED ->
+                    ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED
+
+                else -> throw unexpectedState(deploymentId, operation, status)
+            }
+            else -> throw unexpectedUpdatedRows(deploymentId, operation, updatedRows)
+        }
+    }
+
+    private fun resolveCancellationRace(
+        deploymentId: UUID
+    ): ManagedServiceDeploymentCancellationResult {
+        val deployment = getDeployment(deploymentId)
+        return when (deployment.status) {
+            ManagedServiceDeploymentStatus.CANCELING,
+            ManagedServiceDeploymentStatus.CANCELED ->
+                ManagedServiceDeploymentCancellationResult.Requested
+
+            ManagedServiceDeploymentStatus.FINISHED -> {
+                val containerId = deployment.containerId
+                    ?: throw InternalDataIntegrityException(
+                        "Finished managed service deployment $deploymentId has no container ID"
+                    )
+                ManagedServiceDeploymentCancellationResult.DeploymentFinished(containerId)
+            }
+            ManagedServiceDeploymentStatus.FAILED ->
+                ManagedServiceDeploymentCancellationResult.NoDeploymentInProcess
+
+            ManagedServiceDeploymentStatus.IN_PROCESS -> throw unexpectedState(
+                deploymentId = deploymentId,
+                operation = "request cancellation",
+                status = deployment.status
+            )
+        }
+    }
 
     private fun getDeployment(deploymentId: UUID): ManagedServiceDeployment {
         return deploymentRepository.findById(deploymentId)
@@ -75,6 +199,28 @@ class ManagedServiceDeploymentLifecycleService(
                             "but couldn't be found in DB"
                 )
             }
+    }
+
+    private fun unexpectedState(
+        deploymentId: UUID,
+        operation: String,
+        status: ManagedServiceDeploymentStatus
+    ): InternalDataIntegrityException {
+        return InternalDataIntegrityException(
+            "Managed service deployment $deploymentId couldn't $operation because its " +
+                    "status is $status"
+        )
+    }
+
+    private fun unexpectedUpdatedRows(
+        deploymentId: UUID,
+        operation: String,
+        updatedRows: Int
+    ): InternalDataIntegrityException {
+        return InternalDataIntegrityException(
+            "Managed service deployment $deploymentId $operation CAS updated " +
+                    "$updatedRows rows instead of one"
+        )
     }
 
     private fun saveDeployment(
