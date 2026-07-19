@@ -424,6 +424,24 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   если оно уже совпадает с запрошенным, иначе возвращает
   `409 managed_service_version_conflict`. Реальная optimistic-lock race повторно
   проверяется в новой транзакции после rollback проигравшей записи.
+- Deployment lifecycle использует переходы `IN_PROCESS -> FINISHED`,
+  `IN_PROCESS -> FAILED` и `IN_PROCESS -> CANCELING -> CANCELED`. Status,
+  `containerId` и `errorMessage` меняются только use-case-specific repository CAS,
+  а не через managed entity setters.
+- Активными считаются deployment в `IN_PROCESS` и `CANCELING`; partial unique index
+  по `service_id` не позволяет начать новый deploy до завершения cancellation cleanup.
+  `CANCELED` можно выставлять только после успешной очистки Docker resources.
+- Project network и managed volume перед использованием ищутся по точному Docker name,
+  после чего их ownership проверяется по project/service labels. Одноименный foreign или
+  unlabeled resource нельзя переиспользовать: deploy возвращает typed ownership conflict,
+  требующий вмешательства администратора.
+- Несколько project networks с одинаковым exact name считаются Docker name ambiguity,
+  а не ownership conflict. Если Docker сообщил об успешном создании network/volume, но
+  ресурс нельзя сразу перечитать по имени, deploy возвращает typed internal verification
+  error с рекомендацией обратиться к администратору.
+- Новые managed volumes получают `DockerLabels.forDeployment`; cancellation cleanup
+  удаляет только containers и volumes текущего deployment по этим labels. Network является
+  project-level resource и в deployment cleanup не входит.
 - ManagedService endpoints:
   `GET/POST /api/projects/{projectId}/services` и
   `GET/PATCH/DELETE /api/projects/{projectId}/services/{serviceId}`.

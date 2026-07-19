@@ -85,6 +85,33 @@ class ManagedServiceDeploymentLifecycleService(
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun completeCancellation(deploymentId: UUID) {
+        when (
+            val updatedRows = deploymentRepository.markCanceledIfCanceling(
+                deploymentId = deploymentId,
+                updatedAt = clock.instant()
+            )
+        ) {
+            1 -> Unit
+            0 -> {
+                val status = getDeployment(deploymentId).status
+                if (status != ManagedServiceDeploymentStatus.CANCELED) {
+                    throw unexpectedState(
+                        deploymentId = deploymentId,
+                        operation = "complete cancellation",
+                        status = status
+                    )
+                }
+            }
+            else -> throw unexpectedUpdatedRows(
+                deploymentId = deploymentId,
+                operation = "complete cancellation",
+                updatedRows = updatedRows
+            )
+        }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun requestDeploymentCancellation(
         serviceId: UUID
     ): ManagedServiceDeploymentCancellationResult {
