@@ -7,9 +7,7 @@ import io.dockistry.platform.services.domain.ManagedServiceConfiguration
 import io.dockistry.platform.services.domain.ManagedServiceDeployment
 import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
 import io.dockistry.platform.services.domain.ManagedServiceDesiredState
-import io.dockistry.platform.services.domain.ManagedServiceNotFoundException
 import io.dockistry.platform.services.infrastructure.ManagedServiceDeploymentRepository
-import io.dockistry.platform.services.infrastructure.ManagedServiceRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
@@ -20,16 +18,13 @@ import java.util.UUID
 
 @Service
 class ManagedServiceDeploymentLifecycleService(
-    private val managedServiceRepository: ManagedServiceRepository,
+    private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard,
     private val deploymentRepository: ManagedServiceDeploymentRepository,
     private val clock: Clock
 ) {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun begin(serviceId: UUID): ManagedServiceDeploymentPlan {
-        val service = managedServiceRepository.findById(serviceId)
-            .orElseThrow {
-                ManagedServiceNotFoundException("Managed service couldn't be found")
-            }
+        val service = managedServiceLifecycleGuard.requireActiveForMutation(serviceId)
 
         val snapshot = ManagedServiceConfiguration.validated(
             service.toConfigurationDraft()

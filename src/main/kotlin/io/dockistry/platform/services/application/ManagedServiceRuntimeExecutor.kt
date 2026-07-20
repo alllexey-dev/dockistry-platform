@@ -1,63 +1,67 @@
 package io.dockistry.platform.services.application
 
 import io.dockistry.platform.docker.domain.DockerContainerAlreadyStoppedException
+import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
 import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.docker.infrastructure.LocalDockerAgentClient
-import io.dockistry.platform.services.domain.ManagedServiceDesiredState
 import io.dockistry.platform.services.domain.ManagedServiceNotDeployedException
-import io.dockistry.platform.services.domain.ManagedServiceNotFoundException
 import io.dockistry.platform.services.domain.ManagedServiceNotRunningException
-import io.dockistry.platform.services.infrastructure.ManagedServiceRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
-import java.time.Clock
 import java.util.UUID
 
 @Service
 class ManagedServiceRuntimeExecutor(
-    private val managedServiceRepository: ManagedServiceRepository,
+    private val runtimeLifecycleService: ManagedServiceRuntimeLifecycleService,
     private val deploymentLifecycleService: ManagedServiceDeploymentLifecycleService,
-    private val dockerAgentClient: LocalDockerAgentClient,
-    private val clock: Clock
+    private val dockerAgentClient: LocalDockerAgentClient
 ) {
-    @Transactional
     fun start(serviceId: UUID) {
-        val service = managedServiceRepository.findById(serviceId).orElseThrow {
-            ManagedServiceNotFoundException("Managed service couldn't be found")
+        val operation = runtimeLifecycleService.beginStart(serviceId)
+
+        try {
+            val container = findServiceContainer(
+                projectId = operation.projectId,
+                serviceId = serviceId
+            ) ?: throw ManagedServiceNotDeployedException(
+                "Service can't be started because it's not deployed"
+            )
+
+            dockerAgentClient.startContainer(container.id)
+        } catch (exception: RuntimeException) {
+            failRuntimeOperation(exception) {
+                runtimeLifecycleService.failStart(operation)
+            }
         }
-        service.updateDesiredState(ManagedServiceDesiredState.RUNNING, clock.instant())
 
-        val container = findServiceContainer(
-            projectId = service.project.id,
-            serviceId = serviceId
-        )
-            ?: throw ManagedServiceNotDeployedException("Service can't be started because it's not deployed")
-
-        dockerAgentClient.startContainer(container.id)
+        runtimeLifecycleService.completeStart(operation)
     }
 
-    @Transactional
     fun stop(serviceId: UUID) {
-        val service = managedServiceRepository.findById(serviceId).orElseThrow {
-            ManagedServiceNotFoundException("Managed service couldn't be found")
-        }
-        service.updateDesiredState(ManagedServiceDesiredState.STOPPED, clock.instant())
+        val operation = runtimeLifecycleService.beginStop(serviceId)
 
-        val stopSucceeded =
-            stopContainer(projectId = service.project.id, serviceId = serviceId)
-                || requestDeploymentCancellation(
-                    projectId = service.project.id,
-                    serviceId = serviceId
+        try {
+            val stopSucceeded =
+                stopContainer(projectId = operation.projectId, serviceId = serviceId)
+                    || requestDeploymentCancellation(
+                        projectId = operation.projectId,
+                        serviceId = serviceId
+                    )
+
+            if (!stopSucceeded) {
+                throw ManagedServiceNotRunningException(
+                    "The service can't be stopped because it is neither deployed nor being deployed"
                 )
-
-        if (!stopSucceeded) {
-            throw ManagedServiceNotRunningException(
-                "The service can't be stopped because it is neither deployed nor being deployed"
-            )
+            }
+        } catch (exception: RuntimeException) {
+            failRuntimeOperation(exception) {
+                runtimeLifecycleService.failStop(operation)
+            }
         }
+
+        runtimeLifecycleService.completeStop(operation)
     }
 
     fun removeContainer(projectId: UUID, serviceId: UUID) {
@@ -65,7 +69,11 @@ class ManagedServiceRuntimeExecutor(
             projectId = projectId,
             serviceId = serviceId
         )?.let {
-            dockerAgentClient.deleteContainer(containerId = it.id)
+            try {
+                dockerAgentClient.deleteContainer(containerId = it.id)
+            } catch (_: DockerContainerNotFoundException) {
+                // A concurrent Docker-side removal already reached the target state.
+            }
         }
     }
 
@@ -131,4 +139,18 @@ class ManagedServiceRuntimeExecutor(
         DockerLabelsFilter(
             labels = DockerLabels.forService(projectId, serviceId)
         )
+
+    private fun failRuntimeOperation(
+        operationFailure: RuntimeException,
+        failTransition: () -> Unit
+    ): Nothing {
+        try {
+            failTransition()
+        } catch (transitionFailure: RuntimeException) {
+            transitionFailure.addSuppressed(operationFailure)
+            throw transitionFailure
+        }
+
+        throw operationFailure
+    }
 }

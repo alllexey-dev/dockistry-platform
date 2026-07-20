@@ -3,6 +3,7 @@ package io.dockistry.platform.services.infrastructure
 import io.dockistry.platform.projects.application.ports.ProjectManagedServicesExistencePort
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.services.domain.ManagedService
+import io.dockistry.platform.services.domain.ManagedServiceLifecycleStatus
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
@@ -14,12 +15,12 @@ interface ManagedServiceRepository :
     ProjectManagedServicesExistencePort {
     fun existsByProjectIdAndName(projectId: UUID, name: String): Boolean
 
-    @Query("""
-        SELECT service
-            FROM ManagedService service
-            WHERE service.project.id = :projectId
-    """)
-    fun findAllByProjectId(@Param("projectId") projectId: UUID): List<ManagedService>
+    fun findAllByProjectIdAndLifecycleStatusIn(
+        projectId: UUID,
+        lifecycleStatuses: Collection<ManagedServiceLifecycleStatus>
+    ): List<ManagedService>
+
+    fun findAllByProjectId(projectId: UUID): List<ManagedService>
 
     @Query("""
         SELECT EXISTS (
@@ -43,13 +44,42 @@ interface ManagedServiceRepository :
         @Param("serviceId") serviceId: UUID
     ): ManagedService?
 
+    @Query(
+        value = """
+            SELECT *
+            FROM services
+            WHERE id = :serviceId
+            FOR UPDATE NOWAIT
+        """,
+        nativeQuery = true
+    )
+    fun findByIdForUpdateNowait(
+        @Param("serviceId") serviceId: UUID
+    ): ManagedService?
+
+    @Query(
+        value = """
+            SELECT *
+            FROM services
+            WHERE project_id = :projectId
+              AND id = :serviceId
+            FOR UPDATE NOWAIT
+        """,
+        nativeQuery = true
+    )
+    fun findByProjectIdAndIdForUpdateNowait(
+        @Param("projectId") projectId: UUID,
+        @Param("serviceId") serviceId: UUID
+    ): ManagedService?
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
         DELETE FROM ManagedService service
             WHERE service.project.id = :projectId
               AND service.id = :serviceId
+              AND service.lifecycleStatus = ManagedServiceLifecycleStatus.DELETING
     """)
-    fun deleteByProjectIdAndId(
+    fun deleteDeletingByProjectIdAndId(
         @Param("projectId") projectId: UUID,
         @Param("serviceId") serviceId: UUID
     ): Int

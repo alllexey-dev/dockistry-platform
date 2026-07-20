@@ -21,6 +21,14 @@ class ManagedServiceVersionConflictException(
     message: String
 ) : ConflictException(message, "managed_service_version_conflict")
 
+class ManagedServiceOperationInProgressException(
+    message: String = "Another managed service operation is currently in progress"
+) : ConflictException(message, "managed_service_operation_in_progress")
+
+class ManagedServiceDeletionInProgressException(
+    message: String = "Managed service deletion is currently in progress"
+) : ConflictException(message, "managed_service_deletion_in_progress")
+
 class InvalidManagedServiceNameException(
     message: String
 ) : BadRequestException(message, "invalid_managed_service_name")

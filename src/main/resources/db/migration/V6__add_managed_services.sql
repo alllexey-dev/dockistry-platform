@@ -15,6 +15,7 @@ CREATE TABLE services
     memory_limit_bytes   BIGINT,
     cpu_limit_nano_cpus  BIGINT,
     desired_state        VARCHAR(255)                NOT NULL,
+    lifecycle_status     VARCHAR(255)                NOT NULL,
     version              BIGINT                      NOT NULL,
     created_at           TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     updated_at           TIMESTAMP WITHOUT TIME ZONE NOT NULL,

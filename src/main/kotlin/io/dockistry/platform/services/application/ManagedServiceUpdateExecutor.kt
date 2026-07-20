@@ -3,19 +3,18 @@ package io.dockistry.platform.services.application
 import io.dockistry.platform.projects.application.ProjectAccessGuard
 import io.dockistry.platform.services.application.dto.ManagedServiceUpdateCommand
 import io.dockistry.platform.services.domain.ManagedService
-import io.dockistry.platform.services.domain.ManagedServiceNotFoundException
 import io.dockistry.platform.services.domain.ManagedServiceVersionConflictException
 import io.dockistry.platform.services.infrastructure.ManagedServiceRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
-import java.util.UUID
 
 @Service
 class ManagedServiceUpdateExecutor(
     private val clock: Clock,
     private val projectAccessGuard: ProjectAccessGuard,
     private val commandValidator: ManagedServiceCommandValidator,
+    private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard,
     private val managedServiceRepository: ManagedServiceRepository
 ) {
     @Transactional
@@ -24,7 +23,10 @@ class ManagedServiceUpdateExecutor(
             command.projectId,
             command.principal
         )
-        val service = getExisting(project.id, command.serviceId)
+        val service = managedServiceLifecycleGuard.requireActiveForMutation(
+            projectId = project.id,
+            serviceId = command.serviceId
+        )
         val configuration = commandValidator.validate(command)
 
         if (service.version != command.expectedVersion) {
@@ -43,13 +45,16 @@ class ManagedServiceUpdateExecutor(
         return managedServiceRepository.saveAndFlush(service)
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     fun resolveConflict(command: ManagedServiceUpdateCommand): ManagedService {
         val project = projectAccessGuard.requireServicesManageable(
             command.projectId,
             command.principal
         )
-        val service = getExisting(project.id, command.serviceId)
+        val service = managedServiceLifecycleGuard.requireActiveForMutation(
+            projectId = project.id,
+            serviceId = command.serviceId
+        )
         val configuration = commandValidator.validate(command)
 
         if (service.matches(configuration)) {
@@ -57,13 +62,6 @@ class ManagedServiceUpdateExecutor(
         }
 
         throw versionConflict(service)
-    }
-
-    private fun getExisting(projectId: UUID, serviceId: UUID): ManagedService {
-        return managedServiceRepository.findByProjectIdAndId(projectId, serviceId)
-            ?: throw ManagedServiceNotFoundException(
-                "Managed service $serviceId couldn't be found in project $projectId"
-            )
     }
 
     private fun versionConflict(service: ManagedService): ManagedServiceVersionConflictException {

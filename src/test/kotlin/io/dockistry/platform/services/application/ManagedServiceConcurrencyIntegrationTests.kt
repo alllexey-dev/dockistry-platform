@@ -10,7 +10,7 @@ import io.dockistry.platform.services.application.dto.ManagedServiceUpdateComman
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceAlreadyExistsException
 import io.dockistry.platform.services.domain.ManagedServiceConfigurationDraft
-import io.dockistry.platform.services.domain.ManagedServiceVersionConflictException
+import io.dockistry.platform.services.domain.ManagedServiceOperationInProgressException
 import io.dockistry.platform.services.infrastructure.ManagedServiceRepository
 import io.dockistry.platform.services.testsupport.managedService
 import io.dockistry.platform.services.testsupport.managedServiceDraft
@@ -33,10 +33,13 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 private const val TIMEOUT_SECONDS = 15L
@@ -84,51 +87,52 @@ class ManagedServiceConcurrencyIntegrationTests(
     }
 
     @Test
-    fun `concurrent identical updates both succeed with one database write`() {
+    fun `update fails fast while managed service row is locked`() {
         val context = createServiceContext()
-        val updatedDraft = managedServiceDraft(imageRef = "redis:7")
-        val command = updateCommand(context, updatedDraft)
-
-        val results = runConcurrently(
-            { managedServiceService.update(command) },
-            { managedServiceService.update(command) }
-        )
-
-        assertTrue(results.all { it.isSuccess })
-        assertEquals(setOf(1L), results.map { it.getOrThrow().version }.toSet())
-
-        val saved = serviceSnapshot(context.serviceId)
-        assertEquals("redis:7", saved.imageRef)
-        assertEquals(1, saved.version)
-    }
-
-    @Test
-    fun `concurrent different updates produce one success and one version conflict`() {
-        val context = createServiceContext()
-        val redisCommand = updateCommand(
+        val command = updateCommand(
             context,
             managedServiceDraft(imageRef = "redis:7")
         )
-        val postgresCommand = updateCommand(
-            context,
-            managedServiceDraft(imageRef = "postgres:17")
-        )
+        val before = serviceSnapshot(context.serviceId)
+        val lockAcquired = CountDownLatch(1)
+        val releaseLock = CountDownLatch(1)
+        val executor = Executors.newSingleThreadExecutor()
+        val lockHolder = executor.submit {
+            inNewTransaction {
+                assertNotNull(
+                    managedServiceRepository.findByIdForUpdateNowait(context.serviceId)
+                )
+                lockAcquired.countDown()
+                assertTrue(
+                    releaseLock.await(TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                    "Managed service row lock holder wasn't released"
+                )
+            }
+        }
 
-        val results = runConcurrently(
-            { managedServiceService.update(redisCommand) },
-            { managedServiceService.update(postgresCommand) }
-        )
+        try {
+            assertTrue(
+                lockAcquired.await(TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                "Managed service row lock wasn't acquired"
+            )
 
-        val successes = results.filter { it.isSuccess }
-        val failures = results.mapNotNull { it.exceptionOrNull() }
-        assertEquals(1, successes.size)
-        assertEquals(1, failures.size)
-        assertInstanceOf<ManagedServiceVersionConflictException>(failures.single())
+            assertFailsWith<ManagedServiceOperationInProgressException> {
+                managedServiceService.update(command)
+            }
+        } finally {
+            releaseLock.countDown()
+            try {
+                lockHolder.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            } finally {
+                executor.shutdownNow()
+                assertTrue(
+                    executor.awaitTermination(TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                    "Managed service row lock holder didn't terminate"
+                )
+            }
+        }
 
-        val saved = serviceSnapshot(context.serviceId)
-        assertTrue(saved.imageRef == "redis:7" || saved.imageRef == "postgres:17")
-        assertEquals(successes.single().getOrThrow().imageRef.asString(), saved.imageRef)
-        assertEquals(1, saved.version)
+        assertEquals(before, serviceSnapshot(context.serviceId))
     }
 
     @Test
@@ -235,11 +239,9 @@ class ManagedServiceConcurrencyIntegrationTests(
      *
      * [BarrierClock.arm] configures the critical-point rendezvous before tasks are
      * submitted. [BarrierClock.coordinate] then marks each worker as a participant. The
-     * production create/update executor eventually calls `Clock.instant()` after reading
-     * and validating the current database state, but immediately before mutating and
-     * flushing it. Both workers therefore have to reach that exact point before either
-     * can write. This guarantees a real unique-constraint or optimistic-lock race instead
-     * of allowing a sequential execution that merely looks concurrent.
+     * production create executor eventually calls `Clock.instant()` after its name
+     * pre-check, but immediately before persisting the service. Both workers therefore
+     * reach the write boundary before either can insert, guaranteeing the unique-key race.
      *
      * There is intentionally no second barrier at task startup: synchronizing at the
      * critical database boundary is sufficient. `Result` preserves both successful
@@ -284,10 +286,10 @@ class ManagedServiceConcurrencyIntegrationTests(
  * Fixed test clock that also provides a deterministic rendezvous at the production
  * write boundary.
  *
- * `ManagedServiceCreateExecutor` and `ManagedServiceUpdateExecutor` obtain the current
- * time after their pre-check/read logic and immediately before changing persistent
- * state. Registering this clock as `@Primary` lets the test pause both worker requests at
- * that point without adding test hooks to production code or relying on thread timing.
+ * `ManagedServiceCreateExecutor` obtains the current time after its pre-check and
+ * immediately before creating persistent state. Registering this clock as `@Primary`
+ * lets the test pause both create requests at that point without adding test hooks to
+ * production code or relying on thread timing.
  *
  * The Spring context may use the same primary [Clock] for unrelated work. Only threads
  * wrapped by [coordinate] participate in the barrier; every other caller receives the

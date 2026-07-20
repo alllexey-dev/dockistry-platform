@@ -2,6 +2,7 @@ package io.dockistry.platform.services.domain
 
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
 import io.dockistry.platform.projects.domain.Project
+import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
@@ -113,6 +114,11 @@ class ManagedService(
     var desiredState: ManagedServiceDesiredState = configuration.desiredState
         protected set
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "lifecycle_status", nullable = false)
+    var lifecycleStatus: ManagedServiceLifecycleStatus = ManagedServiceLifecycleStatus.ACTIVE
+        protected set
+
     @Version
     @Column(name = "version", nullable = false)
     var version: Long = 0
@@ -150,5 +156,71 @@ class ManagedService(
     ) {
         desiredState = state
         this.updatedAt = updatedAt
+    }
+
+    fun beginStart(updatedAt: Instant) {
+        requireLifecycleStatus(ManagedServiceLifecycleStatus.ACTIVE)
+        lifecycleStatus = ManagedServiceLifecycleStatus.STARTING
+        desiredState = ManagedServiceDesiredState.RUNNING
+        this.updatedAt = updatedAt
+    }
+
+    fun completeStart(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.STARTING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun failStart(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.STARTING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun beginStop(updatedAt: Instant) {
+        requireLifecycleStatus(ManagedServiceLifecycleStatus.ACTIVE)
+        lifecycleStatus = ManagedServiceLifecycleStatus.STOPPING
+        desiredState = ManagedServiceDesiredState.STOPPED
+        this.updatedAt = updatedAt
+    }
+
+    fun completeStop(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.STOPPING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun failStop(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.STOPPING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun beginDeletion(updatedAt: Instant) {
+        requireLifecycleStatus(ManagedServiceLifecycleStatus.ACTIVE)
+        lifecycleStatus = ManagedServiceLifecycleStatus.DELETING
+        this.updatedAt = updatedAt
+    }
+
+    private fun transitionRuntimeOperationToActive(
+        expectedStatus: ManagedServiceLifecycleStatus,
+        updatedAt: Instant
+    ) {
+        requireLifecycleStatus(expectedStatus)
+        lifecycleStatus = ManagedServiceLifecycleStatus.ACTIVE
+        this.updatedAt = updatedAt
+    }
+
+    private fun requireLifecycleStatus(expectedStatus: ManagedServiceLifecycleStatus) {
+        if (lifecycleStatus != expectedStatus) {
+            throw InternalDataIntegrityException(
+                "Managed service lifecycle status is $lifecycleStatus instead of " +
+                        expectedStatus
+            )
+        }
     }
 }

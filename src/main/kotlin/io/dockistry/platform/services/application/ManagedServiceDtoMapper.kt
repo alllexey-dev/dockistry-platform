@@ -29,6 +29,7 @@ class ManagedServiceDtoMapper {
             memoryLimitBytes = service.memoryLimitBytes,
             cpuLimitNanoCpus = service.cpuLimitNanoCpus,
             desiredState = service.desiredState,
+            lifecycleStatus = service.lifecycleStatus,
             version = service.version,
             createdAt = service.createdAt,
             updatedAt = service.updatedAt

@@ -193,6 +193,9 @@ CI:
 - Не используй field injection в main-коде.
 - В тестах `lateinit var` с `@Autowired` уже используется и допустим.
 - Предпочитай small private helper methods, если они улучшают читаемость.
+- Не используй Kotlin `check`, `require`, `checkNotNull` и `requireNotNull` для
+  domain/application ошибок. Бросай подходящий typed service exception; для
+  невозможного внутреннего инварианта используй `InternalDataIntegrityException`.
 - Не добавляй комментарии к очевидному коду. Добавляй короткий комментарий
   только для сложной бизнес-причины, concurrency edge case или неочевидного
   framework behavior.
@@ -424,6 +427,27 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   если оно уже совпадает с запрошенным, иначе возвращает
   `409 managed_service_version_conflict`. Реальная optimistic-lock race повторно
   проверяется в новой транзакции после rollback проигравшей записи.
+- ManagedService lifecycle использует статусы `ACTIVE`, `STARTING`, `STOPPING` и
+  `DELETING`. Deployment begin, update и его conflict resolution, runtime lifecycle
+  transitions и начало удаления сериализуются через `ManagedServiceLifecycleGuard`:
+  guard выполняет `SELECT ... FOR UPDATE NOWAIT` строки сервиса внутри уже открытой
+  транзакции (`Propagation.MANDATORY`) и fail-fast возвращает typed conflict при занятом
+  lock или несовместимом durable lifecycle status.
+- Start/stop не держат DB-транзакцию во время Docker I/O. Короткий
+  `ManagedServiceRuntimeLifecycleService` transition сначала фиксирует соответственно
+  `STARTING`/`STOPPING` и сразу сохраняет пользовательский `desiredState`, затем runtime
+  executor выполняет Docker operation, а отдельный fenced transition по lifecycle status
+  и entity version возвращает сервис в `ACTIVE`. При runtime failure desired state
+  сохраняется для будущего reconciler, а lifecycle возвращается в `ACTIVE`; при ошибке
+  финализации transient status остается для будущего repair.
+- Удаление ManagedService является многофазным flow: короткая транзакция под row lock
+  проверяет отсутствие active deployment и фиксирует `ACTIVE -> DELETING`, затем вне
+  транзакции удаляются Docker resources, после чего отдельная транзакция физически
+  удаляет только строку в `DELETING`. При ошибке cleanup сервис остается в `DELETING`
+  для будущего retry/reaper; list показывает `ACTIVE`, `STARTING` и `STOPPING`, а get
+  разрешает runtime transient statuses и для `DELETING` возвращает typed
+  deletion-in-progress conflict. `ManagedServiceDto.lifecycleStatus` делает runtime
+  operation видимой клиенту.
 - Deployment lifecycle использует переходы `IN_PROCESS -> FINISHED`,
   `IN_PROCESS -> FAILED` и `IN_PROCESS -> CANCELING -> CANCELED`. Status,
   `containerId` и `errorMessage` меняются только use-case-specific repository CAS,

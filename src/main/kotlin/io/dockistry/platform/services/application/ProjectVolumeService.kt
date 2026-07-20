@@ -4,6 +4,7 @@ import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.DockerVolumeCreateNameConflictException
 import io.dockistry.platform.docker.domain.DockerVolumeCreateVerificationFailedException
+import io.dockistry.platform.docker.domain.DockerVolumeNotFoundException
 import io.dockistry.platform.docker.domain.DockerVolumeOwnershipConflictException
 import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.docker.domain.model.DockerVolumeRef
@@ -72,7 +73,11 @@ class ProjectVolumeService(private val dockerAgentClient: DockerAgentClient) {
                 )
             )
         ).forEach {
-            dockerAgentClient.removeVolume(it.name)
+            try {
+                dockerAgentClient.removeVolume(it.name)
+            } catch (_: DockerVolumeNotFoundException) {
+                // A concurrent Docker-side removal already reached the target state.
+            }
         }
     }
 
