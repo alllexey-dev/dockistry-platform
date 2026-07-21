@@ -15,13 +15,12 @@ import java.util.UUID
 class ProjectVolumeService(private val dockerAgentClient: DockerAgentClient) {
     fun createVolume(
         projectId: UUID,
-        projectSlug: String,
         serviceId: UUID,
         deploymentId: UUID,
         serviceName: String,
         volumeName: String
     ): String {
-        val name = fullVolumeName(projectSlug, serviceName, volumeName)
+        val name = fullVolumeName(projectId, serviceName, volumeName)
 
         try {
             dockerAgentClient.createVolume(
@@ -38,7 +37,6 @@ class ProjectVolumeService(private val dockerAgentClient: DockerAgentClient) {
 
         return findVolume(
             projectId = projectId,
-            projectSlug = projectSlug,
             serviceId = serviceId,
             serviceName = serviceName,
             volumeName = volumeName
@@ -47,12 +45,11 @@ class ProjectVolumeService(private val dockerAgentClient: DockerAgentClient) {
 
     fun findVolume(
         projectId: UUID,
-        projectSlug: String,
         serviceId: UUID,
         serviceName: String,
         volumeName: String
     ): String? {
-        val name = fullVolumeName(projectSlug, serviceName, volumeName)
+        val name = fullVolumeName(projectId, serviceName, volumeName)
         val volume = dockerAgentClient.findVolumeByName(name) ?: return null
 
         if (!volume.hasLabels(DockerLabels.forService(projectId, serviceId))) {
@@ -82,10 +79,10 @@ class ProjectVolumeService(private val dockerAgentClient: DockerAgentClient) {
     }
 
     fun fullVolumeName(
-        projectSlug: String,
+        projectId: UUID,
         serviceName: String,
         volumeName: String
-    ) = "dockistry_${projectSlug}_${serviceName}_$volumeName"
+    ) = "dockistry_${projectId}_${serviceName}_$volumeName"
 
     private fun DockerVolumeRef.hasLabels(expected: Map<String, String>): Boolean {
         return expected.all { (name, value) -> labels[name] == value }

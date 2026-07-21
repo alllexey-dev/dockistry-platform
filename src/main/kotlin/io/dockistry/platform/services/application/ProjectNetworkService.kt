@@ -13,8 +13,8 @@ import java.util.UUID
 class ProjectNetworkService(
     private val dockerAgentClient: DockerAgentClient
 ) {
-    fun createNetwork(projectId: UUID, projectSlug: String): String {
-        val name = projectNetworkName(projectSlug)
+    fun createNetwork(projectId: UUID): String {
+        val name = projectNetworkName(projectId)
         try {
             dockerAgentClient.createNetwork(
                 name = name,
@@ -24,13 +24,13 @@ class ProjectNetworkService(
             // Another deployment may have created the shared project network first.
         }
 
-        return findNetwork(projectId, projectSlug)
+        return findNetwork(projectId)
             ?: throw DockerNetworkCreateVerificationFailedException(name)
     }
 
-    fun findNetwork(projectId: UUID, projectSlug: String): String? {
+    fun findNetwork(projectId: UUID): String? {
         val network = dockerAgentClient.findNetworkByName(
-            projectNetworkName(projectSlug)
+            projectNetworkName(projectId)
         ) ?: return null
 
         if (!network.hasLabels(DockerLabels.forProject(projectId))) {
@@ -39,7 +39,7 @@ class ProjectNetworkService(
         return network.name
     }
 
-    fun projectNetworkName(projectSlug: String) = "dockistry_$projectSlug"
+    fun projectNetworkName(projectId: UUID) = "dockistry_$projectId"
 
     private fun DockerNetworkRef.hasLabels(expected: Map<String, String>): Boolean {
         return expected.all { (name, value) -> labels[name] == value }
