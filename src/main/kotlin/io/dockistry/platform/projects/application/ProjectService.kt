@@ -39,7 +39,8 @@ class ProjectService(
     private val permissionCheckService: PermissionCheckService,
     private val scopeQueryRepository: ScopeQueryRepository,
     private val roleBindingRepository: RoleBindingRepository,
-    private val projectManagedServicesExistencePort: ProjectManagedServicesExistencePort
+    private val projectManagedServicesExistencePort: ProjectManagedServicesExistencePort,
+    private val projectDeleteExecutor: ProjectDeleteExecutor
 ) {
     @Transactional
     fun create(
@@ -122,16 +123,15 @@ class ProjectService(
         return project
     }
 
-    @Transactional
     fun delete(
         projectId: UUID,
         principal: Principal
     ): Project {
-        val project = projectAccessGuard.requireDeletable(projectId, principal)
-
-        try {
-            projectRepository.delete(project)
-            projectRepository.flush()
+        return try {
+            projectDeleteExecutor.execute(
+                projectId = projectId,
+                principal = principal
+            )
         } catch (exception: DataIntegrityViolationException) {
             if (projectManagedServicesExistencePort.existsByProjectId(projectId)) {
                 throw ProjectDeletionBlockedByManagedServicesException("Project $projectId has services attached to it hence can't be deleted")
@@ -139,8 +139,6 @@ class ProjectService(
 
             throw exception
         }
-
-        return project
     }
 
     @Transactional

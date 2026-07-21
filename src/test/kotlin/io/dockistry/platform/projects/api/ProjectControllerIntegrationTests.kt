@@ -11,6 +11,7 @@ import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.projects.domain.ProjectStatus
 import io.dockistry.platform.projects.domain.dto.ProjectSaveRequest
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
+import io.dockistry.platform.services.testsupport.managedService
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
@@ -30,7 +31,11 @@ import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.patch
 import org.springframework.test.web.servlet.post
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionDefinition
+import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
 import tools.jackson.databind.ObjectMapper
 import java.time.Instant
@@ -54,6 +59,9 @@ class ProjectControllerIntegrationTests {
 
     @Autowired
     private lateinit var projectRepository: ProjectRepository
+
+    @Autowired
+    private lateinit var transactionManager: PlatformTransactionManager
 
     @PersistenceContext
     private lateinit var entityManager: EntityManager
@@ -230,31 +238,27 @@ class ProjectControllerIntegrationTests {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete removes project and returns ok response when user can delete project`() {
-        val fixtures = fixtures()
-        val user = authenticatedUser(fixtures, "deleter")
-        val project = fixtures.project(
-            name = "Deleted ${fixtures.unique()}",
-            slug = "deleted-${fixtures.unique()}"
-        )
-        fixtures.grantProjectPermissions(
-            user.user.principal,
-            project,
-            SystemPermissionNames.PROJECT_DELETE
-        )
-        fixtures.flush()
+        val context = committedDeleteContext(SystemPermissionNames.PROJECT_DELETE)
 
-        mockMvc.delete("/api/projects/${project.id}") {
-            bearer(user)
-        }.andExpect {
-            status { isOk() }
-            content { contentTypeCompatibleWith(MediaType.APPLICATION_JSON) }
-            jsonPath("$.data") { value("ok") }
-            jsonPath("$.errorMessage") { value(nullValue()) }
-            jsonPath("$.errorCode") { value(nullValue()) }
+        try {
+            mockMvc.delete("/api/projects/${context.projectId}") {
+                bearer(context.user)
+            }.andExpect {
+                status { isOk() }
+                content { contentTypeCompatibleWith(MediaType.APPLICATION_JSON) }
+                jsonPath("$.data") { value("ok") }
+                jsonPath("$.errorMessage") { value(nullValue()) }
+                jsonPath("$.errorCode") { value(nullValue()) }
+            }
+
+            assertFalse(
+                inNewTransaction { projectRepository.existsById(context.projectId) }
+            )
+        } finally {
+            cleanupCommittedProject(context.projectId)
         }
-
-        assertFalse(projectRepository.existsById(project.id))
     }
 
     @Test
@@ -374,40 +378,60 @@ class ProjectControllerIntegrationTests {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete returns not found when user cannot read project`() {
-        val fixtures = fixtures()
-        val user = authenticatedUser(fixtures, "deleter")
-        val project = fixtures.project(
-            name = "Hidden ${fixtures.unique()}",
-            slug = "hidden-${fixtures.unique()}"
-        )
-        fixtures.flush()
+        val context = committedDeleteContext()
 
-        mockMvc.delete("/api/projects/${project.id}") {
-            bearer(user)
-        }.andExpect {
-            expectApiError(statusCode = 404, errorCode = "project_not_found")
+        try {
+            mockMvc.delete("/api/projects/${context.projectId}") {
+                bearer(context.user)
+            }.andExpect {
+                expectApiError(statusCode = 404, errorCode = "project_not_found")
+            }
+        } finally {
+            cleanupCommittedProject(context.projectId)
         }
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete returns forbidden when user cannot delete project`() {
-        val fixtures = fixtures()
-        val user = authenticatedUser(fixtures, "deleter")
-        val project = fixtures.project(
-            name = "Forbidden ${fixtures.unique()}",
-            slug = "forbidden-${fixtures.unique()}"
-        )
-        fixtures.grantRead(user.user.principal, project)
-        fixtures.flush()
+        val context = committedDeleteContext(SystemPermissionNames.PROJECT_READ)
 
-        mockMvc.delete("/api/projects/${project.id}") {
-            bearer(user)
-        }.andExpect {
-            expectApiError(
-                statusCode = 403,
-                errorCode = "insufficient_permission_for_operation"
-            )
+        try {
+            mockMvc.delete("/api/projects/${context.projectId}") {
+                bearer(context.user)
+            }.andExpect {
+                expectApiError(
+                    statusCode = 403,
+                    errorCode = "insufficient_permission_for_operation"
+                )
+            }
+        } finally {
+            cleanupCommittedProject(context.projectId)
+        }
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    fun `delete returns conflict when project has managed services`() {
+        val context = committedDeleteContext(
+            SystemPermissionNames.PROJECT_READ,
+            SystemPermissionNames.PROJECT_DELETE,
+            withManagedService = true
+        )
+
+        try {
+            mockMvc.delete("/api/projects/${context.projectId}") {
+                bearer(context.user)
+            }.andExpect {
+                expectApiError(
+                    statusCode = 409,
+                    errorCode = "project_deletion_blocked_by_managed_services"
+                )
+            }
+        } finally {
+            cleanupCommittedProject(context.projectId)
         }
     }
 
@@ -577,6 +601,52 @@ class ProjectControllerIntegrationTests {
         )
     }
 
+    private fun committedDeleteContext(
+        vararg permissionKeys: String,
+        withManagedService: Boolean = false
+    ): ProjectDeleteHttpContext = inNewTransaction {
+        val fixtures = fixtures()
+        val user = authenticatedUser(fixtures, "deleter")
+        val project = fixtures.project(
+            name = "Deleted ${fixtures.unique()}",
+            slug = "deleted-${fixtures.unique()}"
+        )
+        if (permissionKeys.isNotEmpty()) {
+            fixtures.grantProjectPermissions(
+                user.user.principal,
+                project,
+                *permissionKeys.filterNot {
+                    it == SystemPermissionNames.PROJECT_READ
+                }.toTypedArray()
+            )
+        }
+        if (withManagedService) {
+            entityManager.persist(managedService(project, "blocking-service"))
+        }
+        fixtures.flush()
+
+        ProjectDeleteHttpContext(project.id, user)
+    }
+
+    private fun cleanupCommittedProject(projectId: UUID) {
+        inNewTransaction {
+            entityManager.createQuery(
+                "delete from ManagedService service where service.project.id = :projectId"
+            )
+                .setParameter("projectId", projectId)
+                .executeUpdate()
+            projectRepository.findById(projectId).ifPresent(projectRepository::delete)
+            projectRepository.flush()
+        }
+    }
+
+    private fun <T : Any> inNewTransaction(block: () -> T): T {
+        val transactionTemplate = TransactionTemplate(transactionManager).apply {
+            propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
+        }
+        return checkNotNull(transactionTemplate.execute { block() })
+    }
+
     private fun IamProjectFixtures.grantRead(principal: Principal, project: Project) {
         grantSystemPermission(
             principal,
@@ -641,5 +711,10 @@ class ProjectControllerIntegrationTests {
     private data class AuthenticatedTestUser(
         val user: User,
         val accessToken: String
+    )
+
+    private data class ProjectDeleteHttpContext(
+        val projectId: UUID,
+        val user: AuthenticatedTestUser
     )
 }

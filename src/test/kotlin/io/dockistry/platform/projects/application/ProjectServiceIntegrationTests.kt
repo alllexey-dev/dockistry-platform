@@ -23,7 +23,11 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionDefinition
+import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.time.Instant
 import java.util.UUID
@@ -45,6 +49,9 @@ class ProjectServiceIntegrationTests {
 
     @Autowired
     private lateinit var roleRepository: RoleRepository
+
+    @Autowired
+    private lateinit var transactionManager: PlatformTransactionManager
 
     @PersistenceContext
     private lateinit var entityManager: EntityManager
@@ -308,18 +315,18 @@ class ProjectServiceIntegrationTests {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete removes project when principal has read and delete permission`() {
-        val fixtures = fixtures()
-        val project = fixtures.project()
-        val principal = fixtures.principal()
-        fixtures.grant(projectReader = principal, project = project, SystemPermissionNames.PROJECT_DELETE)
-        fixtures.flush()
+        val context = committedDeleteContext(SystemPermissionNames.PROJECT_DELETE)
 
-        val deleted = projectService.delete(project.id, principal)
-        entityManager.flush()
+        try {
+            val deleted = projectService.delete(context.projectId, context.principal)
 
-        assertEquals(project.id, deleted.id)
-        assertFalse(projectRepository.existsById(project.id))
+            assertEquals(context.projectId, deleted.id)
+            assertFalse(inNewTransaction { projectRepository.existsById(context.projectId) })
+        } finally {
+            cleanupCommittedProject(context.projectId)
+        }
     }
 
     @Test
@@ -332,26 +339,30 @@ class ProjectServiceIntegrationTests {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete throws not found when principal cannot read`() {
-        val fixtures = fixtures()
-        val project = fixtures.project()
-        val principal = fixtures.principal()
+        val context = committedDeleteContext()
 
-        assertFailsWith<ProjectNotFoundException> {
-            projectService.delete(project.id, principal)
+        try {
+            assertFailsWith<ProjectNotFoundException> {
+                projectService.delete(context.projectId, context.principal)
+            }
+        } finally {
+            cleanupCommittedProject(context.projectId)
         }
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete throws insufficient permission when principal can read but cannot delete`() {
-        val fixtures = fixtures()
-        val project = fixtures.project()
-        val principal = fixtures.principal()
-        fixtures.grant(projectReader = principal, project = project)
-        fixtures.flush()
+        val context = committedDeleteContext(SystemPermissionNames.PROJECT_READ)
 
-        assertFailsWith<InsufficientPermissionException> {
-            projectService.delete(project.id, principal)
+        try {
+            assertFailsWith<InsufficientPermissionException> {
+                projectService.delete(context.projectId, context.principal)
+            }
+        } finally {
+            cleanupCommittedProject(context.projectId)
         }
     }
 
@@ -457,6 +468,50 @@ class ProjectServiceIntegrationTests {
         val permissionKeys = listOf(SystemPermissionNames.PROJECT_READ) + extraPermissionKeys
         return grantSystemPermission(projectReader, project.scope, *permissionKeys.toTypedArray())
     }
+
+    private fun committedDeleteContext(
+        vararg permissionKeys: String
+    ): ProjectDeleteContext = inNewTransaction {
+        val fixtures = fixtures()
+        val project = fixtures.project()
+        val principal = fixtures.principal()
+        if (permissionKeys.isNotEmpty()) {
+            val grantedPermissionKeys =
+                (listOf(SystemPermissionNames.PROJECT_READ) + permissionKeys).distinct()
+            fixtures.grantSystemPermission(
+                principal,
+                project.scope,
+                *grantedPermissionKeys.toTypedArray()
+            )
+        }
+        fixtures.flush()
+
+        ProjectDeleteContext(project.id, principal)
+    }
+
+    private fun cleanupCommittedProject(projectId: UUID) {
+        inNewTransaction {
+            entityManager.createQuery(
+                "delete from ManagedService service where service.project.id = :projectId"
+            )
+                .setParameter("projectId", projectId)
+                .executeUpdate()
+            projectRepository.findById(projectId).ifPresent(projectRepository::delete)
+            projectRepository.flush()
+        }
+    }
+
+    private fun <T : Any> inNewTransaction(block: () -> T): T {
+        val transactionTemplate = TransactionTemplate(transactionManager).apply {
+            propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
+        }
+        return checkNotNull(transactionTemplate.execute { block() })
+    }
+
+    private data class ProjectDeleteContext(
+        val projectId: UUID,
+        val principal: Principal
+    )
 
     private fun ownerAdminBindingCount(ownerPrincipalId: UUID, scopeId: UUID): Long {
         return entityManager
