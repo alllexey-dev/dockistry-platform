@@ -456,8 +456,10 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `ManagedServiceDto.lifecycleStatus` делает runtime operation видимой клиенту.
 - Deployment lifecycle использует переходы `IN_PROCESS -> FINISHED`,
   `IN_PROCESS -> FAILED` и `IN_PROCESS -> CANCELING -> CANCELED`. Status,
-  `containerId` и `errorMessage` меняются только use-case-specific repository CAS,
-  а не через managed entity setters.
+  `containerId`, deployment `errorMessage` и cleanup diagnostics меняются только
+  use-case-specific repository CAS, а не через managed entity setters. Cleanup failure
+  оставляет deployment в `CANCELING`, записывает `cleanupErrorMessage` и
+  `lastCleanupAttemptAt`; успешный retry очищает cleanup error и завершает cancellation.
 - Активными считаются deployment в `IN_PROCESS` и `CANCELING`; partial unique index
   по `service_id` не позволяет начать новый deploy до завершения cancellation cleanup.
   `CANCELED` можно выставлять только после успешной очистки Docker resources.

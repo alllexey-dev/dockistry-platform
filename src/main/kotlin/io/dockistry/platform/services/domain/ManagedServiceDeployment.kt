@@ -66,6 +66,14 @@ class ManagedServiceDeployment(
     @Column(name = "error_message", columnDefinition = "text")
     var errorMessage: String? = null
         protected set
+
+    @Column(name = "cleanup_error_message", columnDefinition = "text")
+    var cleanupErrorMessage: String? = null
+        protected set
+
+    @Column(name = "last_cleanup_attempt_at")
+    var lastCleanupAttemptAt: Instant? = null
+        protected set
 }
 
 enum class ManagedServiceDeploymentStatus {

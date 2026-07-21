@@ -50,17 +50,19 @@ ALTER TABLE services
 
 CREATE TABLE service_deployments
 (
-    id                UUID                        NOT NULL,
-    service_id        UUID                        NOT NULL,
-    container_id      VARCHAR(255),
-    image_repository  VARCHAR(255)                NOT NULL,
-    image_tag         VARCHAR(128)                NOT NULL,
-    config_snapshot   JSONB                       NOT NULL,
-    service_version   BIGINT                      NOT NULL,
-    status            VARCHAR(255)                NOT NULL,
-    error_message     TEXT,
-    created_at        TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-    updated_at        TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    id                      UUID                        NOT NULL,
+    service_id              UUID                        NOT NULL,
+    container_id            VARCHAR(255),
+    image_repository        VARCHAR(255)                NOT NULL,
+    image_tag               VARCHAR(128)                NOT NULL,
+    config_snapshot         JSONB                       NOT NULL,
+    service_version         BIGINT                      NOT NULL,
+    status                  VARCHAR(255)                NOT NULL,
+    error_message           TEXT,
+    cleanup_error_message   TEXT,
+    last_cleanup_attempt_at TIMESTAMP WITHOUT TIME ZONE,
+    created_at              TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    updated_at              TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     CONSTRAINT pk_service_deployments PRIMARY KEY (id)
 );
 

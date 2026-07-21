@@ -107,6 +107,34 @@ class ManagedServiceDeploymentLifecycleService(
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun failCleanup(deploymentId: UUID, errorMessage: String?) {
+        when (
+            val updatedRows = deploymentRepository.markCleanupFailedIfCanceling(
+                deploymentId = deploymentId,
+                errorMessage = errorMessage,
+                attemptedAt = clock.instant()
+            )
+        ) {
+            1 -> Unit
+            0 -> {
+                val status = getDeployment(deploymentId).status
+                if (status != ManagedServiceDeploymentStatus.CANCELED) {
+                    throw unexpectedState(
+                        deploymentId = deploymentId,
+                        operation = "record cleanup failure",
+                        status = status
+                    )
+                }
+            }
+            else -> throw unexpectedUpdatedRows(
+                deploymentId = deploymentId,
+                operation = "record cleanup failure",
+                updatedRows = updatedRows
+            )
+        }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun requestDeploymentCancellation(
         serviceId: UUID
     ): ManagedServiceDeploymentCancellationResult {

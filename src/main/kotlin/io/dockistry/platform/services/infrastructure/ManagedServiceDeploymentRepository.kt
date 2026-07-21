@@ -84,6 +84,8 @@ interface ManagedServiceDeploymentRepository :
     @Query("""
         UPDATE ManagedServiceDeployment deployment
         SET deployment.status = ManagedServiceDeploymentStatus.CANCELED,
+            deployment.cleanupErrorMessage = NULL,
+            deployment.lastCleanupAttemptAt = :updatedAt,
             deployment.updatedAt = :updatedAt
         WHERE deployment.id = :deploymentId
           AND deployment.status = ManagedServiceDeploymentStatus.CANCELING
@@ -91,5 +93,20 @@ interface ManagedServiceDeploymentRepository :
     fun markCanceledIfCanceling(
         @Param("deploymentId") deploymentId: UUID,
         @Param("updatedAt") updatedAt: Instant
+    ): Int
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        UPDATE ManagedServiceDeployment deployment
+        SET deployment.cleanupErrorMessage = :errorMessage,
+            deployment.lastCleanupAttemptAt = :attemptedAt,
+            deployment.updatedAt = :attemptedAt
+        WHERE deployment.id = :deploymentId
+          AND deployment.status = ManagedServiceDeploymentStatus.CANCELING
+    """)
+    fun markCleanupFailedIfCanceling(
+        @Param("deploymentId") deploymentId: UUID,
+        @Param("errorMessage") errorMessage: String?,
+        @Param("attemptedAt") attemptedAt: Instant
     ): Int
 }

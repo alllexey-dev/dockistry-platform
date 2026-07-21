@@ -18,30 +18,51 @@ class ManagedServiceDeploymentCleanupService(
         serviceId: UUID,
         deploymentId: UUID
     ) {
-        val filter = DockerLabelsFilter(
-            labels = DockerLabels.forDeployment(
-                projectId = projectId,
-                serviceId = serviceId,
-                deploymentId = deploymentId
+        try {
+            val filter = DockerLabelsFilter(
+                labels = DockerLabels.forDeployment(
+                    projectId = projectId,
+                    serviceId = serviceId,
+                    deploymentId = deploymentId
+                )
             )
-        )
 
-        dockerAgentClient.listContainers(filter).forEach { container ->
-            try {
-                dockerAgentClient.deleteContainer(container.id)
-            } catch (_: DockerContainerNotFoundException) {
-                // A concurrent cleanup already removed this container.
+            dockerAgentClient.listContainers(filter).forEach { container ->
+                try {
+                    dockerAgentClient.deleteContainer(container.id)
+                } catch (_: DockerContainerNotFoundException) {
+                    // A concurrent cleanup already removed this container.
+                }
             }
+
+            dockerAgentClient.listVolumes(filter).forEach { volume ->
+                try {
+                    dockerAgentClient.removeVolume(volume.name)
+                } catch (_: DockerVolumeNotFoundException) {
+                    // A concurrent cleanup already removed this volume.
+                }
+            }
+
+            deploymentLifecycleService.completeCancellation(deploymentId)
+        } catch (exception: RuntimeException) {
+            recordCleanupFailure(deploymentId, exception)
+        }
+    }
+
+    private fun recordCleanupFailure(
+        deploymentId: UUID,
+        cleanupFailure: RuntimeException
+    ): Nothing {
+        try {
+            deploymentLifecycleService.failCleanup(
+                deploymentId = deploymentId,
+                errorMessage = cleanupFailure.message
+            )
+        } catch (recordingFailure: RuntimeException) {
+            recordingFailure.addSuppressed(cleanupFailure)
+            throw recordingFailure
         }
 
-        dockerAgentClient.listVolumes(filter).forEach { volume ->
-            try {
-                dockerAgentClient.removeVolume(volume.name)
-            } catch (_: DockerVolumeNotFoundException) {
-                // A concurrent cleanup already removed this volume.
-            }
-        }
-
-        deploymentLifecycleService.completeCancellation(deploymentId)
+        throw cleanupFailure
     }
 }

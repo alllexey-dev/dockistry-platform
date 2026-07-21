@@ -237,6 +237,8 @@ class ManagedServicePersistenceIntegrationTests {
         assertEquals("1.29-alpine", saved.imageTag)
         assertEquals(service.version, saved.serviceVersion)
         assertEquals(ManagedServiceDeploymentStatus.FINISHED, saved.status)
+        assertEquals(null, saved.cleanupErrorMessage)
+        assertEquals(null, saved.lastCleanupAttemptAt)
         assertEquals(CREATED_AT, saved.createdAt)
         assertEquals(UPDATED_AT, saved.updatedAt)
         assertEquals("nginx:1.29-alpine", saved.configSnapshot.imageRef.asString())
