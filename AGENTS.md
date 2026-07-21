@@ -445,13 +445,15 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   сохраняется для будущего reconciler, а lifecycle возвращается в `ACTIVE`; при ошибке
   финализации transient status остается для будущего repair.
 - Удаление ManagedService является многофазным flow: короткая транзакция под row lock
-  проверяет отсутствие active deployment и фиксирует `ACTIVE -> DELETING`, затем вне
-  транзакции удаляются Docker resources, после чего отдельная транзакция физически
-  удаляет только строку в `DELETING`. При ошибке cleanup сервис остается в `DELETING`
-  для будущего retry/reaper; list показывает `ACTIVE`, `STARTING` и `STOPPING`, а get
-  разрешает runtime transient statuses и для `DELETING` возвращает typed
-  deletion-in-progress conflict. `ManagedServiceDto.lifecycleStatus` делает runtime
-  operation видимой клиенту.
+  проверяет отсутствие active deployment, сохраняет deletion context с пользовательским
+  `removeVolumes` и фиксирует `ACTIVE -> DELETING`. Затем общий
+  `ManagedServiceDeletionExecutor` читает persisted deletion plan и удаляет Docker
+  resources вне DB-транзакции, после чего lifecycle service физически удаляет только
+  строку в `DELETING`. API delete и будущий reaper должны использовать один executor.
+  При ошибке cleanup сервис остается в `DELETING` для будущего retry/reaper; list
+  показывает `ACTIVE`, `STARTING` и `STOPPING`, а get разрешает runtime transient
+  statuses и для `DELETING` возвращает typed deletion-in-progress conflict.
+  `ManagedServiceDto.lifecycleStatus` делает runtime operation видимой клиенту.
 - Deployment lifecycle использует переходы `IN_PROCESS -> FINISHED`,
   `IN_PROCESS -> FAILED` и `IN_PROCESS -> CANCELING -> CANCELED`. Status,
   `containerId` и `errorMessage` меняются только use-case-specific repository CAS,

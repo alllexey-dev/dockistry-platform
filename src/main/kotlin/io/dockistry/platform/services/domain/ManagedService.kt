@@ -1,9 +1,12 @@
+@file:Suppress("ProtectedInFinal")
+
 package io.dockistry.platform.services.domain
 
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import jakarta.persistence.Column
+import jakarta.persistence.Embedded
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
 import jakarta.persistence.Enumerated
@@ -131,6 +134,10 @@ class ManagedService(
     var updatedAt: Instant = updatedAt
         protected set
 
+    @Embedded
+    var deletionContext: ManagedServiceDeletionContext? = null
+        protected set
+
     fun updateConfiguration(
         configuration: ManagedServiceConfiguration,
         updatedAt: Instant
@@ -200,9 +207,13 @@ class ManagedService(
         )
     }
 
-    fun beginDeletion(updatedAt: Instant) {
+    fun beginDeletion(removeVolumes: Boolean, updatedAt: Instant) {
         requireLifecycleStatus(ManagedServiceLifecycleStatus.ACTIVE)
         lifecycleStatus = ManagedServiceLifecycleStatus.DELETING
+        deletionContext = ManagedServiceDeletionContext(
+            removeVolumes = removeVolumes,
+            requestedAt = updatedAt
+        )
         this.updatedAt = updatedAt
     }
 

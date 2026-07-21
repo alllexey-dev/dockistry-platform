@@ -1,65 +1,39 @@
 package io.dockistry.platform.services.application
 
-import io.dockistry.platform.iam.domain.Principal
-import io.dockistry.platform.projects.application.ProjectAccessGuard
-import io.dockistry.platform.services.domain.ManagedServiceDeletionBlockedByDeployment
-import io.dockistry.platform.services.domain.ManagedServiceNotFoundException
-import io.dockistry.platform.services.infrastructure.ManagedServiceDeploymentRepository
-import io.dockistry.platform.services.infrastructure.ManagedServiceRepository
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
-import java.time.Clock
 import java.util.UUID
 
 /**
- * Commits the deletion boundary before external cleanup starts, so every service
- * mutation observes either the row lock or the durable DELETING state.
+ * Executes retry-safe external cleanup from a persisted deletion plan without holding
+ * a database transaction open across Docker operations.
  */
 @Service
 class ManagedServiceDeletionExecutor(
-    private val clock: Clock,
-    private val projectAccessGuard: ProjectAccessGuard,
-    private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard,
-    private val managedServiceRepository: ManagedServiceRepository,
-    private val deploymentRepository: ManagedServiceDeploymentRepository
+    private val deletionLifecycleService: ManagedServiceDeletionLifecycleService,
+    private val managedServiceRuntimeExecutor: ManagedServiceRuntimeExecutor,
+    private val projectVolumeService: ProjectVolumeService
 ) {
-    @Transactional
-    fun begin(projectId: UUID, serviceId: UUID, principal: Principal) {
-        projectAccessGuard.requireServicesManageable(projectId, principal)
-
-        val service = managedServiceLifecycleGuard.requireActiveForMutationWithWait(
+    fun execute(projectId: UUID, serviceId: UUID) {
+        val plan = deletionLifecycleService.loadPlan(
             projectId = projectId,
             serviceId = serviceId
         )
 
-        if (deploymentRepository.hasActiveDeployments(serviceId)) {
-            throw ManagedServiceDeletionBlockedByDeployment(
-                "This service is currently being deployed"
+        managedServiceRuntimeExecutor.removeContainer(
+            projectId = plan.projectId,
+            serviceId = plan.serviceId
+        )
+
+        if (plan.removeVolumes) {
+            projectVolumeService.removeServiceVolumesByLabels(
+                projectId = plan.projectId,
+                serviceId = plan.serviceId
             )
         }
 
-        service.beginDeletion(clock.instant())
-        managedServiceRepository.saveAndFlush(service)
-    }
-
-    @Transactional
-    fun complete(projectId: UUID, serviceId: UUID) {
-        val deletedRows = managedServiceRepository.deleteDeletingByProjectIdAndId(
-            projectId = projectId,
-            serviceId = serviceId
-        )
-
-        if (deletedRows == 0) {
-            throw notFound(projectId, serviceId)
-        }
-    }
-
-    private fun notFound(
-        projectId: UUID,
-        serviceId: UUID
-    ): ManagedServiceNotFoundException {
-        return ManagedServiceNotFoundException(
-            "Managed service $serviceId couldn't be found in project $projectId"
+        deletionLifecycleService.complete(
+            projectId = plan.projectId,
+            serviceId = plan.serviceId
         )
     }
 }

@@ -23,9 +23,8 @@ class ManagedServiceService(
     private val updateExecutor: ManagedServiceUpdateExecutor,
     private val managedServiceRepository: ManagedServiceRepository,
     private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard,
+    private val managedServiceDeletionLifecycleService: ManagedServiceDeletionLifecycleService,
     private val managedServiceDeletionExecutor: ManagedServiceDeletionExecutor,
-    private val projectVolumeService: ProjectVolumeService,
-    private val managedServiceRuntimeExecutor: ManagedServiceRuntimeExecutor,
     private val projectExistenceService: ProjectExistenceService
 ) {
     @Transactional(readOnly = true)
@@ -77,20 +76,13 @@ class ManagedServiceService(
         principal: Principal,
         removeVolumes: Boolean
     ) {
-        managedServiceDeletionExecutor.begin(projectId, serviceId, principal)
-
-        managedServiceRuntimeExecutor.removeContainer(
+        managedServiceDeletionLifecycleService.begin(
             projectId = projectId,
-            serviceId = serviceId
+            serviceId = serviceId,
+            principal = principal,
+            removeVolumes = removeVolumes
         )
 
-        if (removeVolumes) {
-            projectVolumeService.removeServiceVolumesByLabels(
-                projectId = projectId,
-                serviceId = serviceId
-            )
-        }
-
-        managedServiceDeletionExecutor.complete(projectId, serviceId)
+        managedServiceDeletionExecutor.execute(projectId, serviceId)
     }
 }

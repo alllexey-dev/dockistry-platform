@@ -7,6 +7,7 @@ import io.dockistry.platform.services.domain.ManagedServiceConfiguration
 import io.dockistry.platform.services.domain.ManagedServiceDeployment
 import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
 import io.dockistry.platform.services.domain.ManagedServiceDesiredState
+import io.dockistry.platform.services.domain.ManagedServiceLifecycleStatus
 import io.dockistry.platform.services.domain.ServiceEndpoint
 import io.dockistry.platform.services.domain.ServiceEndpointMode
 import io.dockistry.platform.services.domain.ServiceEndpointProtocol
@@ -101,6 +102,7 @@ class ManagedServicePersistenceIntegrationTests {
         assertEquals(1_073_741_824, saved.memoryLimitBytes)
         assertEquals(2_000_000_000, saved.cpuLimitNanoCpus)
         assertEquals(ManagedServiceDesiredState.STOPPED, saved.desiredState)
+        assertEquals(null, saved.deletionContext)
         assertEquals(0, saved.version)
         assertEquals(CREATED_AT, saved.createdAt)
         assertEquals(UPDATED_AT, saved.updatedAt)
@@ -120,6 +122,35 @@ class ManagedServicePersistenceIntegrationTests {
             .singleResult as Array<*>
 
         assertEquals(listOf("jsonb", "jsonb", "jsonb", "jsonb", "jsonb"), jsonColumnTypes.toList())
+    }
+
+    @Test
+    fun `managed service deletion context survives persistence round trip`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val service = managedService(
+            project = fixtures.project(),
+            name = "deleting-service",
+            draft = managedServiceDraft()
+        )
+        service.beginDeletion(
+            removeVolumes = true,
+            updatedAt = DELETION_REQUESTED_AT
+        )
+        entityManager.persist(service)
+        entityManager.flush()
+        val serviceId = service.id
+        entityManager.clear()
+
+        val saved = entityManager.find(ManagedService::class.java, serviceId)
+
+        assertNotNull(saved)
+        assertEquals(ManagedServiceLifecycleStatus.DELETING, saved.lifecycleStatus)
+        assertEquals(DELETION_REQUESTED_AT, saved.updatedAt)
+        val deletionContext = assertNotNull(saved.deletionContext)
+        assertTrue(deletionContext.removeVolumes)
+        assertEquals(DELETION_REQUESTED_AT, deletionContext.requestedAt)
+        assertEquals(null, deletionContext.lastCleanupAttemptAt)
+        assertEquals(null, deletionContext.cleanupErrorMessage)
     }
 
     @Test
@@ -222,5 +253,6 @@ class ManagedServicePersistenceIntegrationTests {
     companion object {
         private val CREATED_AT = Instant.parse("2026-01-01T00:00:00Z")
         private val UPDATED_AT = Instant.parse("2026-01-01T01:00:00Z")
+        private val DELETION_REQUESTED_AT = Instant.parse("2026-01-01T02:00:00Z")
     }
 }
