@@ -2,6 +2,8 @@ package io.dockistry.platform.services.application
 
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.application.ProjectAccessGuard
+import io.dockistry.platform.projects.application.ProjectExistenceService
+import io.dockistry.platform.projects.domain.ProjectNotFoundException
 import io.dockistry.platform.services.application.dto.ManagedServiceCreateCommand
 import io.dockistry.platform.services.application.dto.ManagedServiceUpdateCommand
 import io.dockistry.platform.services.domain.ManagedService
@@ -23,7 +25,8 @@ class ManagedServiceService(
     private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard,
     private val managedServiceDeletionExecutor: ManagedServiceDeletionExecutor,
     private val projectVolumeService: ProjectVolumeService,
-    private val managedServiceRuntimeExecutor: ManagedServiceRuntimeExecutor
+    private val managedServiceRuntimeExecutor: ManagedServiceRuntimeExecutor,
+    private val projectExistenceService: ProjectExistenceService
 ) {
     @Transactional(readOnly = true)
     fun list(projectId: UUID, principal: Principal): List<ManagedService> {
@@ -50,6 +53,10 @@ class ManagedServiceService(
         } catch (exception: DataIntegrityViolationException) {
             if (createExecutor.nameExists(command.projectId, command.name)) {
                 throw ManagedServiceAlreadyExistsException(command.projectId, command.name)
+            }
+
+            if (!projectExistenceService.exists(command.projectId)) {
+                throw ProjectNotFoundException("Project with provided ID couldn't be found")
             }
 
             throw exception
