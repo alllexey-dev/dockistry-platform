@@ -430,9 +430,13 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - ManagedService lifecycle использует статусы `ACTIVE`, `STARTING`, `STOPPING` и
   `DELETING`. Deployment begin, update и его conflict resolution, runtime lifecycle
   transitions и начало удаления сериализуются через `ManagedServiceLifecycleGuard`:
-  guard выполняет `SELECT ... FOR UPDATE NOWAIT` строки сервиса внутри уже открытой
-  транзакции (`Propagation.MANDATORY`) и fail-fast возвращает typed conflict при занятом
-  lock или несовместимом durable lifecycle status.
+  guard работает внутри уже открытой транзакции (`Propagation.MANDATORY`) и предоставляет
+  две явные политики mutex acquisition — fail-fast через `SELECT ... FOR UPDATE NOWAIT`
+  и bounded wait через transaction-local PostgreSQL `lock_timeout` с обычным
+  `SELECT ... FOR UPDATE`. Короткие production lifecycle transitions используют bounded
+  wait с default timeout из companion object guard; timeout и несовместимый durable
+  lifecycle status возвращают typed conflict. Fail-fast API сохраняется для use cases,
+  которым требуется немедленный отказ.
 - Start/stop не держат DB-транзакцию во время Docker I/O. Короткий
   `ManagedServiceRuntimeLifecycleService` transition сначала фиксирует соответственно
   `STARTING`/`STOPPING` и сразу сохраняет пользовательский `desiredState`, затем runtime

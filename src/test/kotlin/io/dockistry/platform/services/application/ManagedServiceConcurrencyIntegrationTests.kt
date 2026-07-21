@@ -29,6 +29,7 @@ import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -37,6 +38,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
@@ -56,6 +58,9 @@ class ManagedServiceConcurrencyIntegrationTests(
 
     @Autowired
     private lateinit var managedServiceService: ManagedServiceService
+
+    @Autowired
+    private lateinit var managedServiceLifecycleGuard: ManagedServiceLifecycleGuard
 
     @Autowired
     private lateinit var managedServiceRepository: ManagedServiceRepository
@@ -87,52 +92,83 @@ class ManagedServiceConcurrencyIntegrationTests(
     }
 
     @Test
-    fun `update fails fast while managed service row is locked`() {
+    fun `update waits for managed service row lock and succeeds after release`() {
         val context = createServiceContext()
         val command = updateCommand(
             context,
             managedServiceDraft(imageRef = "redis:7")
         )
-        val before = serviceSnapshot(context.serviceId)
-        val lockAcquired = CountDownLatch(1)
-        val releaseLock = CountDownLatch(1)
-        val executor = Executors.newSingleThreadExecutor()
-        val lockHolder = executor.submit {
-            inNewTransaction {
-                assertNotNull(
-                    managedServiceRepository.findByIdForUpdateNowait(context.serviceId)
-                )
-                lockAcquired.countDown()
-                assertTrue(
-                    releaseLock.await(TIMEOUT_SECONDS, TimeUnit.SECONDS),
-                    "Managed service row lock holder wasn't released"
-                )
-            }
-        }
-
-        try {
-            assertTrue(
-                lockAcquired.await(TIMEOUT_SECONDS, TimeUnit.SECONDS),
-                "Managed service row lock wasn't acquired"
-            )
-
-            assertFailsWith<ManagedServiceOperationInProgressException> {
+        withServiceRowLock(context.serviceId) { releaseLock ->
+            val updateStarted = CountDownLatch(1)
+            val executor = Executors.newSingleThreadExecutor()
+            val update = executor.submit<ManagedService> {
+                updateStarted.countDown()
                 managedServiceService.update(command)
             }
-        } finally {
-            releaseLock.countDown()
+
             try {
-                lockHolder.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                assertTrue(
+                    updateStarted.await(TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                    "Managed service update wasn't started"
+                )
+                assertFailsWith<TimeoutException> {
+                    update.get(200, TimeUnit.MILLISECONDS)
+                }
+
+                releaseLock()
+                val updated = update.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                assertEquals("redis:7", updated.imageRef.asString())
             } finally {
+                releaseLock()
                 executor.shutdownNow()
                 assertTrue(
                     executor.awaitTermination(TIMEOUT_SECONDS, TimeUnit.SECONDS),
-                    "Managed service row lock holder didn't terminate"
+                    "Managed service update executor didn't terminate"
                 )
             }
         }
 
-        assertEquals(before, serviceSnapshot(context.serviceId))
+        val saved = serviceSnapshot(context.serviceId)
+        assertEquals("redis:7", saved.imageRef)
+        assertEquals(1, saved.version)
+    }
+
+    @Test
+    fun `bounded lifecycle lock fails after configured timeout`() {
+        val context = createServiceContext()
+        val lockTimeout = Duration.ofMillis(100)
+
+        withServiceRowLock(context.serviceId) {
+            val startedAt = System.nanoTime()
+            assertFailsWith<ManagedServiceOperationInProgressException> {
+                inNewTransaction {
+                    managedServiceLifecycleGuard.requireActiveForMutationWithWait(
+                        serviceId = context.serviceId,
+                        lockTimeout = lockTimeout
+                    )
+                }
+            }
+            val waitDuration = Duration.ofNanos(System.nanoTime() - startedAt)
+            assertTrue(
+                waitDuration.toMillis() >= 100,
+                "Lifecycle lock failed before waiting for the configured timeout"
+            )
+        }
+    }
+
+    @Test
+    fun `fail-fast lifecycle lock remains available`() {
+        val context = createServiceContext()
+
+        withServiceRowLock(context.serviceId) {
+            assertFailsWith<ManagedServiceOperationInProgressException> {
+                inNewTransaction {
+                    managedServiceLifecycleGuard.requireActiveForMutation(
+                        context.serviceId
+                    )
+                }
+            }
+        }
     }
 
     @Test
@@ -231,6 +267,44 @@ class ManagedServiceConcurrencyIntegrationTests(
 
     private fun <T : Any> inNewTransaction(block: () -> T): T {
         return checkNotNull(newTransactionTemplate.execute { block() })
+    }
+
+    private fun <T> withServiceRowLock(
+        serviceId: UUID,
+        block: (() -> Unit) -> T
+    ): T {
+        val lockAcquired = CountDownLatch(1)
+        val releaseLock = CountDownLatch(1)
+        val executor = Executors.newSingleThreadExecutor()
+        val lockHolder = executor.submit {
+            inNewTransaction {
+                assertNotNull(managedServiceRepository.findByIdForUpdateNowait(serviceId))
+                lockAcquired.countDown()
+                assertTrue(
+                    releaseLock.await(TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                    "Managed service row lock holder wasn't released"
+                )
+            }
+        }
+
+        try {
+            assertTrue(
+                lockAcquired.await(TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                "Managed service row lock wasn't acquired"
+            )
+            return block { releaseLock.countDown() }
+        } finally {
+            releaseLock.countDown()
+            try {
+                lockHolder.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            } finally {
+                executor.shutdownNow()
+                assertTrue(
+                    executor.awaitTermination(TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                    "Managed service row lock holder didn't terminate"
+                )
+            }
+        }
     }
 
     /**

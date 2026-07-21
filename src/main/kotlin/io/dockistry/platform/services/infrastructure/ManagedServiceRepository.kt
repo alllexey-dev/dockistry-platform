@@ -12,7 +12,8 @@ import java.util.UUID
 
 interface ManagedServiceRepository :
     JpaRepository<ManagedService, UUID>,
-    ProjectManagedServicesExistencePort {
+    ProjectManagedServicesExistencePort,
+    ManagedServiceWaitingLockRepository {
     fun existsByProjectIdAndName(projectId: UUID, name: String): Boolean
 
     fun findAllByProjectIdAndLifecycleStatusIn(

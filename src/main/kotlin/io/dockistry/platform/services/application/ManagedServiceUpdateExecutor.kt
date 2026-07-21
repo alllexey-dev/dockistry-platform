@@ -23,7 +23,7 @@ class ManagedServiceUpdateExecutor(
             command.projectId,
             command.principal
         )
-        val service = managedServiceLifecycleGuard.requireActiveForMutation(
+        val service = managedServiceLifecycleGuard.requireActiveForMutationWithWait(
             projectId = project.id,
             serviceId = command.serviceId
         )
@@ -51,7 +51,7 @@ class ManagedServiceUpdateExecutor(
             command.projectId,
             command.principal
         )
-        val service = managedServiceLifecycleGuard.requireActiveForMutation(
+        val service = managedServiceLifecycleGuard.requireActiveForMutationWithWait(
             projectId = project.id,
             serviceId = command.serviceId
         )

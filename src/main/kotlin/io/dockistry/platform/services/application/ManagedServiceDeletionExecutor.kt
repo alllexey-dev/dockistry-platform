@@ -27,7 +27,7 @@ class ManagedServiceDeletionExecutor(
     fun begin(projectId: UUID, serviceId: UUID, principal: Principal) {
         projectAccessGuard.requireServicesManageable(projectId, principal)
 
-        val service = managedServiceLifecycleGuard.requireActiveForMutation(
+        val service = managedServiceLifecycleGuard.requireActiveForMutationWithWait(
             projectId = projectId,
             serviceId = serviceId
         )

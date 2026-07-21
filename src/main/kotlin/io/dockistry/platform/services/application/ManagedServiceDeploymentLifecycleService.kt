@@ -24,7 +24,8 @@ class ManagedServiceDeploymentLifecycleService(
 ) {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun begin(serviceId: UUID): ManagedServiceDeploymentPlan {
-        val service = managedServiceLifecycleGuard.requireActiveForMutation(serviceId)
+        val service = managedServiceLifecycleGuard
+            .requireActiveForMutationWithWait(serviceId)
 
         val snapshot = ManagedServiceConfiguration.validated(
             service.toConfigurationDraft()

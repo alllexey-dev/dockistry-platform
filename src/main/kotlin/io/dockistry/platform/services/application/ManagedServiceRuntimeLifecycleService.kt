@@ -23,7 +23,8 @@ class ManagedServiceRuntimeLifecycleService(
 ) {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun beginStart(serviceId: UUID): ManagedServiceRuntimeOperationContext {
-        val service = managedServiceLifecycleGuard.requireActiveForMutation(serviceId)
+        val service = managedServiceLifecycleGuard
+            .requireActiveForMutationWithWait(serviceId)
         service.beginStart(clock.instant())
         return operationContext(
             service = managedServiceRepository.saveAndFlush(service),
@@ -53,7 +54,8 @@ class ManagedServiceRuntimeLifecycleService(
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun beginStop(serviceId: UUID): ManagedServiceRuntimeOperationContext {
-        val service = managedServiceLifecycleGuard.requireActiveForMutation(serviceId)
+        val service = managedServiceLifecycleGuard
+            .requireActiveForMutationWithWait(serviceId)
         service.beginStop(clock.instant())
         return operationContext(
             service = managedServiceRepository.saveAndFlush(service),
@@ -92,7 +94,7 @@ class ManagedServiceRuntimeLifecycleService(
             )
         }
 
-        return managedServiceLifecycleGuard.requireRuntimeOperationForTransition(
+        return managedServiceLifecycleGuard.requireRuntimeOperationForTransitionWithWait(
             serviceId = operation.serviceId,
             expectedStatus = expectedStatus,
             expectedVersion = operation.expectedVersion

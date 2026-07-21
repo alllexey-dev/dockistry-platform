@@ -11,6 +11,7 @@ import org.springframework.dao.PessimisticLockingFailureException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import java.time.Duration
 import java.util.UUID
 
 /**
@@ -21,6 +22,10 @@ import java.util.UUID
 class ManagedServiceLifecycleGuard(
     private val managedServiceRepository: ManagedServiceRepository
 ) {
+    companion object {
+        val DEFAULT_LOCK_WAIT_TIMEOUT: Duration = Duration.ofSeconds(1)
+    }
+
     @Transactional(propagation = Propagation.MANDATORY)
     fun requireActiveForMutation(serviceId: UUID): ManagedService {
         val service = withOperationLock {
@@ -39,6 +44,40 @@ class ManagedServiceLifecycleGuard(
             managedServiceRepository.findByProjectIdAndIdForUpdateNowait(
                 projectId = projectId,
                 serviceId = serviceId
+            )
+        } ?: throw notFound(projectId, serviceId)
+
+        return requireActive(service)
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    fun requireActiveForMutationWithWait(
+        serviceId: UUID,
+        lockTimeout: Duration = DEFAULT_LOCK_WAIT_TIMEOUT
+    ): ManagedService {
+        validateLockTimeout(lockTimeout)
+        val service = withOperationLock {
+            managedServiceRepository.findByIdForUpdate(
+                serviceId = serviceId,
+                lockTimeout = lockTimeout
+            )
+        } ?: throw ManagedServiceNotFoundException("Managed service couldn't be found")
+
+        return requireActive(service)
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    fun requireActiveForMutationWithWait(
+        projectId: UUID,
+        serviceId: UUID,
+        lockTimeout: Duration = DEFAULT_LOCK_WAIT_TIMEOUT
+    ): ManagedService {
+        validateLockTimeout(lockTimeout)
+        val service = withOperationLock {
+            managedServiceRepository.findByProjectIdAndIdForUpdate(
+                projectId = projectId,
+                serviceId = serviceId,
+                lockTimeout = lockTimeout
             )
         } ?: throw notFound(projectId, serviceId)
 
@@ -74,16 +113,36 @@ class ManagedServiceLifecycleGuard(
             "Managed service $serviceId disappeared during a runtime operation"
         )
 
-        if (
-            service.lifecycleStatus != expectedStatus ||
-            service.version != expectedVersion
-        ) {
-            throw InternalDataIntegrityException(
-                "Managed service $serviceId runtime operation expected status " +
-                        "$expectedStatus and version $expectedVersion, but found " +
-                        "${service.lifecycleStatus} and ${service.version}"
+        requireRuntimeOperationState(
+            service = service,
+            expectedStatus = expectedStatus,
+            expectedVersion = expectedVersion
+        )
+        return service
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    fun requireRuntimeOperationForTransitionWithWait(
+        serviceId: UUID,
+        expectedStatus: ManagedServiceLifecycleStatus,
+        expectedVersion: Long,
+        lockTimeout: Duration = DEFAULT_LOCK_WAIT_TIMEOUT
+    ): ManagedService {
+        validateLockTimeout(lockTimeout)
+        val service = withOperationLock {
+            managedServiceRepository.findByIdForUpdate(
+                serviceId = serviceId,
+                lockTimeout = lockTimeout
             )
-        }
+        } ?: throw InternalDataIntegrityException(
+            "Managed service $serviceId disappeared during a runtime operation"
+        )
+
+        requireRuntimeOperationState(
+            service = service,
+            expectedStatus = expectedStatus,
+            expectedVersion = expectedVersion
+        )
         return service
     }
 
@@ -107,6 +166,31 @@ class ManagedServiceLifecycleGuard(
             find()
         } catch (_: PessimisticLockingFailureException) {
             throw ManagedServiceOperationInProgressException()
+        }
+    }
+
+    private fun validateLockTimeout(lockTimeout: Duration) {
+        if (lockTimeout.isNegative || lockTimeout.isZero || lockTimeout.toMillis() == 0L) {
+            throw InternalDataIntegrityException(
+                "Managed service lifecycle lock timeout must be at least one millisecond"
+            )
+        }
+    }
+
+    private fun requireRuntimeOperationState(
+        service: ManagedService,
+        expectedStatus: ManagedServiceLifecycleStatus,
+        expectedVersion: Long
+    ) {
+        if (
+            service.lifecycleStatus != expectedStatus ||
+            service.version != expectedVersion
+        ) {
+            throw InternalDataIntegrityException(
+                "Managed service ${service.id} runtime operation expected status " +
+                        "$expectedStatus and version $expectedVersion, but found " +
+                        "${service.lifecycleStatus} and ${service.version}"
+            )
         }
     }
 
