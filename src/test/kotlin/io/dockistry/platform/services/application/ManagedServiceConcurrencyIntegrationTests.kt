@@ -63,6 +63,12 @@ class ManagedServiceConcurrencyIntegrationTests(
     private lateinit var managedServiceLifecycleGuard: ManagedServiceLifecycleGuard
 
     @Autowired
+    private lateinit var deploymentLifecycleService: ManagedServiceDeploymentLifecycleService
+
+    @Autowired
+    private lateinit var runtimeLifecycleService: ManagedServiceRuntimeLifecycleService
+
+    @Autowired
     private lateinit var managedServiceRepository: ManagedServiceRepository
 
     @Autowired
@@ -168,6 +174,16 @@ class ManagedServiceConcurrencyIntegrationTests(
                     )
                 }
             }
+        }
+    }
+
+    @Test
+    fun `start is blocked while deployment is active`() {
+        val context = createServiceContext()
+        deploymentLifecycleService.begin(context.serviceId)
+
+        assertFailsWith<ManagedServiceOperationInProgressException> {
+            runtimeLifecycleService.beginStart(context.serviceId)
         }
     }
 

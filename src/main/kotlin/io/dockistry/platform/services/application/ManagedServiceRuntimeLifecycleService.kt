@@ -3,6 +3,8 @@ package io.dockistry.platform.services.application
 import io.dockistry.platform.services.application.dto.ManagedServiceRuntimeOperationContext
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceLifecycleStatus
+import io.dockistry.platform.services.domain.ManagedServiceOperationInProgressException
+import io.dockistry.platform.services.infrastructure.ManagedServiceDeploymentRepository
 import io.dockistry.platform.services.infrastructure.ManagedServiceRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.springframework.stereotype.Service
@@ -19,12 +21,19 @@ import java.util.UUID
 class ManagedServiceRuntimeLifecycleService(
     private val clock: Clock,
     private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard,
-    private val managedServiceRepository: ManagedServiceRepository
+    private val managedServiceRepository: ManagedServiceRepository,
+    private val deploymentRepository: ManagedServiceDeploymentRepository
 ) {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun beginStart(serviceId: UUID): ManagedServiceRuntimeOperationContext {
         val service = managedServiceLifecycleGuard
             .requireActiveForMutationWithWait(serviceId)
+        if (deploymentRepository.hasActiveDeployments(serviceId)) {
+            throw ManagedServiceOperationInProgressException(
+                "Managed service deployment is currently in progress"
+            )
+        }
+
         service.beginStart(clock.instant())
         return operationContext(
             service = managedServiceRepository.saveAndFlush(service),
