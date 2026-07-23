@@ -1,7 +1,6 @@
 package io.dockistry.platform.services.infrastructure
 
 import io.dockistry.platform.projects.application.ports.ProjectManagedServicesExistencePort
-import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceLifecycleStatus
 import org.springframework.data.jpa.repository.JpaRepository
@@ -129,6 +128,4 @@ interface ManagedServiceRepository :
         @Param("updatedBefore") updatedBefore: Instant,
         @Param("batchLimit") batchLimit: Long
     ): List<ManagedService>
-
-    fun project(project: Project): MutableList<ManagedService>
 }
