@@ -109,4 +109,19 @@ interface ManagedServiceDeploymentRepository :
         @Param("errorMessage") errorMessage: String?,
         @Param("attemptedAt") attemptedAt: Instant
     ): Int
+
+    @Query("""
+        SELECT deployment
+        FROM ManagedServiceDeployment deployment
+        JOIN FETCH deployment.service
+        WHERE (deployment.status = ManagedServiceDeploymentStatus.IN_PROCESS
+            OR deployment.status = ManagedServiceDeploymentStatus.CANCELING
+            ) AND deployment.updatedAt < :updatedBefore
+        ORDER BY deployment.updatedAt
+        LIMIT :batchLimit
+    """)
+    fun findStuckDeploymentsWithProjectId(
+        @Param("updatedBefore") updatedBefore: Instant,
+        @Param("batchLimit") batchLimit: Long
+    ): List<ManagedServiceDeployment>
 }

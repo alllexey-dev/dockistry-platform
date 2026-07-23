@@ -49,11 +49,11 @@ class ManagedServiceDeployExecutor(
     fun deploy(serviceId: UUID) {
         val plan = deploymentLifecycleService.begin(serviceId)
 
-        var containerId: String
-        try {
-            containerId = deployToDocker(plan)
+        val containerId = try {
+            val containerId = deployToDocker(plan)
             throwIfDeploymentCanceled(plan)
             dockerAgentClient.startContainer(containerId)
+            containerId
         } catch (_: DockerContainerCreateNameConflictException) {
             val conflictException = properConflictException(plan)
             if (handleDeploymentFailure(plan, conflictException)) return

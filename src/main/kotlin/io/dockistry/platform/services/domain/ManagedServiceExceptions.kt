@@ -70,3 +70,7 @@ class ManagedServiceDeploymentCanceled(
 class ManagedServiceDeletionBlockedByDeployment(
     message: String
 ) : ConflictException(message = message, code = "managed_service_deployment_blocked_by_deployment")
+
+class DeploymentNotFoundException(
+    message: String
+) : NotFoundException(message = message, code = "deployment_not_found")

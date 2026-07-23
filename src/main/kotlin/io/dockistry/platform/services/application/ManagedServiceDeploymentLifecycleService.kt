@@ -2,6 +2,7 @@ package io.dockistry.platform.services.application
 
 import io.dockistry.platform.services.application.dto.ManagedServiceDeploymentPlan
 import io.dockistry.platform.services.domain.DeployAlreadyInProcessException
+import io.dockistry.platform.services.domain.DeploymentNotFoundException
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceConfiguration
 import io.dockistry.platform.services.domain.ManagedServiceDeployment
@@ -57,7 +58,8 @@ class ManagedServiceDeploymentLifecycleService(
         return resolveFinalization(
             deploymentId = deploymentId,
             operation = "finish",
-            updatedRows = updatedRows
+            updatedRows = updatedRows,
+            containerId = containerId
         )
     }
 
@@ -75,7 +77,8 @@ class ManagedServiceDeploymentLifecycleService(
         return resolveFinalization(
             deploymentId = deploymentId,
             operation = "fail",
-            updatedRows = updatedRows
+            updatedRows = updatedRows,
+            containerId = null
         )
     }
 
@@ -144,11 +147,27 @@ class ManagedServiceDeploymentLifecycleService(
                 "Service $serviceId has more than one active deployment"
             )
         }
-
         val deployment = activeDeployments.singleOrNull()
             ?: return ManagedServiceDeploymentCancellationResult.NoDeploymentInProcess
 
-        if (deployment.status == ManagedServiceDeploymentStatus.CANCELING) {
+        return try {
+            requestDeploymentCancellationForDeploymentId(deployment.id)
+        } catch (_: DeploymentNotFoundException) {
+            throw InternalDataIntegrityException("Deployment ${deployment.id} disappeared after just being found as active deployment for $serviceId")
+        }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun requestDeploymentCancellationForDeploymentId(
+        deploymentId: UUID
+    ): ManagedServiceDeploymentCancellationResult {
+        val deployment = deploymentRepository.findById(deploymentId).orElseThrow {
+            DeploymentNotFoundException("Deployment $deploymentId couldn't be found")
+        }
+
+        if (deployment.status == ManagedServiceDeploymentStatus.CANCELING
+            || deployment.status == ManagedServiceDeploymentStatus.CANCELED
+        ) {
             return ManagedServiceDeploymentCancellationResult.Requested
         }
         if (deployment.status != ManagedServiceDeploymentStatus.IN_PROCESS) {
@@ -199,16 +218,34 @@ class ManagedServiceDeploymentLifecycleService(
     private fun resolveFinalization(
         deploymentId: UUID,
         operation: String,
-        updatedRows: Int
+        updatedRows: Int,
+        containerId: String?
     ): ManagedServiceDeploymentFinalizationResult {
         return when (updatedRows) {
             1 -> ManagedServiceDeploymentFinalizationResult.APPLIED
-            0 -> when (val status = getDeployment(deploymentId).status) {
-                ManagedServiceDeploymentStatus.CANCELING,
-                ManagedServiceDeploymentStatus.CANCELED ->
-                    ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED
+            0 -> {
+                val deployment = getDeployment(deploymentId)
 
-                else -> throw unexpectedState(deploymentId, operation, status)
+                when (deployment.status) {
+                    /* If reaper concurrently noticed created container and marked deployment
+                   as finished, we don't clean up or throw exception, we consider deployment
+                   gracefully finished.
+                    */
+                    ManagedServiceDeploymentStatus.FINISHED -> {
+                        if (containerId == null) {
+                            throw unexpectedState(deploymentId, operation, deployment.status)
+                        } else if (deployment.containerId == null || deployment.containerId != containerId) {
+                            throw InternalDataIntegrityException("Deployment finished with a container ID ${deployment.containerId}, but expected to mark finished with $containerId container ID")
+                        }
+                        ManagedServiceDeploymentFinalizationResult.APPLIED
+                    }
+
+                    ManagedServiceDeploymentStatus.CANCELING,
+                    ManagedServiceDeploymentStatus.CANCELED ->
+                        ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED
+
+                    else -> throw unexpectedState(deploymentId, operation, deployment.status)
+                }
             }
             else -> throw unexpectedUpdatedRows(deploymentId, operation, updatedRows)
         }

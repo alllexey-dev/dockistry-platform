@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
+import org.springframework.transaction.annotation.Transactional
+import java.time.Instant
 import java.util.UUID
 
 interface ManagedServiceRepository :
@@ -84,6 +86,49 @@ interface ManagedServiceRepository :
         @Param("projectId") projectId: UUID,
         @Param("serviceId") serviceId: UUID
     ): Int
+
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(
+        value = """
+            WITH stuck_services AS (
+                SELECT id
+                FROM services
+                WHERE lifecycle_status IN ('STARTING', 'STOPPING')
+                  AND updated_at < :updatedBefore
+                ORDER BY updated_at
+                LIMIT :batchLimit
+            )
+            UPDATE services service
+            SET lifecycle_status = 'ACTIVE',
+                updated_at = :updatedAt,
+                version = service.version + 1
+            FROM stuck_services
+            WHERE service.id = stuck_services.id
+              AND service.lifecycle_status IN ('STARTING', 'STOPPING')
+              AND service.updated_at < :updatedBefore
+        """,
+        nativeQuery = true
+    )
+    fun setStuckServicesToActive(
+        @Param("updatedBefore") updatedBefore: Instant,
+        @Param("updatedAt") updatedAt: Instant,
+        @Param("batchLimit") batchLimit: Long
+    ): Int
+
+    @Query("""
+        SELECT service
+        FROM ManagedService service
+        JOIN FETCH service.project
+        WHERE service.lifecycleStatus = ManagedServiceLifecycleStatus.DELETING
+          AND service.updatedAt < :updatedBefore
+        ORDER BY service.updatedAt
+        LIMIT :batchLimit
+    """)
+    fun findStuckDeletingServices(
+        @Param("updatedBefore") updatedBefore: Instant,
+        @Param("batchLimit") batchLimit: Long
+    ): List<ManagedService>
 
     fun project(project: Project): MutableList<ManagedService>
 }
