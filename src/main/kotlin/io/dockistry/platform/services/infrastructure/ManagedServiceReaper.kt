@@ -2,12 +2,15 @@ package io.dockistry.platform.services.infrastructure
 
 import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.DockerLabels
+import io.dockistry.platform.docker.domain.model.DockerContainerState
+import io.dockistry.platform.docker.domain.model.DockerContainerSummary
 import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.services.application.ManagedServiceDeploymentCancellationResult
 import io.dockistry.platform.services.application.ManagedServiceDeploymentCleanupService
 import io.dockistry.platform.services.application.ManagedServiceDeploymentFinalizationResult
 import io.dockistry.platform.services.application.ManagedServiceDeploymentLifecycleService
 import io.dockistry.platform.services.application.ManagedServiceDeletionExecutor
+import io.dockistry.platform.services.application.ports.DeploymentExecutionGate
 import io.dockistry.platform.services.domain.DeploymentNotFoundException
 import io.dockistry.platform.services.domain.ManagedServiceDeployment
 import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
@@ -26,7 +29,8 @@ class ManagedServiceReaper(
     private val dockerAgentClient: DockerAgentClient,
     private val serviceRepository: ManagedServiceRepository,
     private val deletionExecutor: ManagedServiceDeletionExecutor,
-    private val properties: ManagedServiceReaperProperties
+    private val properties: ManagedServiceReaperProperties,
+    private val deploymentExecutionGate: DeploymentExecutionGate
 ) {
     companion object {
         private val logger = LoggerFactory.getLogger(ManagedServiceReaper::class.java)
@@ -137,9 +141,20 @@ class ManagedServiceReaper(
 
         val markedCanceling = markCancelingActions.filter { action ->
             try {
-                deploymentLifecycleService.requestDeploymentCancellationForDeploymentId(
-                    deploymentId = action.deploymentId
-                ) == ManagedServiceDeploymentCancellationResult.Requested
+                deploymentExecutionGate.withLock(action.deploymentId) {
+                    if (getContainerSummary(
+                            projectId = action.projectId,
+                            serviceId = action.serviceId,
+                            deploymentId = action.deploymentId
+                        )?.state == DockerContainerState.RUNNING
+                    ) {
+                        return@withLock false
+                    }
+
+                    deploymentLifecycleService.requestDeploymentCancellationForDeploymentId(
+                        deploymentId = action.deploymentId
+                    ) == ManagedServiceDeploymentCancellationResult.Requested
+                }
             } catch (exception: DeploymentNotFoundException) {
                 logger.warn(
                     "Deployment {} disappeared before a cancellation could be requested",
@@ -192,23 +207,37 @@ class ManagedServiceReaper(
         try {
             markFinishedActions.forEach { (action, type) ->
                 try {
-                    val finishResult = deploymentLifecycleService.finish(
-                        deploymentId = action.deploymentId,
-                        containerId = type.containerId
-                    )
-
-                    if (finishResult ==
-                        ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED
-                    ) {
-
-                        requireCleanupAndCancel.add(
-                            DeploymentReaperAction(
+                    deploymentExecutionGate.withLock(action.deploymentId) {
+                        if (getContainerSummary(
                                 projectId = action.projectId,
                                 serviceId = action.serviceId,
-                                deploymentId = action.deploymentId,
-                                type = DeploymentReaperActionType.CleanupAndCancel
-                            )
+                                deploymentId = action.deploymentId
+                            )?.let {
+                                it.state != DockerContainerState.RUNNING ||
+                                        it.id != type.containerId
+                            } ?: true
+                        ) {
+                            return@withLock
+                        }
+
+                        val finishResult = deploymentLifecycleService.finish(
+                            deploymentId = action.deploymentId,
+                            containerId = type.containerId
                         )
+
+                        if (finishResult ==
+                            ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED
+                        ) {
+
+                            requireCleanupAndCancel.add(
+                                DeploymentReaperAction(
+                                    projectId = action.projectId,
+                                    serviceId = action.serviceId,
+                                    deploymentId = action.deploymentId,
+                                    type = DeploymentReaperActionType.CleanupAndCancel
+                                )
+                            )
+                        }
                     }
                 } catch (exception: InternalDataIntegrityException) {
                     logger.warn(
@@ -230,14 +259,17 @@ class ManagedServiceReaper(
         return MarkForFinishedResult(requireCleanupAndCancel)
     }
 
-    private fun decideActionForInProcessDeployment(deployment: ManagedServiceDeployment):
-            DeploymentReaperAction {
-        val container = dockerAgentClient.listContainers(
+    private fun getContainerSummary(
+        projectId: UUID,
+        serviceId: UUID,
+        deploymentId: UUID
+    ): DockerContainerSummary? {
+        return dockerAgentClient.listContainers(
             DockerLabelsFilter(
                 DockerLabels.forDeployment(
-                    projectId = deployment.service.project.id,
-                    serviceId = deployment.service.id,
-                    deploymentId = deployment.id
+                    projectId = projectId,
+                    serviceId = serviceId,
+                    deploymentId = deploymentId
                 )
             )
         ).let {
@@ -245,19 +277,31 @@ class ManagedServiceReaper(
                 logger.warn(
                     "Docker agent client returned {} containers for deployment {} Docker labels",
                     it.size,
-                    deployment.id
+                    deploymentId
                 )
                 null
             } else it
         }?.singleOrNull()
+    }
+
+    private fun decideActionForInProcessDeployment(deployment: ManagedServiceDeployment):
+            DeploymentReaperAction {
+        val container = getContainerSummary(
+            projectId = deployment.service.project.id,
+            serviceId = deployment.service.id,
+            deploymentId = deployment.id
+        )
 
         return DeploymentReaperAction(
             projectId = deployment.service.project.id,
             serviceId = deployment.service.id,
             deploymentId = deployment.id,
             type =
-                if (container == null) DeploymentReaperActionType.MarkCancelingAndCleanup
-                else DeploymentReaperActionType.MarkFinished(container.id)
+                if (container != null && container.state == DockerContainerState.RUNNING)
+                    DeploymentReaperActionType.MarkFinished(
+                        container.id
+                    )
+                else DeploymentReaperActionType.MarkCancelingAndCleanup
         )
     }
 

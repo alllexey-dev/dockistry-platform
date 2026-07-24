@@ -21,6 +21,7 @@ import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.docker.domain.model.DockerNetworkRef
 import io.dockistry.platform.docker.domain.model.DockerVolumeRef
 import io.dockistry.platform.services.domain.DeploymentOperationInProgressException
+import io.dockistry.platform.services.domain.ManagedServiceDeploymentCanceled
 import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
 import io.dockistry.platform.services.domain.ServiceVolumeMount
 import io.dockistry.platform.services.infrastructure.ManagedServiceDeploymentRepository
@@ -96,8 +97,8 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             afterCreateContainerContinueAllowed
 
         val pool = Executors.newSingleThreadExecutor()
-        val deployment = pool.submit {
-            deployExecutor.deploy(context.serviceId)
+        val deployment = pool.submit<Result<Unit>> {
+            runCatching { deployExecutor.deploy(context.serviceId) }
         }
 
         try {
@@ -120,7 +121,9 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             )
 
             afterCreateContainerContinueAllowed.countDown()
-            deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            assertFailsWith<ManagedServiceDeploymentCanceled> {
+                deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).getOrThrow()
+            }
 
             assertFalse(
                 dockerAgentClient.activeContainerIds.contains(createdContainer.key),
@@ -161,8 +164,8 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             afterCreateVolumeContinueAllowed
 
         val pool = Executors.newSingleThreadExecutor()
-        val deployment = pool.submit {
-            deployExecutor.deploy(context.serviceId)
+        val deployment = pool.submit<Result<Unit>> {
+            runCatching { deployExecutor.deploy(context.serviceId) }
         }
 
         try {
@@ -182,7 +185,9 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             )
 
             afterCreateVolumeContinueAllowed.countDown()
-            deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            assertFailsWith<ManagedServiceDeploymentCanceled> {
+                deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).getOrThrow()
+            }
 
             assertFalse(
                 dockerAgentClient.activeVolumeNames.contains(createdVolume.name),
@@ -217,8 +222,8 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             afterCreateNetworkContinueAllowed
 
         val pool = Executors.newSingleThreadExecutor()
-        val deployment = pool.submit {
-            deployExecutor.deploy(context.serviceId)
+        val deployment = pool.submit<Result<Unit>> {
+            runCatching { deployExecutor.deploy(context.serviceId) }
         }
 
         try {
@@ -239,7 +244,9 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             )
 
             afterCreateNetworkContinueAllowed.countDown()
-            deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            assertFailsWith<ManagedServiceDeploymentCanceled> {
+                deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).getOrThrow()
+            }
 
             assertEquals(
                 createdNetwork,
