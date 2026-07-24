@@ -89,6 +89,20 @@ class ManagedServiceDeletionLifecycleService(
         }
     }
 
+    @Transactional
+    fun fail(
+        projectId: UUID,
+        serviceId: UUID,
+        errorMessage: String?
+    ): Int {
+        return managedServiceRepository.markDeletionCleanupFailedIfDeleting(
+            projectId = projectId,
+            serviceId = serviceId,
+            errorMessage = errorMessage,
+            attemptedAt = clock.instant()
+        )
+    }
+
     private fun notFound(
         projectId: UUID,
         serviceId: UUID

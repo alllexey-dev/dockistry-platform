@@ -19,16 +19,25 @@ class ManagedServiceDeletionExecutor(
             serviceId = serviceId
         )
 
-        managedServiceRuntimeExecutor.removeContainer(
-            projectId = plan.projectId,
-            serviceId = plan.serviceId
-        )
-
-        if (plan.removeVolumes) {
-            projectVolumeService.removeServiceVolumesByLabels(
+        try {
+            managedServiceRuntimeExecutor.removeContainer(
                 projectId = plan.projectId,
                 serviceId = plan.serviceId
             )
+
+            if (plan.removeVolumes) {
+                projectVolumeService.removeServiceVolumesByLabels(
+                    projectId = plan.projectId,
+                    serviceId = plan.serviceId
+                )
+            }
+        } catch (exception: RuntimeException) {
+            deletionLifecycleService.fail(
+                projectId = plan.projectId,
+                serviceId = plan.serviceId,
+                errorMessage = exception.message
+            )
+            throw exception
         }
 
         deletionLifecycleService.complete(

@@ -86,6 +86,24 @@ interface ManagedServiceRepository :
         @Param("serviceId") serviceId: UUID
     ): Int
 
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        UPDATE ManagedService service
+        SET service.deletionContext.lastCleanupAttemptAt = :attemptedAt,
+            service.deletionContext.cleanupErrorMessage = :errorMessage,
+            service.updatedAt = :attemptedAt,
+            service.version = service.version + 1
+        WHERE service.project.id = :projectId
+          AND service.id = :serviceId
+          AND service.lifecycleStatus = ManagedServiceLifecycleStatus.DELETING
+    """)
+    fun markDeletionCleanupFailedIfDeleting(
+        @Param("projectId") projectId: UUID,
+        @Param("serviceId") serviceId: UUID,
+        @Param("errorMessage") errorMessage: String?,
+        @Param("attemptedAt") attemptedAt: Instant
+    ): Int
+
     @Transactional
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(
