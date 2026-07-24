@@ -20,6 +20,7 @@ import jakarta.persistence.OneToOne
 import jakarta.persistence.PrePersist
 import jakarta.persistence.PreUpdate
 import jakarta.persistence.Table
+import jakarta.persistence.Version
 import java.time.Instant
 import java.util.UUID
 
@@ -49,6 +50,11 @@ class Project(
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     lateinit var id: UUID
+
+    @Version
+    @Column(nullable = false)
+    var version: Long = 0
+        protected set
 
     @field:Column(unique = true, nullable = false)
     var name: String = ProjectNameNormalizer.normalizeAndValidate(name)

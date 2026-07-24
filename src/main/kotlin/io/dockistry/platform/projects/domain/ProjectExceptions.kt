@@ -20,6 +20,10 @@ class ProjectAlreadyExistsException(
     message: String
 ) : ConflictException(message, "project_already_exists")
 
+class ProjectVersionConflictException(
+    message: String
+) : ConflictException(message, "project_version_conflict")
+
 class ProjectRoleNotAssignableException(
     message: String
 ) : BadRequestException(message, "project_role_not_assignable")

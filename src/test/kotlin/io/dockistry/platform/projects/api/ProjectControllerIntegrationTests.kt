@@ -10,6 +10,7 @@ import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.projects.domain.ProjectStatus
 import io.dockistry.platform.projects.domain.dto.ProjectSaveRequest
+import io.dockistry.platform.projects.domain.dto.ProjectUpdateRequest
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
 import io.dockistry.platform.services.testsupport.managedService
 import io.dockistry.platform.testsupport.IamProjectFixtures
@@ -65,6 +66,12 @@ class ProjectControllerIntegrationTests {
 
     @PersistenceContext
     private lateinit var entityManager: EntityManager
+
+    private val newTransactionTemplate: TransactionTemplate by lazy {
+        TransactionTemplate(transactionManager).apply {
+            propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
+        }
+    }
 
     @Test
     fun `list returns project info dtos for visible projects`() {
@@ -160,46 +167,48 @@ class ProjectControllerIntegrationTests {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update returns updated project info dto when user can update project`() {
-        val fixtures = fixtures()
-        val user = authenticatedUser(fixtures, "editor")
-        val owner = fixtures.user(username = "owner-${fixtures.unique()}")
-        val project = fixtures.project(
-            name = "Old ${fixtures.unique()}",
-            slug = "old-${fixtures.unique()}",
-            ownerPrincipal = owner.principal
-        ).apply {
+        val context = committedUpdateContext(
+            SystemPermissionNames.PROJECT_UPDATE,
             description = "Old description"
-        }
-        fixtures.grantProjectPermissions(
-            user.user.principal,
-            project,
-            SystemPermissionNames.PROJECT_UPDATE
         )
-        fixtures.flush()
 
-        mockMvc.patch("/api/projects/${project.id}") {
-            bearer(user)
-            contentType = MediaType.APPLICATION_JSON
-            content = projectJson(
-                name = "  New\tName  ",
-                slug = "new-name",
-                description = "New description"
-            )
-        }.andExpect {
-            status { isOk() }
-            content { contentTypeCompatibleWith(MediaType.APPLICATION_JSON) }
-            jsonPath("$.data.id") { value(project.id.toString()) }
-            jsonPath("$.data.name") { value("New Name") }
-            jsonPath("$.data.slug") { value("new-name") }
-            jsonPath("$.data.description") { value("New description") }
-            jsonPath("$.data.status") { value(ProjectStatus.ACTIVE.name) }
-            jsonPath("$.data.createdAt") { value(project.createdAt.toString()) }
-            jsonPath("$.data.ownerPrincipalInfo.id") { value(owner.id.toString()) }
-            jsonPath("$.data.ownerPrincipalInfo.type") { value(PrincipalType.USER.name) }
-            jsonPath("$.data.ownerPrincipalInfo.name") { value(owner.username) }
-            jsonPath("$.errorMessage") { value(nullValue()) }
-            jsonPath("$.errorCode") { value(nullValue()) }
+        try {
+            mockMvc.patch("/api/projects/${context.project.id}") {
+                bearer(context.user)
+                contentType = MediaType.APPLICATION_JSON
+                content = projectUpdateJson(
+                    name = "  New\tName  ",
+                    slug = "new-name",
+                    description = "New description",
+                    expectedVersion = context.project.version
+                )
+            }.andExpect {
+                status { isOk() }
+                content { contentTypeCompatibleWith(MediaType.APPLICATION_JSON) }
+                jsonPath("$.data.id") { value(context.project.id.toString()) }
+                jsonPath("$.data.name") { value("New Name") }
+                jsonPath("$.data.slug") { value("new-name") }
+                jsonPath("$.data.description") { value("New description") }
+                jsonPath("$.data.status") { value(ProjectStatus.ACTIVE.name) }
+                jsonPath("$.data.createdAt") {
+                    value(context.project.createdAt.toString())
+                }
+                jsonPath("$.data.ownerPrincipalInfo.id") {
+                    value(context.owner.id.toString())
+                }
+                jsonPath("$.data.ownerPrincipalInfo.type") {
+                    value(PrincipalType.USER.name)
+                }
+                jsonPath("$.data.ownerPrincipalInfo.name") {
+                    value(context.owner.username)
+                }
+                jsonPath("$.errorMessage") { value(nullValue()) }
+                jsonPath("$.errorCode") { value(nullValue()) }
+            }
+        } finally {
+            cleanupCommittedProject(context.project.id)
         }
     }
 
@@ -298,44 +307,49 @@ class ProjectControllerIntegrationTests {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update returns not found when user cannot read project`() {
-        val fixtures = fixtures()
-        val user = authenticatedUser(fixtures, "editor")
-        val project = fixtures.project(
-            name = "Hidden ${fixtures.unique()}",
-            slug = "hidden-${fixtures.unique()}"
-        )
-        fixtures.flush()
+        val context = committedUpdateContext()
 
-        mockMvc.patch("/api/projects/${project.id}") {
-            bearer(user)
-            contentType = MediaType.APPLICATION_JSON
-            content = projectJson(name = "New Name", slug = "new-name")
-        }.andExpect {
-            expectApiError(statusCode = 404, errorCode = "project_not_found")
+        try {
+            mockMvc.patch("/api/projects/${context.project.id}") {
+                bearer(context.user)
+                contentType = MediaType.APPLICATION_JSON
+                content = projectUpdateJson(
+                    name = "New Name",
+                    slug = "new-name",
+                    expectedVersion = context.project.version
+                )
+            }.andExpect {
+                expectApiError(statusCode = 404, errorCode = "project_not_found")
+            }
+        } finally {
+            cleanupCommittedProject(context.project.id)
         }
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update returns forbidden when user cannot update project`() {
-        val fixtures = fixtures()
-        val user = authenticatedUser(fixtures, "editor")
-        val project = fixtures.project(
-            name = "Forbidden ${fixtures.unique()}",
-            slug = "forbidden-${fixtures.unique()}"
-        )
-        fixtures.grantRead(user.user.principal, project)
-        fixtures.flush()
+        val context = committedUpdateContext(SystemPermissionNames.PROJECT_READ)
 
-        mockMvc.patch("/api/projects/${project.id}") {
-            bearer(user)
-            contentType = MediaType.APPLICATION_JSON
-            content = projectJson(name = "New Name", slug = "new-name")
-        }.andExpect {
-            expectApiError(
-                statusCode = 403,
-                errorCode = "insufficient_permission_for_operation"
-            )
+        try {
+            mockMvc.patch("/api/projects/${context.project.id}") {
+                bearer(context.user)
+                contentType = MediaType.APPLICATION_JSON
+                content = projectUpdateJson(
+                    name = "New Name",
+                    slug = "new-name",
+                    expectedVersion = context.project.version
+                )
+            }.andExpect {
+                expectApiError(
+                    statusCode = 403,
+                    errorCode = "insufficient_permission_for_operation"
+                )
+            }
+        } finally {
+            cleanupCommittedProject(context.project.id)
         }
     }
 
@@ -447,13 +461,18 @@ class ProjectControllerIntegrationTests {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update returns not found when project does not exist`() {
-        val user = authenticatedUser(fixtures(), "editor")
+        val user = committedAuthenticatedUser("editor")
 
         mockMvc.patch("/api/projects/${UUID.randomUUID()}") {
             bearer(user)
             contentType = MediaType.APPLICATION_JSON
-            content = projectJson(name = "Missing", slug = "missing")
+            content = projectUpdateJson(
+                name = "Missing",
+                slug = "missing",
+                expectedVersion = 0
+            )
         }.andExpect {
             expectApiError(statusCode = 404, errorCode = "project_not_found")
         }
@@ -471,8 +490,9 @@ class ProjectControllerIntegrationTests {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete returns not found when project does not exist`() {
-        val user = authenticatedUser(fixtures(), "deleter")
+        val user = committedAuthenticatedUser("deleter")
 
         mockMvc.delete("/api/projects/${UUID.randomUUID()}") {
             bearer(user)
@@ -522,26 +542,24 @@ class ProjectControllerIntegrationTests {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update returns invalid project slug error for invalid slug`() {
-        val fixtures = fixtures()
-        val user = authenticatedUser(fixtures, "editor")
-        val project = fixtures.project(
-            name = "Editable ${fixtures.unique()}",
-            slug = "editable-${fixtures.unique()}"
-        )
-        fixtures.grantProjectPermissions(
-            user.user.principal,
-            project,
-            SystemPermissionNames.PROJECT_UPDATE
-        )
-        fixtures.flush()
+        val context = committedUpdateContext(SystemPermissionNames.PROJECT_UPDATE)
 
-        mockMvc.patch("/api/projects/${project.id}") {
-            bearer(user)
-            contentType = MediaType.APPLICATION_JSON
-            content = projectJson(name = "Valid Name", slug = "Invalid Slug")
-        }.andExpect {
-            expectApiError(statusCode = 400, errorCode = "invalid_project_slug")
+        try {
+            mockMvc.patch("/api/projects/${context.project.id}") {
+                bearer(context.user)
+                contentType = MediaType.APPLICATION_JSON
+                content = projectUpdateJson(
+                    name = "Valid Name",
+                    slug = "Invalid Slug",
+                    expectedVersion = context.project.version
+                )
+            }.andExpect {
+                expectApiError(statusCode = 400, errorCode = "invalid_project_slug")
+            }
+        } finally {
+            cleanupCommittedProject(context.project.id)
         }
     }
 
@@ -601,6 +619,43 @@ class ProjectControllerIntegrationTests {
         )
     }
 
+    private fun committedAuthenticatedUser(prefix: String): AuthenticatedTestUser =
+        inNewTransaction {
+            authenticatedUser(fixtures(), prefix)
+        }
+
+    private fun committedUpdateContext(
+        vararg permissionKeys: String,
+        description: String? = null
+    ): ProjectUpdateHttpContext = inNewTransaction {
+        val fixtures = fixtures()
+        val user = authenticatedUser(fixtures, "editor")
+        val owner = fixtures.user(username = "owner-${fixtures.unique()}")
+        val project = fixtures.project(
+            name = "Editable ${fixtures.unique()}",
+            slug = "editable-${fixtures.unique()}",
+            ownerPrincipal = owner.principal
+        ).apply {
+            this.description = description
+        }
+        if (permissionKeys.isNotEmpty()) {
+            fixtures.grantProjectPermissions(
+                user.user.principal,
+                project,
+                *permissionKeys.filterNot {
+                    it == SystemPermissionNames.PROJECT_READ
+                }.toTypedArray()
+            )
+        }
+        fixtures.flush()
+
+        ProjectUpdateHttpContext(
+            project = project,
+            owner = owner,
+            user = user
+        )
+    }
+
     private fun committedDeleteContext(
         vararg permissionKeys: String,
         withManagedService: Boolean = false
@@ -641,10 +696,7 @@ class ProjectControllerIntegrationTests {
     }
 
     private fun <T : Any> inNewTransaction(block: () -> T): T {
-        val transactionTemplate = TransactionTemplate(transactionManager).apply {
-            propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
-        }
-        return checkNotNull(transactionTemplate.execute { block() })
+        return checkNotNull(newTransactionTemplate.execute { block() })
     }
 
     private fun IamProjectFixtures.grantRead(principal: Principal, project: Project) {
@@ -674,6 +726,22 @@ class ProjectControllerIntegrationTests {
     ): String {
         return objectMapper.writeValueAsString(
             ProjectSaveRequest(name = name, slug = slug, description = description)
+        )
+    }
+
+    private fun projectUpdateJson(
+        name: String,
+        slug: String,
+        description: String? = null,
+        expectedVersion: Long
+    ): String {
+        return objectMapper.writeValueAsString(
+            ProjectUpdateRequest(
+                name = name,
+                slug = slug,
+                description = description,
+                expectedVersion = expectedVersion
+            )
         )
     }
 
@@ -711,6 +779,12 @@ class ProjectControllerIntegrationTests {
     private data class AuthenticatedTestUser(
         val user: User,
         val accessToken: String
+    )
+
+    private data class ProjectUpdateHttpContext(
+        val project: Project,
+        val owner: User,
+        val user: AuthenticatedTestUser
     )
 
     private data class ProjectDeleteHttpContext(

@@ -47,6 +47,7 @@ CREATE TABLE projects
     owner_principal_id UUID                        NOT NULL,
     status             VARCHAR(255)                NOT NULL,
     created_at         TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    version            BIGINT                      NOT NULL,
     scope_id           UUID                        NOT NULL,
     CONSTRAINT pk_projects PRIMARY KEY (id)
 );
@@ -175,7 +176,8 @@ ALTER TABLE refresh_tokens
     ADD CONSTRAINT FK_REFRESH_TOKENS_ON_USER FOREIGN KEY (user_id) REFERENCES users (id);
 
 ALTER TABLE roles
-    ADD CONSTRAINT FK_ROLES_ON_PROJECT FOREIGN KEY (project_id) REFERENCES projects (id);
+    ADD CONSTRAINT FK_ROLES_ON_PROJECT
+        FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE;
 
 ALTER TABLE role_bindings
     ADD CONSTRAINT FK_ROLE_BINDINGS_ON_ROLE FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE CASCADE;
@@ -199,7 +201,8 @@ ALTER TABLE role_permissions
     ADD CONSTRAINT fk_role_permissions_on_permission FOREIGN KEY (permission_id) REFERENCES permissions (id);
 
 ALTER TABLE role_permissions
-    ADD CONSTRAINT fk_role_permissions_on_role FOREIGN KEY (role_id) REFERENCES roles (id);
+    ADD CONSTRAINT fk_role_permissions_on_role
+        FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE CASCADE;
 
 ALTER TABLE email_verification_challenges
     ADD CONSTRAINT FK_EMAIL_VERIFICATION_CHALLENGES_ON_USER FOREIGN KEY (user_id) REFERENCES users (id);

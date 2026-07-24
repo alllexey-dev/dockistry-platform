@@ -39,7 +39,8 @@ class ProjectInfoDtoMapper(
             description = project.description,
             ownerPrincipalInfo = ownerPrincipalInfoDto,
             status = project.status,
-            createdAt = project.createdAt
+            createdAt = project.createdAt,
+            version = project.version
         )
     }
 
