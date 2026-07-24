@@ -25,9 +25,12 @@ import io.dockistry.platform.services.domain.ManagedServiceDeploymentCanceled
 import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
 import io.dockistry.platform.services.domain.ServiceVolumeMount
 import io.dockistry.platform.services.infrastructure.ManagedServiceDeploymentRepository
+import io.dockistry.platform.services.infrastructure.ManagedServiceReaper
+import io.dockistry.platform.services.infrastructure.ManagedServiceReaperProperties
 import io.dockistry.platform.services.testsupport.ManagedServiceFixtures
 import io.dockistry.platform.services.testsupport.managedServiceDraft
 import io.dockistry.platform.testsupport.IamProjectFixtures
+import io.dockistry.platform.testsupport.MutableClock
 import jakarta.persistence.EntityManager
 import org.junit.jupiter.api.BeforeEach
 import org.springframework.beans.factory.annotation.Autowired
@@ -40,9 +43,12 @@ import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
+import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -50,9 +56,12 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 private const val TIMEOUT_SECONDS = 15L
+private val TEST_TIME: Instant = Instant.parse("2026-01-01T00:00:00Z")
 
 @SpringBootTest(
     properties = [
@@ -71,8 +80,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     private val cleanupService: ManagedServiceDeploymentCleanupService,
     private val deploymentLifecycleService: ManagedServiceDeploymentLifecycleService,
     private val deploymentRepository: ManagedServiceDeploymentRepository,
+    private val reaper: ManagedServiceReaper,
+    private val clock: MutableClock,
     private val entityManager: EntityManager,
-    transactionManager: PlatformTransactionManager
+    transactionManager: PlatformTransactionManager,
+    @Autowired private val managedServiceReaperProperties: ManagedServiceReaperProperties
 ) {
     private val newTransactionTemplate = TransactionTemplate(transactionManager).apply {
         propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
@@ -81,6 +93,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     @BeforeEach
     fun resetDockerAgent() {
         dockerAgentClient.reset()
+        clock.set(TEST_TIME)
     }
 
     @Test
@@ -264,6 +277,195 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         }
     }
 
+    @Test
+    fun `reaper cannot enter while deploy executor is starting container`() {
+        val context = createServiceContext()
+        val startContainerEntered = CountDownLatch(1)
+        val startContainerContinueAllowed = CountDownLatch(1)
+        dockerAgentClient.startContainerEntered = startContainerEntered
+        dockerAgentClient.startContainerContinueAllowed =
+            startContainerContinueAllowed
+
+        val pool = Executors.newSingleThreadExecutor()
+        val deployment = pool.submit<Unit> {
+            deployExecutor.deploy(context.serviceId)
+        }
+
+        try {
+            await(startContainerEntered, "Container start wasn't entered")
+            val deploymentId = activeDeploymentId(context.serviceId)
+            val container = deploymentContainer(context, deploymentId)
+            assertEquals(DockerContainerState.CREATED, container.state)
+
+            advanceTimeToGetDeploymentMarkedAsStuck()
+            reaper.execute()
+
+            assertDeploymentStatus(
+                deploymentId,
+                ManagedServiceDeploymentStatus.IN_PROCESS
+            )
+
+            startContainerContinueAllowed.countDown()
+            deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+
+            assertDeploymentStatus(
+                deploymentId,
+                ManagedServiceDeploymentStatus.FINISHED
+            )
+        } finally {
+            startContainerContinueAllowed.countDown()
+            terminate(pool, "Deployment executor didn't terminate after container start")
+        }
+    }
+
+    @Test
+    fun `reaper cancels and cleans deployment when executor dies before container start`() {
+        val context = createServiceContext()
+        dockerAgentClient.executorDeathPoint =
+            FakeDockerAgentClient.ExecutorDeathPoint.AFTER_CONTAINER_CREATION
+
+        val pool = Executors.newSingleThreadExecutor()
+        val deployment = pool.submit<Unit> {
+            deployExecutor.deploy(context.serviceId)
+        }
+
+        try {
+            val failure = assertFailsWith<ExecutionException> {
+                deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            }
+            val executorDeath = assertIs<SimulatedDeployExecutorDeath>(failure.cause)
+            assertEquals(
+                FakeDockerAgentClient.ExecutorDeathPoint.AFTER_CONTAINER_CREATION,
+                executorDeath.deathPoint
+            )
+
+            val deploymentId = activeDeploymentId(context.serviceId)
+            val container = deploymentContainer(context, deploymentId)
+            assertDeploymentStatus(
+                deploymentId,
+                ManagedServiceDeploymentStatus.IN_PROCESS
+            )
+            assertEquals(DockerContainerState.CREATED, container.state)
+
+            advanceTimeToGetDeploymentMarkedAsStuck()
+            reaper.execute()
+
+            assertDeploymentStatus(
+                deploymentId,
+                ManagedServiceDeploymentStatus.CANCELED
+            )
+            assertFalse(
+                dockerAgentClient.activeContainerIds.contains(container.id),
+                "Container left by dead deploy executor wasn't removed"
+            )
+            assertTrue(
+                dockerAgentClient.deletedContainerIds.contains(container.id),
+                "Container cleanup wasn't observed"
+            )
+        } finally {
+            terminate(pool, "Dead deployment executor didn't terminate")
+        }
+    }
+
+    @Test
+    fun `reaper finishes deployment when executor dies after container start`() {
+        val context = createServiceContext()
+        dockerAgentClient.executorDeathPoint =
+            FakeDockerAgentClient.ExecutorDeathPoint.AFTER_CONTAINER_START
+
+        val pool = Executors.newSingleThreadExecutor()
+        val deployment = pool.submit<Unit> {
+            deployExecutor.deploy(context.serviceId)
+        }
+
+        try {
+            val failure = assertFailsWith<ExecutionException> {
+                deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            }
+            val executorDeath = assertIs<SimulatedDeployExecutorDeath>(failure.cause)
+            assertEquals(
+                FakeDockerAgentClient.ExecutorDeathPoint.AFTER_CONTAINER_START,
+                executorDeath.deathPoint
+            )
+
+            val deploymentId = activeDeploymentId(context.serviceId)
+            val container = deploymentContainer(context, deploymentId)
+            assertDeploymentStatus(
+                deploymentId,
+                ManagedServiceDeploymentStatus.IN_PROCESS
+            )
+            assertEquals(DockerContainerState.RUNNING, container.state)
+
+            advanceTimeToGetDeploymentMarkedAsStuck()
+            reaper.execute()
+
+            val finishedDeployment =
+                deploymentRepository.findById(deploymentId).orElseThrow()
+            assertEquals(
+                ManagedServiceDeploymentStatus.FINISHED,
+                finishedDeployment.status
+            )
+            assertEquals(container.id, finishedDeployment.containerId)
+            assertTrue(
+                dockerAgentClient.activeContainerIds.contains(container.id),
+                "Running deployment container should remain available"
+            )
+        } finally {
+            terminate(pool, "Dead deployment executor didn't terminate")
+        }
+    }
+
+    @Test
+    fun `start failure is recorded while reaper is fenced`() {
+        val context = createServiceContext()
+        val startContainerEntered = CountDownLatch(1)
+        val startContainerContinueAllowed = CountDownLatch(1)
+        val startFailure = SimulatedContainerStartFailure()
+        dockerAgentClient.startContainerEntered = startContainerEntered
+        dockerAgentClient.startContainerContinueAllowed =
+            startContainerContinueAllowed
+        dockerAgentClient.startContainerFailure = startFailure
+
+        val pool = Executors.newSingleThreadExecutor()
+        val deployment = pool.submit<Unit> {
+            deployExecutor.deploy(context.serviceId)
+        }
+
+        try {
+            await(startContainerEntered, "Container start wasn't entered")
+            val deploymentId = activeDeploymentId(context.serviceId)
+
+            advanceTimeToGetDeploymentMarkedAsStuck()
+            reaper.execute()
+
+            assertDeploymentStatus(
+                deploymentId,
+                ManagedServiceDeploymentStatus.IN_PROCESS
+            )
+
+            startContainerContinueAllowed.countDown()
+            val failure = assertFailsWith<ExecutionException> {
+                deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            }
+            assertSame(startFailure, failure.cause)
+
+            val failedDeployment =
+                deploymentRepository.findById(deploymentId).orElseThrow()
+            assertEquals(
+                ManagedServiceDeploymentStatus.FAILED,
+                failedDeployment.status
+            )
+            assertEquals(startFailure.message, failedDeployment.errorMessage)
+            assertEquals(
+                DockerContainerState.CREATED,
+                deploymentContainer(context, deploymentId).state
+            )
+        } finally {
+            startContainerContinueAllowed.countDown()
+            terminate(pool, "Failing deployment executor didn't terminate")
+        }
+    }
+
     private fun createServiceContext(
         volume: ServiceVolumeMount? = null
     ): ServiceContext = inNewTransaction {
@@ -297,6 +499,31 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             )
         )
         return deployment.id
+    }
+
+    private fun activeDeploymentId(serviceId: UUID): UUID =
+        deploymentRepository.findActiveByServiceId(serviceId).single().id
+
+    private fun deploymentContainer(
+        context: ServiceContext,
+        deploymentId: UUID
+    ): DockerContainerSummary {
+        return dockerAgentClient.listContainers(
+            DockerLabelsFilter(
+                DockerLabels.forDeployment(
+                    projectId = context.projectId,
+                    serviceId = context.serviceId,
+                    deploymentId = deploymentId
+                )
+            )
+        ).single()
+    }
+
+    private fun advanceTimeToGetDeploymentMarkedAsStuck() {
+        clock.advance(
+            managedServiceReaperProperties.deploymentTimeout +
+                    Duration.ofMinutes(1)
+        )
     }
 
     private fun assertCleanupBlocked(
@@ -356,6 +583,13 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         val serviceId: UUID
     )
 
+    class SimulatedDeployExecutorDeath(
+        val deathPoint: FakeDockerAgentClient.ExecutorDeathPoint
+    ) : Error("Simulated deploy executor death at $deathPoint")
+
+    class SimulatedContainerStartFailure :
+        RuntimeException("Simulated container start failure")
+
     @TestConfiguration
     class FakeDockerAgentClientConfig {
         @Bean
@@ -388,6 +622,18 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
         @Volatile
         var afterCreateContainerContinueAllowed: CountDownLatch? = null
+
+        @Volatile
+        var startContainerEntered: CountDownLatch? = null
+
+        @Volatile
+        var startContainerContinueAllowed: CountDownLatch? = null
+
+        @Volatile
+        var startContainerFailure: RuntimeException? = null
+
+        @Volatile
+        var executorDeathPoint: ExecutorDeathPoint? = null
 
         @Volatile
         var createVolumeEntered: CountDownLatch? = null
@@ -428,6 +674,10 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             containerCreationAllowed = null
             afterCreateContainer = null
             afterCreateContainerContinueAllowed = null
+            startContainerEntered = null
+            startContainerContinueAllowed = null
+            startContainerFailure = null
+            executorDeathPoint = null
             createVolumeEntered = null
             volumeCreationAllowed = null
             afterCreateVolume = null
@@ -558,6 +808,9 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 afterCreateContainerContinueAllowed,
                 "Container creation continuation latch wasn't released"
             )
+            throwIfExecutorDiesAt(
+                ExecutorDeathPoint.AFTER_CONTAINER_CREATION
+            )
             return containerId
         }
 
@@ -614,7 +867,14 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                     "Docker container $containerId wasn't found"
                 )
             }
+            startContainerEntered?.countDown()
+            awaitPermission(
+                startContainerContinueAllowed,
+                "Container start continuation latch wasn't released"
+            )
+            startContainerFailure?.let { throw it }
             containerStates[containerId] = DockerContainerState.RUNNING
+            throwIfExecutorDiesAt(ExecutorDeathPoint.AFTER_CONTAINER_START)
         }
 
         override fun stopContainer(containerId: String) {
@@ -643,6 +903,12 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             deletedContainerIds.add(containerId)
         }
 
+        private fun throwIfExecutorDiesAt(deathPoint: ExecutorDeathPoint) {
+            if (executorDeathPoint == deathPoint) {
+                throw SimulatedDeployExecutorDeath(deathPoint)
+            }
+        }
+
         private fun awaitPermission(
             latch: CountDownLatch?,
             failureMessage: String
@@ -660,6 +926,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             filter: DockerLabelsFilter
         ): Boolean {
             return filter.labels.all { (name, value) -> this[name] == value }
+        }
+
+        enum class ExecutorDeathPoint {
+            AFTER_CONTAINER_CREATION,
+            AFTER_CONTAINER_START
         }
     }
 }
