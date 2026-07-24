@@ -11,41 +11,48 @@ import java.util.UUID
 @Service
 class ManagedServiceDeploymentCleanupService(
     private val dockerAgentClient: DockerAgentClient,
-    private val deploymentLifecycleService: ManagedServiceDeploymentLifecycleService
+    private val deploymentLifecycleService: ManagedServiceDeploymentLifecycleService,
+    private val deploymentOperationGate: ManagedServiceDeploymentOperationGate
 ) {
     fun cleanup(
         projectId: UUID,
         serviceId: UUID,
         deploymentId: UUID
     ) {
-        try {
-            val filter = DockerLabelsFilter(
-                labels = DockerLabels.forDeployment(
-                    projectId = projectId,
-                    serviceId = serviceId,
-                    deploymentId = deploymentId
+        deploymentOperationGate.withLock(deploymentId) {
+            if (!deploymentLifecycleService.isCancellationRequested(deploymentId)) {
+                return@withLock
+            }
+
+            try {
+                val filter = DockerLabelsFilter(
+                    labels = DockerLabels.forDeployment(
+                        projectId = projectId,
+                        serviceId = serviceId,
+                        deploymentId = deploymentId
+                    )
                 )
-            )
 
-            dockerAgentClient.listContainers(filter).forEach { container ->
-                try {
-                    dockerAgentClient.deleteContainer(container.id)
-                } catch (_: DockerContainerNotFoundException) {
-                    // A concurrent cleanup already removed this container.
+                dockerAgentClient.listContainers(filter).forEach { container ->
+                    try {
+                        dockerAgentClient.deleteContainer(container.id)
+                    } catch (_: DockerContainerNotFoundException) {
+                        // A concurrent cleanup already removed this container.
+                    }
                 }
-            }
 
-            dockerAgentClient.listVolumes(filter).forEach { volume ->
-                try {
-                    dockerAgentClient.removeVolume(volume.name)
-                } catch (_: DockerVolumeNotFoundException) {
-                    // A concurrent cleanup already removed this volume.
+                dockerAgentClient.listVolumes(filter).forEach { volume ->
+                    try {
+                        dockerAgentClient.removeVolume(volume.name)
+                    } catch (_: DockerVolumeNotFoundException) {
+                        // A concurrent cleanup already removed this volume.
+                    }
                 }
-            }
 
-            deploymentLifecycleService.completeCancellation(deploymentId)
-        } catch (exception: RuntimeException) {
-            recordCleanupFailure(deploymentId, exception)
+                deploymentLifecycleService.completeCancellation(deploymentId)
+            } catch (exception: RuntimeException) {
+                recordCleanupFailure(deploymentId, exception)
+            }
         }
     }
 

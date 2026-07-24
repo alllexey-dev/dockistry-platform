@@ -2,6 +2,7 @@ package io.dockistry.platform.services.domain
 
 import io.dockistry.platform.shared.exception.BadRequestException
 import io.dockistry.platform.shared.exception.ConflictException
+import io.dockistry.platform.shared.exception.InternalServerErrorException
 import io.dockistry.platform.shared.exception.NotFoundException
 import java.util.UUID
 
@@ -74,3 +75,16 @@ class ManagedServiceDeletionBlockedByDeployment(
 class DeploymentNotFoundException(
     message: String
 ) : NotFoundException(message = message, code = "deployment_not_found")
+
+class DeploymentOperationInProgressException :
+    ConflictException(
+        message = "Another deployment-related Docker operation is currently in progress",
+        code = "deployment_operation_in_progress"
+    )
+
+class DeploymentOperationConcurrencyCheckFailureException :
+    InternalServerErrorException(
+        message = "Couldn't make sure there are no other deployment-related " +
+                "Docker operations running concurrently",
+        code = "deployment_operation_concurrency_check_failure"
+    )

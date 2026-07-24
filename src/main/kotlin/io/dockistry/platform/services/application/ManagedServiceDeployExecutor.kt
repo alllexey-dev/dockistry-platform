@@ -35,7 +35,8 @@ class ManagedServiceDeployExecutor(
     private val projectNetworkService: ProjectNetworkService,
     private val projectVolumeService: ProjectVolumeService,
     private val deploymentRepository: ManagedServiceDeploymentRepository,
-    private val dockerAgentClient: DockerAgentClient
+    private val dockerAgentClient: DockerAgentClient,
+    private val deploymentOperationGate: ManagedServiceDeploymentOperationGate
 ) {
 
     companion object {
@@ -77,15 +78,17 @@ class ManagedServiceDeployExecutor(
                     deploymentId = plan.deploymentId
                 )
         }
+        throwIfDeploymentCanceled(plan)
     }
 
     private fun deployToDocker(plan: ManagedServiceDeploymentPlan): String {
         val command = createCommand(plan)
 
-        throwIfDeploymentCanceled(plan)
-
         return try {
-            dockerAgentClient.createContainer(command)
+            deploymentOperationGate.withLock(plan.deploymentId) {
+                throwIfDeploymentCanceled(plan)
+                dockerAgentClient.createContainer(command)
+            }
         } catch (exception: DockerContainerCreateNameConflictException) {
             throwIfDeploymentCanceled(plan)
 
@@ -94,8 +97,10 @@ class ManagedServiceDeployExecutor(
             }
 
             // If conflicting container was automatically deleted, try again once
-            throwIfDeploymentCanceled(plan)
-            dockerAgentClient.createContainer(command)
+            deploymentOperationGate.withLock(plan.deploymentId) {
+                throwIfDeploymentCanceled(plan)
+                dockerAgentClient.createContainer(command)
+            }
         }
     }
 
@@ -130,10 +135,15 @@ class ManagedServiceDeployExecutor(
     private fun createCommand(
         plan: ManagedServiceDeploymentPlan
     ): DockerContainerCreateCommand {
-        throwIfDeploymentCanceled(plan)
-        val networkName = ensureNetworkAndGetName(plan)
-        throwIfDeploymentCanceled(plan)
-        val bindings = ensureAndMapVolumes(plan)
+        val networkName = deploymentOperationGate.withLock(plan.deploymentId) {
+            throwIfDeploymentCanceled(plan)
+            ensureNetworkAndGetName(plan)
+        }
+
+        val bindings = deploymentOperationGate.withLock(plan.deploymentId) {
+            throwIfDeploymentCanceled(plan)
+            ensureAndMapVolumes(plan)
+        }
 
         val imageRef = plan.snapshot.imageRef.toDockerImageRef()
         throwIfDeploymentCanceled(plan)
