@@ -39,6 +39,18 @@ dependencies {
 	implementation("com.github.docker-java:docker-java-core:3.7.1")
 	implementation("com.github.docker-java:docker-java-transport-zerodep:3.7.1")
 
+	constraints {
+		implementation("org.bouncycastle:bcpkix-jdk18on:1.84") {
+			because("Fixes CVE-2026-5588 in docker-java's transitive dependency")
+		}
+		implementation("org.bouncycastle:bcprov-jdk18on:1.84") {
+			because("Fixes CVE-2026-0636 in docker-java's transitive dependency")
+		}
+		implementation("org.bouncycastle:bcutil-jdk18on:1.84") {
+			because("Keeps the Bouncy Castle modules on the same release")
+		}
+	}
+
 	implementation("org.springframework.boot:spring-boot-starter-flyway")
 	runtimeOnly("org.flywaydb:flyway-database-postgresql")
 
