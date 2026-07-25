@@ -25,7 +25,10 @@ class ManagedServiceService(
     private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard,
     private val managedServiceDeletionLifecycleService: ManagedServiceDeletionLifecycleService,
     private val managedServiceDeletionExecutor: ManagedServiceDeletionExecutor,
-    private val projectExistenceService: ProjectExistenceService
+    private val projectExistenceService: ProjectExistenceService,
+    private val managedServiceAccessGuard: ManagedServiceAccessGuard,
+    private val managedServiceDeployExecutor: ManagedServiceDeployExecutor,
+    private val managedServiceRuntimeExecutor: ManagedServiceRuntimeExecutor
 ) {
     @Transactional(readOnly = true)
     fun list(projectId: UUID, principal: Principal): List<ManagedService> {
@@ -68,6 +71,45 @@ class ManagedServiceService(
         } catch (_: ObjectOptimisticLockingFailureException) {
             updateExecutor.resolveConflict(command)
         }
+    }
+
+    fun deploy(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ): String {
+        val service = managedServiceAccessGuard.requireManageable(
+            projectId,
+            serviceId,
+            principal
+        )
+        return managedServiceDeployExecutor.deploy(service.id)
+    }
+
+    fun start(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ) {
+        val service = managedServiceAccessGuard.requireManageable(
+            projectId,
+            serviceId,
+            principal
+        )
+        managedServiceRuntimeExecutor.start(service.id)
+    }
+
+    fun stop(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ) {
+        val service = managedServiceAccessGuard.requireManageable(
+            projectId,
+            serviceId,
+            principal
+        )
+        managedServiceRuntimeExecutor.stop(service.id)
     }
 
     fun delete(

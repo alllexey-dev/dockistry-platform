@@ -111,7 +111,10 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
         val pool = Executors.newSingleThreadExecutor()
         val deployment = pool.submit<Result<Unit>> {
-            runCatching { deployExecutor.deploy(context.serviceId) }
+            runCatching {
+                deployExecutor.deploy(context.serviceId)
+                Unit
+            }
         }
 
         try {
@@ -178,7 +181,10 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
         val pool = Executors.newSingleThreadExecutor()
         val deployment = pool.submit<Result<Unit>> {
-            runCatching { deployExecutor.deploy(context.serviceId) }
+            runCatching {
+                deployExecutor.deploy(context.serviceId)
+                Unit
+            }
         }
 
         try {
@@ -236,7 +242,10 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
         val pool = Executors.newSingleThreadExecutor()
         val deployment = pool.submit<Result<Unit>> {
-            runCatching { deployExecutor.deploy(context.serviceId) }
+            runCatching {
+                deployExecutor.deploy(context.serviceId)
+                Unit
+            }
         }
 
         try {

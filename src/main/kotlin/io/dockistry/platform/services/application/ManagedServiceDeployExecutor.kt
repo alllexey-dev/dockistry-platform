@@ -47,14 +47,14 @@ class ManagedServiceDeployExecutor(
             "dockistry_${projectId}_$serviceName"
     }
 
-    fun deploy(serviceId: UUID) {
+    fun deploy(serviceId: UUID): String {
         val plan = deploymentLifecycleService.begin(serviceId)
 
         val command = try {
             createCommand(plan)
         } catch (exception: RuntimeException) {
             if (handleDeploymentFailure(plan, exception)) {
-                return throwIfDeploymentCanceled(plan)
+                throwIfDeploymentCanceled(plan)
             }
             throw exception
         }
@@ -70,7 +70,7 @@ class ManagedServiceDeployExecutor(
                     )
                 ) {
                     ManagedServiceDeploymentFinalizationResult.APPLIED ->
-                        DeployOutcome.Finished
+                        DeployOutcome.Finished(containerId)
 
                     ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED ->
                         DeployOutcome.CancellationRequested
@@ -83,16 +83,19 @@ class ManagedServiceDeployExecutor(
         }
 
         when (outcome) {
-            DeployOutcome.Finished -> Unit
-            DeployOutcome.CancellationRequested -> deploymentCleanupService.cleanup(
-                projectId = plan.projectId,
-                serviceId = plan.serviceId,
-                deploymentId = plan.deploymentId
-            )
+            is DeployOutcome.Finished -> return outcome.containerId
+
+            DeployOutcome.CancellationRequested -> {
+                deploymentCleanupService.cleanup(
+                    projectId = plan.projectId,
+                    serviceId = plan.serviceId,
+                    deploymentId = plan.deploymentId
+                )
+                throw ManagedServiceDeploymentCanceled("This deployment was canceled")
+            }
 
             is DeployOutcome.Failed -> throw outcome.exception
         }
-        throwIfDeploymentCanceled(plan)
     }
 
     private fun deployToDocker(
@@ -325,6 +328,8 @@ class ManagedServiceDeployExecutor(
             val exception: RuntimeException
         ) : DeployOutcome
 
-        data object Finished : DeployOutcome
+        data class Finished(
+            val containerId: String
+        ) : DeployOutcome
     }
 }

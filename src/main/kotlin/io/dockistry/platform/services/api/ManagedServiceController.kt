@@ -4,6 +4,7 @@ import io.dockistry.platform.iam.application.CurrentUserProvider
 import io.dockistry.platform.services.application.ManagedServiceDtoMapper
 import io.dockistry.platform.services.application.ManagedServiceService
 import io.dockistry.platform.services.domain.dto.ManagedServiceCreateRequest
+import io.dockistry.platform.services.domain.dto.ManagedServiceDeployResponse
 import io.dockistry.platform.services.domain.dto.ManagedServiceDto
 import io.dockistry.platform.services.domain.dto.ManagedServiceUpdateRequest
 import io.dockistry.platform.shared.api.ApiResponse
@@ -84,6 +85,40 @@ class ManagedServiceController(
         val service = managedServiceService.update(command)
 
         return ApiResponse(managedServiceDtoMapper.toDto(service))
+    }
+
+    @PostMapping("/{serviceId}/deploy")
+    fun deploy(
+        @PathVariable projectId: UUID,
+        @PathVariable serviceId: UUID
+    ): ApiResponse<ManagedServiceDeployResponse> {
+        val user = currentUserProvider.getUser()
+        val containerId = managedServiceService.deploy(
+            projectId,
+            serviceId,
+            user.principal
+        )
+        return ApiResponse(ManagedServiceDeployResponse(containerId))
+    }
+
+    @PostMapping("/{serviceId}/start")
+    fun start(
+        @PathVariable projectId: UUID,
+        @PathVariable serviceId: UUID
+    ): ApiResponse<String> {
+        val user = currentUserProvider.getUser()
+        managedServiceService.start(projectId, serviceId, user.principal)
+        return ApiResponse("ok")
+    }
+
+    @PostMapping("/{serviceId}/stop")
+    fun stop(
+        @PathVariable projectId: UUID,
+        @PathVariable serviceId: UUID
+    ): ApiResponse<String> {
+        val user = currentUserProvider.getUser()
+        managedServiceService.stop(projectId, serviceId, user.principal)
+        return ApiResponse("ok")
     }
 
     @DeleteMapping("/{serviceId}")
