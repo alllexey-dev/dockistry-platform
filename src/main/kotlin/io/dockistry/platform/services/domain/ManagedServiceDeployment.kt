@@ -1,3 +1,5 @@
+@file:Suppress("ProtectedInFinal")
+
 package io.dockistry.platform.services.domain
 
 import jakarta.persistence.Column

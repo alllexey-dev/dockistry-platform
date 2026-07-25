@@ -598,16 +598,16 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     }
 
     class FakeDockerAgentClient : DockerAgentClient {
-        val pulledImages = ConcurrentHashMap.newKeySet<DockerImageRef>()
+        val pulledImages: MutableSet<DockerImageRef> = ConcurrentHashMap.newKeySet()
         val createdNetworks = ConcurrentHashMap<String, DockerNetworkRef>()
         val networksByName = ConcurrentHashMap<String, DockerNetworkRef>()
         val createdVolumes = ConcurrentHashMap<String, DockerVolumeRef>()
-        val activeVolumeNames = ConcurrentHashMap.newKeySet<String>()
-        val removedVolumeNames = ConcurrentHashMap.newKeySet<String>()
+        val activeVolumeNames: MutableSet<String> = ConcurrentHashMap.newKeySet()
+        val removedVolumeNames: MutableSet<String> = ConcurrentHashMap.newKeySet()
         val createdContainerCommands =
             ConcurrentHashMap<String, DockerContainerCreateCommand>()
-        val activeContainerIds = ConcurrentHashMap.newKeySet<String>()
-        val deletedContainerIds = ConcurrentHashMap.newKeySet<String>()
+        val activeContainerIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
+        val deletedContainerIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
         private val containerStates =
             ConcurrentHashMap<String, DockerContainerState>()
 

@@ -10,7 +10,6 @@ import com.github.dockerjava.api.model.MountType
 import com.github.dockerjava.api.model.PortBinding
 import com.github.dockerjava.api.model.Ports
 import com.github.dockerjava.api.model.RestartPolicy
-import com.github.dockerjava.api.model.Volume
 import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.DockerContainerAlreadyPausedException
 import io.dockistry.platform.docker.domain.DockerContainerAlreadyStartedException
@@ -37,7 +36,6 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -119,7 +117,7 @@ class LocalDockerAgentClientDindIntegrationTests {
         val alpineName = containerName("alpine-list")
         val busyboxName = containerName("busybox-list")
 
-        val alpine = createContainer(
+        createContainer(
             image = ALPINE_IMAGE,
             name = alpineName,
             labels = managedLabels(projectId) + ("role" to "api"),

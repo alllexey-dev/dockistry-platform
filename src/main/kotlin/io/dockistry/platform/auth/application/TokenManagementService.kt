@@ -111,16 +111,6 @@ class TokenManagementService(
         }
     }
 
-    // Not needed for logout anymore since we have invalidateRefreshToken, but may be useful in future
-    @Transactional
-    fun revokeRefreshToken(token: String) {
-        val parsedToken = parseRefreshToken(token)
-        val refreshToken = findRefreshToken(parsedToken.tokenId)
-
-        revokeRefreshToken(refreshToken)
-        flushRefreshTokenRevocation()
-    }
-
     @Transactional
     fun revokeAllRefreshTokens(user: User) {
         refreshTokenRepository.findByUserAndRevokedAtNull(user).forEach {

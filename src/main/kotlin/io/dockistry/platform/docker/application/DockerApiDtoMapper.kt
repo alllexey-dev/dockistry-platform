@@ -30,7 +30,6 @@ import io.dockistry.platform.docker.domain.model.DockerContainerStats
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
 import io.dockistry.platform.docker.domain.model.DockerExposedPort
 import io.dockistry.platform.docker.domain.model.DockerImageConfig
-import io.dockistry.platform.docker.domain.model.DockerImageGraphDriver
 import io.dockistry.platform.docker.domain.model.DockerImageInfo
 import io.dockistry.platform.docker.domain.model.DockerImageReference
 import io.dockistry.platform.docker.domain.model.DockerImageRegistryInfo

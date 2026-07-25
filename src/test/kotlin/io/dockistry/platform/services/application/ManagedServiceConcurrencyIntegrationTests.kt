@@ -3,7 +3,6 @@ package io.dockistry.platform.services.application
 import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.SystemPermissionNames
-import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
 import io.dockistry.platform.services.application.dto.ManagedServiceCreateCommand
 import io.dockistry.platform.services.application.dto.ManagedServiceUpdateCommand

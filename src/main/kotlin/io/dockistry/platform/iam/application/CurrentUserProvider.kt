@@ -6,7 +6,6 @@ import io.dockistry.platform.iam.infrastructure.UserRepository
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Component
-import java.util.UUID
 
 @Component
 class CurrentUserProvider(
@@ -26,9 +25,5 @@ class CurrentUserProvider(
         }
 
         return userRepository.findUserByUsername(username) ?: throw AuthenticatedUserNotFoundException()
-    }
-
-    fun getId(): UUID {
-        return getUser().id
     }
 }
