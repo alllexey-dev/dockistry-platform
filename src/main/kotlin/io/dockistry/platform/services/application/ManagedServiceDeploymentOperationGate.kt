@@ -3,6 +3,8 @@ package io.dockistry.platform.services.application
 import io.dockistry.platform.services.application.ports.DeploymentExecutionGate
 import io.dockistry.platform.services.application.ports.DeploymentExecutionGateLockFailureException
 import io.dockistry.platform.services.application.ports.DeploymentExecutionGateLockTimeoutException
+import io.dockistry.platform.services.application.ports.DeploymentExecutionGateOverloadException
+import io.dockistry.platform.services.domain.DeploymentExecutionCapacityExhaustedException
 import io.dockistry.platform.services.domain.DeploymentOperationConcurrencyCheckFailureException
 import io.dockistry.platform.services.domain.DeploymentOperationInProgressException
 import org.springframework.stereotype.Service
@@ -35,6 +37,10 @@ class ManagedServiceDeploymentOperationGate(
             }
         } catch (exception: DeploymentExecutionGateLockFailureException) {
             throw DeploymentOperationConcurrencyCheckFailureException().also {
+                it.initCause(exception)
+            }
+        } catch (exception: DeploymentExecutionGateOverloadException) {
+            throw DeploymentExecutionCapacityExhaustedException().also {
                 it.initCause(exception)
             }
         }

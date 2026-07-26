@@ -4,6 +4,7 @@ import io.dockistry.platform.shared.exception.BadRequestException
 import io.dockistry.platform.shared.exception.ConflictException
 import io.dockistry.platform.shared.exception.InternalServerErrorException
 import io.dockistry.platform.shared.exception.NotFoundException
+import io.dockistry.platform.shared.exception.ServiceUnavailableException
 import java.util.UUID
 
 class ManagedServiceNotFoundException(
@@ -88,3 +89,9 @@ class DeploymentOperationConcurrencyCheckFailureException :
                 "Docker operations running concurrently",
         code = "deployment_operation_concurrency_check_failure"
     )
+
+class DeploymentExecutionCapacityExhaustedException :
+        ServiceUnavailableException(
+            message = "Deployment execution capacity is temporarily exhausted, try again later",
+            code = "deployment_execution_capacity_exhausted"
+        )

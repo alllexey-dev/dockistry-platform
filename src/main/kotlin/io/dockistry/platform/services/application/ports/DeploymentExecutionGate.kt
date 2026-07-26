@@ -8,6 +8,14 @@ interface DeploymentExecutionGate {
     fun <T> withLock(deploymentId: UUID, timeout: Duration, block: () -> T): T
 }
 
+class DeploymentExecutionGateOverloadException(
+    cause: Throwable
+) :
+    RuntimeException(
+        "Couldn't acquire the execution gate under timeout due to overload",
+        cause
+    )
+
 class DeploymentExecutionGateLockTimeoutException :
     RuntimeException(
         "Couldn't acquire deployment execution gate lock required to continue " +

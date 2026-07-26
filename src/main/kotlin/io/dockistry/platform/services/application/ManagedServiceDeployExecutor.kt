@@ -53,33 +53,40 @@ class ManagedServiceDeployExecutor(
         val command = try {
             createCommand(plan)
         } catch (exception: RuntimeException) {
-            if (handleDeploymentFailure(plan, exception)) {
-                throwIfDeploymentCanceled(plan)
+            if (recordDeploymentFailureOrAutoCleanupWithGate(plan, exception)) {
+                throw canceledDeployment()
             }
             throw exception
         }
 
-        val outcome: DeployOutcome = deploymentOperationGate.withLock(plan.deploymentId) {
-            try {
-                val containerId = deployToDocker(plan, command)
+        val outcome = try {
+            deploymentOperationGate.withLock(plan.deploymentId) {
+                try {
+                    val containerId = deployToDocker(plan, command)
 
-                when (
-                    deploymentLifecycleService.finish(
-                        deploymentId = plan.deploymentId,
-                        containerId = containerId
-                    )
-                ) {
-                    ManagedServiceDeploymentFinalizationResult.APPLIED ->
-                        DeployOutcome.Finished(containerId)
+                    when (
+                        deploymentLifecycleService.finish(
+                            deploymentId = plan.deploymentId,
+                            containerId = containerId
+                        )
+                    ) {
+                        ManagedServiceDeploymentFinalizationResult.APPLIED ->
+                            DeployOutcome.Finished(containerId)
 
-                    ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED ->
-                        DeployOutcome.CancellationRequested
+                        ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED ->
+                            DeployOutcome.CancellationRequested
+                    }
+                } catch (_: DockerContainerCreateNameConflictException) {
+                    recordFailureWithOutcomeUnderGate(plan, properConflictException(plan))
+                } catch (exception: RuntimeException) {
+                    recordFailureWithOutcomeUnderGate(plan, exception)
                 }
-            } catch (_: DockerContainerCreateNameConflictException) {
-                recordFailWithOutcome(plan, properConflictException(plan))
-            } catch (exception: RuntimeException) {
-                recordFailWithOutcome(plan, exception)
             }
+        } catch (exception: RuntimeException) {
+            if (recordDeploymentFailureOrAutoCleanupWithGate(plan, exception)) {
+                throw canceledDeployment()
+            }
+            throw exception
         }
 
         when (outcome) {
@@ -91,7 +98,7 @@ class ManagedServiceDeployExecutor(
                     serviceId = plan.serviceId,
                     deploymentId = plan.deploymentId
                 )
-                throw ManagedServiceDeploymentCanceled("This deployment was canceled")
+                throw canceledDeployment()
             }
 
             is DeployOutcome.Failed -> throw outcome.exception
@@ -130,7 +137,7 @@ class ManagedServiceDeployExecutor(
         }
     }
 
-    private fun recordFailWithOutcome(
+    private fun recordFailureWithOutcomeUnderGate(
         plan: ManagedServiceDeploymentPlan,
         exception: RuntimeException
     ): DeployOutcome {
@@ -149,25 +156,32 @@ class ManagedServiceDeployExecutor(
         }
     }
 
-    private fun handleDeploymentFailure(
+    private fun recordDeploymentFailureOrAutoCleanupWithGate(
         plan: ManagedServiceDeploymentPlan,
         exception: RuntimeException
     ): Boolean {
-        return when (
-            deploymentLifecycleService.fail(
-                deploymentId = plan.deploymentId,
-                errorMessage = exception.message
-            )
-        ) {
-            ManagedServiceDeploymentFinalizationResult.APPLIED -> false
-            ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED -> {
-                deploymentCleanupService.cleanup(
-                    projectId = plan.projectId,
-                    serviceId = plan.serviceId,
-                    deploymentId = plan.deploymentId
-                )
-                true
+        return try {
+            when (
+                deploymentOperationGate.withLock(plan.deploymentId) {
+                    deploymentLifecycleService.fail(
+                        deploymentId = plan.deploymentId,
+                        errorMessage = exception.message
+                    )
+                }
+            ) {
+                ManagedServiceDeploymentFinalizationResult.APPLIED -> false
+                ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED -> {
+                    deploymentCleanupService.cleanup(
+                        projectId = plan.projectId,
+                        serviceId = plan.serviceId,
+                        deploymentId = plan.deploymentId
+                    )
+                    true
+                }
             }
+        } catch (recordException: Exception) {
+            recordException.addSuppressed(exception)
+            throw recordException
         }
     }
 
@@ -318,6 +332,9 @@ class ManagedServiceDeployExecutor(
             tag = tag
         )
     }
+
+    private fun canceledDeployment() =
+        ManagedServiceDeploymentCanceled("This deployment was canceled")
 
     private fun containerName(plan: ManagedServiceDeploymentPlan): String =
         containerName(plan.projectId, plan.serviceName)

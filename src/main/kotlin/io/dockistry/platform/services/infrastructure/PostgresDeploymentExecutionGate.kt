@@ -4,11 +4,14 @@ import com.zaxxer.hikari.HikariDataSource
 import io.dockistry.platform.services.application.ports.DeploymentExecutionGate
 import io.dockistry.platform.services.application.ports.DeploymentExecutionGateLockFailureException
 import io.dockistry.platform.services.application.ports.DeploymentExecutionGateLockTimeoutException
+import io.dockistry.platform.services.application.ports.DeploymentExecutionGateOverloadException
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.stereotype.Service
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.sql.Connection
+import java.sql.SQLTransientConnectionException
 import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.locks.LockSupport
@@ -16,7 +19,9 @@ import kotlin.math.min
 
 @Service
 class PostgresDeploymentExecutionGate(
+    @Qualifier("executionGateDataSource")
     private val dataSource: HikariDataSource,
+
     private val executionGateConfig: DeploymentExecutionGateConfig
 ) : DeploymentExecutionGate {
     companion object {
@@ -38,37 +43,58 @@ class PostgresDeploymentExecutionGate(
         block: () -> T
     ): T {
         val lockKey = getAdvisoryLockKey(deploymentId)
-        val connection = try {
-            obtainConnection()
-        } catch (exception: Exception) {
-            logger.warn(
-                "Failed to obtain a connection for execution gate lock: {}",
-                exception.message,
-                exception
-            )
-            throw DeploymentExecutionGateLockFailureException(exception)
-        }
-
         var lockAcquired = false
+        var connection: Connection? = null
+
+        val timeoutNanos = timeout.toNanosSaturated()
+        val startedAt = System.nanoTime()
 
         return try {
-            try {
-                lockAcquired = acquireLock(connection, timeout, lockKey)
-            } catch (exception: Exception) {
-                logger.warn(
-                    "Deployment execution gate lock acquisition failed: {}",
-                    exception.message,
-                    exception
-                )
-                throw DeploymentExecutionGateLockFailureException(exception)
-            }
+            while (true) {
+                connection = try {
+                    obtainConnection()
+                } catch (exception: DeploymentExecutionGateOverloadException) {
+                    throw exception
+                } catch (exception: Exception) {
+                    logger.warn(
+                        "Failed to obtain a connection for execution gate lock: {}",
+                        exception.message,
+                        exception
+                    )
+                    throw DeploymentExecutionGateLockFailureException(exception)
+                }
 
-            if (!lockAcquired) {
-                throw DeploymentExecutionGateLockTimeoutException()
+                try {
+                    lockAcquired = acquireLock(connection, lockKey)
+                } catch (exception: Exception) {
+                    logger.warn(
+                        "Deployment execution gate lock acquisition failed: {}",
+                        exception.message,
+                        exception
+                    )
+                    throw DeploymentExecutionGateLockFailureException(exception)
+                }
+
+                if (lockAcquired) break
+
+                val elapsedNanos = System.nanoTime() - startedAt
+                if (elapsedNanos >= timeoutNanos) {
+                    throw DeploymentExecutionGateLockTimeoutException()
+                }
+
+                cleanup(connection, lockKey, false)
+                connection = null
+                retrySleep(timeoutNanos - elapsedNanos)
             }
 
             block()
         } finally {
+            cleanup(connection, lockKey, lockAcquired)
+        }
+    }
+
+    private fun cleanup(connection: Connection?, lockKey: Long, lockAcquired: Boolean) {
+        if (connection != null) {
             try {
                 if (lockAcquired) {
                     releaseLock(connection, lockKey)
@@ -86,42 +112,41 @@ class PostgresDeploymentExecutionGate(
         }
     }
 
-    private fun obtainConnection(): Connection = dataSource.connection
+    private fun retrySleep(nanosAmount: Long) {
+        LockSupport.parkNanos(
+            min(RETRY_DELAY.toNanos(), nanosAmount)
+        )
 
-    private fun acquireLock(connection: Connection, timeout: Duration, key: Long): Boolean {
-        val timeoutNanos = timeout.toNanosSaturated()
-        val startedAt = System.nanoTime()
-
-        connection.prepareStatement("SELECT pg_try_advisory_lock(?)").use { statement ->
-            statement.setLong(1, key)
-
-            while (true) {
-                statement.executeQuery().use { resultSet ->
-                    if (resultSet.next() && resultSet.getBoolean(1)) {
-                        return true
-                    }
-                }
-
-                val elapsedNanos = System.nanoTime() - startedAt
-                if (elapsedNanos >= timeoutNanos) {
-                    return false
-                }
-
-                LockSupport.parkNanos(
-                    min(RETRY_DELAY.toNanos(), timeoutNanos - elapsedNanos)
-                )
-                if (Thread.interrupted()) {
-                    Thread.currentThread().interrupt()
-                    throw InterruptedException(
-                        "Interrupted while waiting for deployment execution gate lock"
-                    )
-                }
-            }
+        if (Thread.interrupted()) {
+            Thread.currentThread().interrupt()
+            throw InterruptedException(
+                "Interrupted while waiting for deployment execution gate lock"
+            )
         }
     }
 
+    private fun obtainConnection(): Connection = try {
+        dataSource.connection
+    } catch (exception: SQLTransientConnectionException) {
+        throw DeploymentExecutionGateOverloadException(exception)
+    }
+
+    private fun acquireLock(
+        connection: Connection,
+        key: Long
+    ): Boolean {
+        return connection.prepareStatement("SELECT PG_TRY_ADVISORY_LOCK(?)")
+            .use { statement ->
+                statement.setLong(1, key)
+
+                statement.executeQuery().use { resultSet ->
+                    resultSet.next() && resultSet.getBoolean(1)
+                }
+            }
+    }
+
     private fun releaseLock(connection: Connection, key: Long) {
-        connection.prepareStatement("SELECT pg_advisory_unlock(?)").use { statement ->
+        connection.prepareStatement("SELECT PG_ADVISORY_UNLOCK(?)").use { statement ->
             statement.setLong(1, key)
             statement.executeQuery().use { resultSet ->
                 if (!resultSet.next() || !resultSet.getBoolean(1)) {
