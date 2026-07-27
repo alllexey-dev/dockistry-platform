@@ -1,0 +1,122 @@
+package io.dockistry.platform.docker.application
+
+import io.dockistry.platform.docker.domain.DockistryManagedContainerAccessForbiddenException
+import io.dockistry.platform.docker.domain.DockerLabels
+import io.dockistry.platform.docker.domain.dto.ContainerDetails
+import io.dockistry.platform.docker.domain.dto.ContainerLogs
+import io.dockistry.platform.docker.domain.dto.ContainerStats
+import io.dockistry.platform.docker.domain.dto.ContainerSummary
+import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
+import io.dockistry.platform.iam.application.PermissionCheckService
+import io.dockistry.platform.iam.domain.InsufficientPermissionException
+import io.dockistry.platform.iam.domain.Principal
+import io.dockistry.platform.iam.domain.SystemPermissionNames
+import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
+
+@Service
+class GenericContainerService(
+    private val containerService: ContainerService,
+    private val containerReadService: ContainerReadService,
+    private val permissionCheckService: PermissionCheckService
+) {
+    @Transactional(readOnly = true)
+    fun listContainers(principal: Principal): List<ContainerSummary> {
+        requireManagePermission(principal)
+        return containerReadService.listContainers()
+            .filterNot { DockerLabels.containsDockistryLabel(it.labels) }
+    }
+
+    @Transactional(readOnly = true)
+    fun inspectContainer(
+        containerId: String,
+        principal: Principal
+    ): ContainerDetails {
+        requireManagePermission(principal)
+        return requireGenericContainer(containerId)
+    }
+
+    @Transactional(readOnly = true)
+    fun getContainerStats(
+        containerId: String,
+        principal: Principal
+    ): ContainerStats {
+        requireManagePermission(principal)
+        requireGenericContainer(containerId)
+        return containerReadService.getContainerStats(containerId)
+    }
+
+    @Transactional(readOnly = true)
+    fun getLogs(
+        containerId: String,
+        principal: Principal,
+        request: DockerContainerLogsRequest
+    ): ContainerLogs {
+        requireManagePermission(principal)
+        requireGenericContainer(containerId)
+        return containerReadService.getLogs(containerId, request)
+    }
+
+    @Transactional(readOnly = true)
+    fun startContainer(containerId: String, principal: Principal) {
+        requireManagePermission(principal)
+        requireGenericContainer(containerId)
+        containerService.startContainer(containerId)
+    }
+
+    @Transactional(readOnly = true)
+    fun stopContainer(containerId: String, principal: Principal) {
+        requireManagePermission(principal)
+        requireGenericContainer(containerId)
+        containerService.stopContainer(containerId)
+    }
+
+    @Transactional(readOnly = true)
+    fun restartContainer(containerId: String, principal: Principal) {
+        requireManagePermission(principal)
+        requireGenericContainer(containerId)
+        containerService.restartContainer(containerId)
+    }
+
+    @Transactional(readOnly = true)
+    fun pauseContainer(containerId: String, principal: Principal) {
+        requireManagePermission(principal)
+        requireGenericContainer(containerId)
+        containerService.pauseContainer(containerId)
+    }
+
+    @Transactional(readOnly = true)
+    fun unpauseContainer(containerId: String, principal: Principal) {
+        requireManagePermission(principal)
+        requireGenericContainer(containerId)
+        containerService.unpauseContainer(containerId)
+    }
+
+    @Transactional(readOnly = true)
+    fun deleteContainer(containerId: String, principal: Principal) {
+        requireManagePermission(principal)
+        requireGenericContainer(containerId)
+        containerService.deleteContainer(containerId)
+    }
+
+    private fun requireManagePermission(principal: Principal) {
+        if (
+            !permissionCheckService.hasGlobalPermission(
+                SystemPermissionNames.DOCKER_GENERIC_CONTAINERS_MANAGE,
+                principal.id
+            )
+        ) {
+            throw InsufficientPermissionException(
+                "This principal is not allowed to manage generic Docker containers"
+            )
+        }
+    }
+
+    private fun requireGenericContainer(containerId: String): ContainerDetails {
+        val container = containerReadService.inspectContainer(containerId)
+        if (DockerLabels.containsDockistryLabel(container.labels)) {
+            throw DockistryManagedContainerAccessForbiddenException()
+        }
+        return container
+    }
+}

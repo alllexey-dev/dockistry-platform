@@ -228,30 +228,28 @@ Docker endpoints требуют access token и работают через ло
 | `GET` | `/api/docker/images/{imageId}`                       | inspect-level детали Docker image  |
 | `POST` | `/api/docker/images/pull`                           | pull Docker image                  |
 | `DELETE` | `/api/docker/images/{imageId}`                    | удалить Docker image               |
-| `GET` | `/api/projects/{projectId}/containers`               | список контейнеров проекта         |
-| `GET` | `/api/projects/{projectId}/containers/{containerId}` | inspect-level детали контейнера    |
-| `GET` | `/api/projects/{projectId}/containers/{containerId}/stats` | текущие CPU/memory/network stats |
-| `GET` | `/api/projects/{projectId}/containers/{containerId}/logs` | последние строки логов контейнера |
-| `POST` | `/api/projects/{projectId}/containers/{containerId}/start` | запустить контейнер |
-| `POST` | `/api/projects/{projectId}/containers/{containerId}/stop` | остановить контейнер |
-| `POST` | `/api/projects/{projectId}/containers/{containerId}/restart` | перезапустить контейнер |
-| `POST` | `/api/projects/{projectId}/containers/{containerId}/pause` | поставить контейнер на паузу |
-| `POST` | `/api/projects/{projectId}/containers/{containerId}/unpause` | снять контейнер с паузы |
-| `DELETE` | `/api/projects/{projectId}/containers/{containerId}` | удалить контейнер |
+| `GET` | `/api/docker/containers`                              | список generic-контейнеров Docker host |
+| `GET` | `/api/docker/containers/{containerId}`                | inspect-level детали контейнера    |
+| `GET` | `/api/docker/containers/{containerId}/stats`          | текущие CPU/memory/network stats   |
+| `GET` | `/api/docker/containers/{containerId}/logs`           | последние строки логов контейнера  |
+| `POST` | `/api/docker/containers/{containerId}/start`         | запустить контейнер                |
+| `POST` | `/api/docker/containers/{containerId}/stop`          | остановить контейнер               |
+| `POST` | `/api/docker/containers/{containerId}/restart`       | перезапустить контейнер            |
+| `POST` | `/api/docker/containers/{containerId}/pause`         | поставить контейнер на паузу       |
+| `POST` | `/api/docker/containers/{containerId}/unpause`       | снять контейнер с паузы             |
+| `DELETE` | `/api/docker/containers/{containerId}`             | удалить контейнер                  |
 
-Project container endpoints требуют `project.read`. Контейнер считается контейнером
-проекта только при наличии labels:
-
-- `io.dockistry.managed=true`
-- `io.dockistry.project-id=<projectId>`
-- `io.dockistry.service-id=<serviceId>` для контейнеров, связанных с Managed Service
+Generic container endpoints работают с контейнерами всего Docker host и требуют
+GLOBAL permission `docker.generic-containers.manage`. Эта permission входит только
+в system role `project_admin`; project-scoped binding не дает доступ к host-level
+операциям. Контейнеры с любым label из namespace `io.dockistry.*` исключаются из
+списка, а прямое обращение к ним возвращает
+`403 dockistry_managed_container_access_forbidden`.
 
 Если Docker Engine недоступен, Docker operations возвращают
-`503 docker_agent_unavailable`. Если контейнер отсутствует или не принадлежит
-проекту по labels, возвращается `404 docker_container_not_found`.
+`503 docker_agent_unavailable`. Если контейнер отсутствует, возвращается
+`404 docker_container_not_found`.
 
-Lifecycle endpoints дополнительно требуют permission `project.containers.manage`.
-Эта permission входит в system roles `project_admin` и `project_operator`.
 Повторная или несовместимая lifecycle operation возвращает `409` с явным
 state-specific `errorCode`: `docker_container_already_started`,
 `docker_container_already_stopped`, `docker_container_already_paused`,

@@ -2,6 +2,7 @@ package io.dockistry.platform.docker.domain
 
 import io.dockistry.platform.shared.exception.BadRequestException
 import io.dockistry.platform.shared.exception.ConflictException
+import io.dockistry.platform.shared.exception.ForbiddenException
 import io.dockistry.platform.shared.exception.InternalServerErrorException
 import io.dockistry.platform.shared.exception.NotFoundException
 import io.dockistry.platform.shared.exception.ServiceUnavailableException
@@ -17,6 +18,11 @@ class DockerAgentUnavailableException(
 class DockerContainerNotFoundException(
     message: String
 ) : NotFoundException(message, "docker_container_not_found")
+
+class DockistryManagedContainerAccessForbiddenException(
+    message: String =
+        "Dockistry-managed containers are not accessible through the generic container API"
+) : ForbiddenException(message, "dockistry_managed_container_access_forbidden")
 
 class DockerImageNotFoundException(
     message: String

@@ -126,35 +126,4 @@ class ProjectAccessServiceIntegrationTests {
         assertFalse(projectAccessService.hasDeletePermission(project.scope, noDelete))
     }
 
-    @Test
-    fun `has project containers manage permission checks container manage permission only`() {
-        val fixtures = IamProjectFixtures(entityManager)
-        val project = fixtures.project()
-        val containerManager = fixtures.principal()
-        val noContainerManage = fixtures.principal()
-        fixtures.grantSystemPermission(
-            containerManager,
-            project.scope,
-            SystemPermissionNames.PROJECT_CONTAINER_MANAGE
-        )
-        fixtures.grantSystemPermission(
-            noContainerManage,
-            project.scope,
-            SystemPermissionNames.PROJECT_READ
-        )
-        fixtures.flush()
-
-        assertTrue(
-            projectAccessService.hasProjectContainersManagePermission(
-                project.scope,
-                containerManager
-            )
-        )
-        assertFalse(
-            projectAccessService.hasProjectContainersManagePermission(
-                project.scope,
-                noContainerManage
-            )
-        )
-    }
 }

@@ -57,14 +57,6 @@ class ProjectAccessService(
         )
     }
 
-    fun hasProjectContainersManagePermission(scope: Scope, principal: Principal): Boolean {
-        return permissionCheckService.hasPermission(
-            SystemPermissionNames.PROJECT_CONTAINER_MANAGE,
-            principal.id,
-            scope.id
-        )
-    }
-
     fun hasProjectServicesManagePermission(scope: Scope, principal: Principal): Boolean {
         return permissionCheckService.hasPermission(
             SystemPermissionNames.PROJECT_SERVICES_MANAGE,

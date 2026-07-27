@@ -4,7 +4,6 @@ import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.auth.application.TokenManagementService
 import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.DockerContainerAlreadyStartedException
-import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerAgentAvailability
 import io.dockistry.platform.docker.domain.model.DockerAgentInfo
 import io.dockistry.platform.docker.domain.model.DockerContainerConfig
@@ -54,11 +53,11 @@ import java.util.UUID
 @AutoConfigureMockMvc
 @Import(
     TestcontainersConfig::class,
-    ProjectContainerControllerIntegrationTests.FakeDockerAgentClientConfig::class
+    GenericContainerControllerIntegrationTests.FakeDockerAgentClientConfig::class
 )
 @Testcontainers
 @Transactional
-class ProjectContainerControllerIntegrationTests {
+class GenericContainerControllerIntegrationTests {
     @Autowired
     private lateinit var mockMvc: MockMvc
 
@@ -80,16 +79,15 @@ class ProjectContainerControllerIntegrationTests {
     fun `repeated start returns conflict with explicit error code`() {
         val fixtures = IamProjectFixtures(entityManager)
         val user = authenticatedUser(fixtures, "container-manager")
-        val project = fixtures.project(ownerPrincipal = user.principal)
         fixtures.grantSystemPermission(
             user.principal,
-            project.scope,
-            SystemPermissionNames.PROJECT_READ,
-            SystemPermissionNames.PROJECT_CONTAINER_MANAGE
+            fixtures.globalScope(),
+            SystemPermissionNames.DOCKER_GENERIC_CONTAINERS_MANAGE
         )
         fixtures.flush()
 
-        val endpoint = "/api/projects/${project.id}/containers/${project.id}/start"
+        val containerId = UUID.randomUUID().toString()
+        val endpoint = "/api/docker/containers/$containerId/start"
 
         mockMvc.post(endpoint) {
             bearer(user)
@@ -305,7 +303,7 @@ class ProjectContainerControllerIntegrationTests {
                     sysctls = emptyMap()
                 ),
                 ports = emptyList(),
-                labels = DockerLabels.forProject(UUID.fromString(containerId)),
+                labels = emptyMap(),
                 env = emptyMap(),
                 envNames = emptyList(),
                 mounts = emptyList(),

@@ -72,21 +72,6 @@ class ProjectAccessGuard(
         return project
     }
 
-    fun requireContainersManageable(projectId: UUID, principal: Principal): Project {
-        val project = requireReadable(projectId, principal)
-        return requireContainersManageable(project, principal)
-    }
-
-    fun requireContainersManageable(project: Project, principal: Principal): Project {
-        if (!projectAccessService.hasProjectContainersManagePermission(project.scope, principal)) {
-            throw InsufficientPermissionException(
-                "This principal is not allowed to manage containers of specified project"
-            )
-        }
-
-        return project
-    }
-
     fun requireServicesManageable(projectId: UUID, principal: Principal): Project {
         val project = requireReadable(projectId, principal)
 

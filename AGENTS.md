@@ -22,7 +22,7 @@ reverse proxy, деплоя, мониторинга и бэкапов.
   удаление и список проектов;
 - Managed Services API для хранения project-scoped container configuration как
   durable source of truth;
-- Docker agent API: status, project-scoped container operations/logs/stats и
+- Docker agent API: status, global generic-container operations/logs/stats и
   global image list/inspect/pull/remove operations;
 - единый формат API-ответов и ошибок через `ApiResponse`;
 - PostgreSQL schema management через Flyway migrations.
@@ -322,6 +322,9 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Docker image operations сейчас проверяются только через `GLOBAL` permissions:
   `docker.images.read` для list/inspect и `docker.images.manage` для
   pull/remove. Обе permission входят в `SystemRoleNames.PROJECT_ADMIN`.
+- Generic container operations проверяют `docker.generic-containers.manage`
+  только на `GLOBAL` scope. Permission входит в `SystemRoleNames.PROJECT_ADMIN`,
+  но не в `SystemRoleNames.PROJECT_OPERATOR`.
 - Managed Service read operations используют `project.read`, а mutating
   operations используют `projects.services.manage`. Эта permission входит в
   `SystemRoleNames.PROJECT_ADMIN` и `SystemRoleNames.PROJECT_OPERATOR`.
@@ -350,21 +353,32 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 
 ### Docker API
 
-- Project container endpoints требуют `project.read` и должны проверять
-  принадлежность контейнера проекту через managed labels:
-  `io.dockistry.managed=true` и `io.dockistry.project-id=<projectId>`.
+- Generic container endpoints находятся под `/api/docker/containers` и
+  представляют host-level API, не привязанный к project scope.
+- Все generic container read и mutation flows требуют `GLOBAL` permission
+  `docker.generic-containers.manage`.
+- Generic container API не должен читать или изменять контейнер с любым label
+  из namespace `io.dockistry.*`: list скрывает такие контейнеры, а прямой
+  доступ по id возвращает typed 403 с error code
+  `dockistry_managed_container_access_forbidden`. Проверяй весь namespace
+  через `DockerLabels.containsDockistryLabel`, а не только известную
+  комбинацию managed/project/service labels.
+- Контейнеры с любым `io.dockistry.*` label принадлежат соответствующим
+  Dockistry-managed flows. Не подключай generic lifecycle operations к
+  Managed Service operation gate и не используй generic API как обход
+  Managed Service lifecycle.
 - Контейнеры, созданные из Managed Service, должны дополнительно получать label
   `io.dockistry.service-id=<serviceId>` через `DockerLabels.SERVICE_ID`.
-- Для операций по container id сначала проверяй read-access к проекту через
-  `ProjectAccessGuard`, затем `inspectContainer`; missing container и контейнер
-  из другого проекта должны возвращать `docker_container_not_found`.
-- Container lifecycle endpoints требуют `project.containers.manage`, который
-  входит в system roles `PROJECT_ADMIN` и `PROJECT_OPERATOR`.
-- Проверку managed labels и `project.containers.manage` держи в
-  `ProjectContainerAccessGuard`, не в `ProjectContainerService`.
-- Project-level container services and guards должны использовать общий
-  `ContainerService`; прямое обращение к `DockerAgentClient` держи внутри
-  `ContainerService` и infrastructure adapter.
+- `ContainerReadService` — общий low-level read-only bean для container list,
+  inspect, stats и logs. Он принимает только Docker-level параметры, вызывает
+  `ContainerService` и маппит результат в API DTO; permission/ownership/lifecycle
+  policy в него не добавляй.
+- Generic container read flows должны использовать `ContainerReadService`.
+  Будущие Managed Service read flows тоже должны переиспользовать этот bean,
+  выполняя свои access checks до вызова.
+- Generic container service должен использовать общий `ContainerService`;
+  прямое обращение к `DockerAgentClient` держи внутри `ContainerService` и
+  infrastructure adapter.
 - Docker image endpoints находятся под `/api/docker/images`: `GET` list,
   `GET /{imageId}` inspect, `POST /pull` pull и `DELETE /{imageId}` remove.
 - `DockerImageService` проверяет `GLOBAL` permissions и идет через общий
@@ -379,10 +393,10 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `ConflictException`) маппь в typed Docker domain exceptions, а не в
   `docker_agent_unavailable`.
 - Container lifecycle endpoints:
-  `POST /api/projects/{projectId}/containers/{containerId}/start|stop|restart|pause|unpause`,
-  `DELETE /api/projects/{projectId}/containers/{containerId}`.
+  `POST /api/docker/containers/{containerId}/start|stop|restart|pause|unpause`,
+  `DELETE /api/docker/containers/{containerId}`.
 - Container logs endpoint:
-  `GET /api/projects/{projectId}/containers/{containerId}/logs`.
+  `GET /api/docker/containers/{containerId}/logs`.
 - Logs query params: `tail` (default `200`, max `1000`), `since`, `until`,
   `timestamps`, `streams`.
 - `since`/`until` принимаются как ISO-8601 timestamps и маппятся на Docker
