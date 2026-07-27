@@ -4,5 +4,7 @@ enum class ManagedServiceLifecycleStatus {
     ACTIVE,
     STARTING,
     STOPPING,
+    PAUSING,
+    UNPAUSING,
     DELETING
 }

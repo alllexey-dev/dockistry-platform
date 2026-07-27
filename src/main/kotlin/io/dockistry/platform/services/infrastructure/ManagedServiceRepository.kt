@@ -111,7 +111,12 @@ interface ManagedServiceRepository :
             WITH stuck_services AS (
                 SELECT id
                 FROM services
-                WHERE lifecycle_status IN ('STARTING', 'STOPPING')
+                WHERE lifecycle_status IN (
+                    'STARTING',
+                    'STOPPING',
+                    'PAUSING',
+                    'UNPAUSING'
+                )
                   AND updated_at < :updatedBefore
                 ORDER BY updated_at
                 LIMIT :batchLimit
@@ -122,7 +127,12 @@ interface ManagedServiceRepository :
                 version = service.version + 1
             FROM stuck_services
             WHERE service.id = stuck_services.id
-              AND service.lifecycle_status IN ('STARTING', 'STOPPING')
+              AND service.lifecycle_status IN (
+                  'STARTING',
+                  'STOPPING',
+                  'PAUSING',
+                  'UNPAUSING'
+              )
               AND service.updated_at < :updatedBefore
         """,
         nativeQuery = true

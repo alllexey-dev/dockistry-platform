@@ -28,11 +28,7 @@ class ManagedServiceRuntimeLifecycleService(
     fun beginStart(serviceId: UUID): ManagedServiceRuntimeOperationContext {
         val service = managedServiceLifecycleGuard
             .requireActiveForMutationWithWait(serviceId)
-        if (deploymentRepository.hasActiveDeployments(serviceId)) {
-            throw ManagedServiceOperationInProgressException(
-                "Managed service deployment is currently in progress"
-            )
-        }
+        requireNoActiveDeployment(serviceId)
 
         service.beginStart(clock.instant())
         return operationContext(
@@ -90,6 +86,80 @@ class ManagedServiceRuntimeLifecycleService(
         )
         service.failStop(clock.instant())
         managedServiceRepository.saveAndFlush(service)
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun beginPause(serviceId: UUID): ManagedServiceRuntimeOperationContext {
+        val service = managedServiceLifecycleGuard
+            .requireActiveForMutationWithWait(serviceId)
+        requireNoActiveDeployment(serviceId)
+
+        service.beginPause(clock.instant())
+        return operationContext(
+            service = managedServiceRepository.saveAndFlush(service),
+            expectedStatus = ManagedServiceLifecycleStatus.PAUSING
+        )
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun completePause(operation: ManagedServiceRuntimeOperationContext) {
+        val service = requireOperation(
+            operation = operation,
+            expectedStatus = ManagedServiceLifecycleStatus.PAUSING
+        )
+        service.completePause(clock.instant())
+        managedServiceRepository.saveAndFlush(service)
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun failPause(operation: ManagedServiceRuntimeOperationContext) {
+        val service = requireOperation(
+            operation = operation,
+            expectedStatus = ManagedServiceLifecycleStatus.PAUSING
+        )
+        service.failPause(clock.instant())
+        managedServiceRepository.saveAndFlush(service)
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun beginUnpause(serviceId: UUID): ManagedServiceRuntimeOperationContext {
+        val service = managedServiceLifecycleGuard
+            .requireActiveForMutationWithWait(serviceId)
+        requireNoActiveDeployment(serviceId)
+
+        service.beginUnpause(clock.instant())
+        return operationContext(
+            service = managedServiceRepository.saveAndFlush(service),
+            expectedStatus = ManagedServiceLifecycleStatus.UNPAUSING
+        )
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun completeUnpause(operation: ManagedServiceRuntimeOperationContext) {
+        val service = requireOperation(
+            operation = operation,
+            expectedStatus = ManagedServiceLifecycleStatus.UNPAUSING
+        )
+        service.completeUnpause(clock.instant())
+        managedServiceRepository.saveAndFlush(service)
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun failUnpause(operation: ManagedServiceRuntimeOperationContext) {
+        val service = requireOperation(
+            operation = operation,
+            expectedStatus = ManagedServiceLifecycleStatus.UNPAUSING
+        )
+        service.failUnpause(clock.instant())
+        managedServiceRepository.saveAndFlush(service)
+    }
+
+    private fun requireNoActiveDeployment(serviceId: UUID) {
+        if (deploymentRepository.hasActiveDeployments(serviceId)) {
+            throw ManagedServiceOperationInProgressException(
+                "Managed service deployment is currently in progress"
+            )
+        }
     }
 
     private fun requireOperation(

@@ -193,6 +193,8 @@ limits и ожидаемое состояние. Это durable source of truth 
 | `GET`    | `/api/projects/{projectId}/services/{serviceId}/container` | inspect container service        |
 | `GET`    | `/api/projects/{projectId}/services/{serviceId}/container/stats` | stats container service      |
 | `GET`    | `/api/projects/{projectId}/services/{serviceId}/container/logs` | logs container service        |
+| `POST`   | `/api/projects/{projectId}/services/{serviceId}/pause` | pause container service               |
+| `POST`   | `/api/projects/{projectId}/services/{serviceId}/unpause` | unpause container service           |
 
 Read endpoints требуют `project.read`. Mutating endpoints требуют
 `projects.services.manage`; эта permission входит в system roles `project_admin`
@@ -203,6 +205,12 @@ service независимо от его runtime state. Отдельного con
 managed service нет. Если service еще не deployed или его container отсутствует,
 возвращается `409 managed_service_not_deployed`. Logs endpoint поддерживает те же
 `tail`, `since`, `until`, `timestamps` и `streams`, что и generic container API.
+
+Pause/unpause используют те же permission и serialized lifecycle flow, что
+start/stop. Во время Docker operation service показывает соответственно
+`PAUSING` или `UNPAUSING`, затем возвращается в `ACTIVE`. Эти операции не меняют
+`desiredState`: pause является временным runtime state, а не новым желаемым
+состоянием service.
 
 `name` immutable, уникален внутри проекта, валидируется как slug до 40 символов
 вроде `example-service-name`. `imageRef` нормализуется к виду `repository:tag`;

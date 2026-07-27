@@ -186,6 +186,26 @@ class ManagedServiceController(
         return ApiResponse("ok")
     }
 
+    @PostMapping("/{serviceId}/pause")
+    fun pause(
+        @PathVariable projectId: UUID,
+        @PathVariable serviceId: UUID
+    ): ApiResponse<String> {
+        val user = currentUserProvider.getUser()
+        managedServiceService.pause(projectId, serviceId, user.principal)
+        return ApiResponse("ok")
+    }
+
+    @PostMapping("/{serviceId}/unpause")
+    fun unpause(
+        @PathVariable projectId: UUID,
+        @PathVariable serviceId: UUID
+    ): ApiResponse<String> {
+        val user = currentUserProvider.getUser()
+        managedServiceService.unpause(projectId, serviceId, user.principal)
+        return ApiResponse("ok")
+    }
+
     @DeleteMapping("/{serviceId}")
     fun delete(
         @PathVariable projectId: UUID,

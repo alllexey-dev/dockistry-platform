@@ -207,6 +207,46 @@ class ManagedService(
         )
     }
 
+    fun beginPause(updatedAt: Instant) {
+        requireLifecycleStatus(ManagedServiceLifecycleStatus.ACTIVE)
+        lifecycleStatus = ManagedServiceLifecycleStatus.PAUSING
+        this.updatedAt = updatedAt
+    }
+
+    fun completePause(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.PAUSING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun failPause(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.PAUSING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun beginUnpause(updatedAt: Instant) {
+        requireLifecycleStatus(ManagedServiceLifecycleStatus.ACTIVE)
+        lifecycleStatus = ManagedServiceLifecycleStatus.UNPAUSING
+        this.updatedAt = updatedAt
+    }
+
+    fun completeUnpause(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.UNPAUSING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun failUnpause(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.UNPAUSING,
+            updatedAt = updatedAt
+        )
+    }
+
     fun beginDeletion(removeVolumes: Boolean, updatedAt: Instant) {
         requireLifecycleStatus(ManagedServiceLifecycleStatus.ACTIVE)
         lifecycleStatus = ManagedServiceLifecycleStatus.DELETING

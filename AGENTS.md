@@ -455,9 +455,10 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   если оно уже совпадает с запрошенным, иначе возвращает
   `409 managed_service_version_conflict`. Реальная optimistic-lock race повторно
   проверяется в новой транзакции после rollback проигравшей записи.
-- ManagedService lifecycle использует статусы `ACTIVE`, `STARTING`, `STOPPING` и
-  `DELETING`. Deployment begin, update и его conflict resolution, runtime lifecycle
-  transitions и начало удаления сериализуются через `ManagedServiceLifecycleGuard`:
+- ManagedService lifecycle использует статусы `ACTIVE`, `STARTING`, `STOPPING`,
+  `PAUSING`, `UNPAUSING` и `DELETING`. Deployment begin, update и его conflict
+  resolution, runtime lifecycle transitions и начало удаления сериализуются через
+  `ManagedServiceLifecycleGuard`:
   guard работает внутри уже открытой транзакции (`Propagation.MANDATORY`) и предоставляет
   две явные политики mutex acquisition — fail-fast через `SELECT ... FOR UPDATE NOWAIT`
   и bounded wait через transaction-local PostgreSQL `lock_timeout` с обычным
@@ -465,13 +466,14 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   wait с default timeout из companion object guard; timeout и несовместимый durable
   lifecycle status возвращают typed conflict. Fail-fast API сохраняется для use cases,
   которым требуется немедленный отказ.
-- Start/stop не держат DB-транзакцию во время Docker I/O. Короткий
+- Start/stop/pause/unpause не держат DB-транзакцию во время Docker I/O. Короткий
   `ManagedServiceRuntimeLifecycleService` transition сначала фиксирует соответственно
-  `STARTING`/`STOPPING` и сразу сохраняет пользовательский `desiredState`, затем runtime
-  executor выполняет Docker operation, а отдельный fenced transition по lifecycle status
-  и entity version возвращает сервис в `ACTIVE`. При runtime failure desired state
-  сохраняется для будущего reconciler, а lifecycle возвращается в `ACTIVE`; при ошибке
-  финализации transient status остается для будущего repair.
+  `STARTING`/`STOPPING`/`PAUSING`/`UNPAUSING`, затем runtime executor выполняет Docker
+  operation, а отдельный fenced transition по lifecycle status и entity version
+  возвращает сервис в `ACTIVE`. Start/stop сразу сохраняют пользовательский
+  `desiredState`; pause/unpause его не меняют. При runtime failure lifecycle
+  возвращается в `ACTIVE`; при ошибке финализации transient status остается для
+  будущего repair.
 - Удаление ManagedService является многофазным flow: короткая транзакция под row lock
   проверяет отсутствие active deployment, сохраняет deletion context с пользовательским
   `removeVolumes` и фиксирует `ACTIVE -> DELETING`. Затем общий
@@ -479,9 +481,12 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   resources вне DB-транзакции, после чего lifecycle service физически удаляет только
   строку в `DELETING`. API delete и будущий reaper должны использовать один executor.
   При ошибке cleanup сервис остается в `DELETING` для будущего retry/reaper; list
-  показывает `ACTIVE`, `STARTING` и `STOPPING`, а get разрешает runtime transient
-  statuses и для `DELETING` возвращает typed deletion-in-progress conflict.
+  показывает `ACTIVE` и все runtime transient statuses, а get разрешает runtime
+  transient statuses и для `DELETING` возвращает typed deletion-in-progress conflict.
   `ManagedServiceDto.lifecycleStatus` делает runtime operation видимой клиенту.
+- Reaper возвращает застрявшие `STARTING`, `STOPPING`, `PAUSING` и `UNPAUSING`
+  services в `ACTIVE`; reconciler (появится позднее) восстанавливает runtime
+  согласно desired state, который pause/unpause не меняют.
 - Deployment lifecycle использует переходы `IN_PROCESS -> FINISHED`,
   `IN_PROCESS -> FAILED` и `IN_PROCESS -> CANCELING -> CANCELED`. Status,
   `containerId`, deployment `errorMessage` и cleanup diagnostics меняются только
@@ -504,7 +509,8 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   project-level resource и в deployment cleanup не входит.
 - ManagedService endpoints:
   `GET/POST /api/projects/{projectId}/services` и
-  `GET/PATCH/DELETE /api/projects/{projectId}/services/{serviceId}`.
+  `GET/PATCH/DELETE /api/projects/{projectId}/services/{serviceId}`, включая
+  `POST .../{serviceId}/start|stop|pause|unpause`.
 - Protected service-id operations сначала проверяют readable project через
   `ProjectAccessGuard`; missing service внутри readable project возвращается как
   `managed_service_not_found`, а недостаток manage permission — как

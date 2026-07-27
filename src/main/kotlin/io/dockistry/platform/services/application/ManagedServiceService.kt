@@ -43,7 +43,9 @@ class ManagedServiceService(
             lifecycleStatuses = listOf(
                 ManagedServiceLifecycleStatus.ACTIVE,
                 ManagedServiceLifecycleStatus.STARTING,
-                ManagedServiceLifecycleStatus.STOPPING
+                ManagedServiceLifecycleStatus.STOPPING,
+                ManagedServiceLifecycleStatus.PAUSING,
+                ManagedServiceLifecycleStatus.UNPAUSING
             )
         )
     }
@@ -150,6 +152,32 @@ class ManagedServiceService(
             principal
         )
         managedServiceRuntimeExecutor.stop(service.id)
+    }
+
+    fun pause(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ) {
+        val service = managedServiceAccessGuard.requireManageable(
+            projectId,
+            serviceId,
+            principal
+        )
+        managedServiceRuntimeExecutor.pause(service.id)
+    }
+
+    fun unpause(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ) {
+        val service = managedServiceAccessGuard.requireManageable(
+            projectId,
+            serviceId,
+            principal
+        )
+        managedServiceRuntimeExecutor.unpause(service.id)
     }
 
     fun delete(

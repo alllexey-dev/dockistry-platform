@@ -153,7 +153,9 @@ class ManagedServiceLifecycleGuard(
                 throw ManagedServiceDeletionInProgressException()
 
             ManagedServiceLifecycleStatus.STARTING,
-            ManagedServiceLifecycleStatus.STOPPING ->
+            ManagedServiceLifecycleStatus.STOPPING,
+            ManagedServiceLifecycleStatus.PAUSING,
+            ManagedServiceLifecycleStatus.UNPAUSING ->
                 throw ManagedServiceOperationInProgressException(
                     "Managed service runtime operation ${service.lifecycleStatus} " +
                             "is currently in progress"

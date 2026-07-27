@@ -64,6 +64,48 @@ class ManagedServiceRuntimeExecutor(
         runtimeLifecycleService.completeStop(operation)
     }
 
+    fun pause(serviceId: UUID) {
+        val operation = runtimeLifecycleService.beginPause(serviceId)
+
+        try {
+            val container = findServiceContainer(
+                projectId = operation.projectId,
+                serviceId = serviceId
+            ) ?: throw ManagedServiceNotDeployedException(
+                "Service can't be paused because it's not deployed"
+            )
+
+            dockerAgentClient.pauseContainer(container.id)
+        } catch (exception: RuntimeException) {
+            failRuntimeOperation(exception) {
+                runtimeLifecycleService.failPause(operation)
+            }
+        }
+
+        runtimeLifecycleService.completePause(operation)
+    }
+
+    fun unpause(serviceId: UUID) {
+        val operation = runtimeLifecycleService.beginUnpause(serviceId)
+
+        try {
+            val container = findServiceContainer(
+                projectId = operation.projectId,
+                serviceId = serviceId
+            ) ?: throw ManagedServiceNotDeployedException(
+                "Service can't be unpaused because it's not deployed"
+            )
+
+            dockerAgentClient.unpauseContainer(container.id)
+        } catch (exception: RuntimeException) {
+            failRuntimeOperation(exception) {
+                runtimeLifecycleService.failUnpause(operation)
+            }
+        }
+
+        runtimeLifecycleService.completeUnpause(operation)
+    }
+
     fun removeContainer(projectId: UUID, serviceId: UUID) {
         findServiceContainer(
             projectId = projectId,
