@@ -1,6 +1,7 @@
 package io.dockistry.platform.docker.application
 
 import io.dockistry.platform.docker.domain.DockistryManagedContainerAccessForbiddenException
+import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.dto.ContainerDetails
 import io.dockistry.platform.docker.domain.dto.ContainerLogs
@@ -42,8 +43,8 @@ class GenericContainerService(
         principal: Principal
     ): ContainerStats {
         requireManagePermission(principal)
-        requireGenericContainer(containerId)
-        return containerReadService.getContainerStats(containerId)
+        val container = requireGenericContainer(containerId)
+        return containerReadService.getContainerStats(container.id)
     }
 
     @Transactional(readOnly = true)
@@ -53,50 +54,50 @@ class GenericContainerService(
         request: DockerContainerLogsRequest
     ): ContainerLogs {
         requireManagePermission(principal)
-        requireGenericContainer(containerId)
-        return containerReadService.getLogs(containerId, request)
+        val container = requireGenericContainer(containerId)
+        return containerReadService.getLogs(container.id, request)
     }
 
     @Transactional(readOnly = true)
     fun startContainer(containerId: String, principal: Principal) {
         requireManagePermission(principal)
-        requireGenericContainer(containerId)
-        containerService.startContainer(containerId)
+        val container = requireGenericContainer(containerId)
+        containerService.startContainer(container.id)
     }
 
     @Transactional(readOnly = true)
     fun stopContainer(containerId: String, principal: Principal) {
         requireManagePermission(principal)
-        requireGenericContainer(containerId)
-        containerService.stopContainer(containerId)
+        val container = requireGenericContainer(containerId)
+        containerService.stopContainer(container.id)
     }
 
     @Transactional(readOnly = true)
     fun restartContainer(containerId: String, principal: Principal) {
         requireManagePermission(principal)
-        requireGenericContainer(containerId)
-        containerService.restartContainer(containerId)
+        val container = requireGenericContainer(containerId)
+        containerService.restartContainer(container.id)
     }
 
     @Transactional(readOnly = true)
     fun pauseContainer(containerId: String, principal: Principal) {
         requireManagePermission(principal)
-        requireGenericContainer(containerId)
-        containerService.pauseContainer(containerId)
+        val container = requireGenericContainer(containerId)
+        containerService.pauseContainer(container.id)
     }
 
     @Transactional(readOnly = true)
     fun unpauseContainer(containerId: String, principal: Principal) {
         requireManagePermission(principal)
-        requireGenericContainer(containerId)
-        containerService.unpauseContainer(containerId)
+        val container = requireGenericContainer(containerId)
+        containerService.unpauseContainer(container.id)
     }
 
     @Transactional(readOnly = true)
     fun deleteContainer(containerId: String, principal: Principal) {
         requireManagePermission(principal)
-        requireGenericContainer(containerId)
-        containerService.deleteContainer(containerId)
+        val container = requireGenericContainer(containerId)
+        containerService.deleteContainer(container.id)
     }
 
     private fun requireManagePermission(principal: Principal) {
@@ -114,6 +115,11 @@ class GenericContainerService(
 
     private fun requireGenericContainer(containerId: String): ContainerDetails {
         val container = containerReadService.inspectContainer(containerId)
+        if (container.id != containerId) {
+            throw DockerContainerNotFoundException(
+                "Docker container couldn't be found by the provided full ID"
+            )
+        }
         if (DockerLabels.containsDockistryLabel(container.labels)) {
             throw DockistryManagedContainerAccessForbiddenException()
         }
