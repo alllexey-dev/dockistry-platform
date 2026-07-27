@@ -374,8 +374,22 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `ContainerService` и маппит результат в API DTO; permission/ownership/lifecycle
   policy в него не добавляй.
 - Generic container read flows должны использовать `ContainerReadService`.
-  Будущие Managed Service read flows тоже должны переиспользовать этот bean,
-  выполняя свои access checks до вызова.
+  Managed Service read flows тоже переиспользуют этот bean, выполняя свои
+  access checks до вызова.
+- `ManagedServiceContainerReadService` находит container по точной комбинации
+  project/service labels и делегирует inspect, stats и logs в
+  `ContainerReadService`. Runtime state контейнера при поиске не фильтруй:
+  invariant Managed Service — не более одного container в любом state.
+- Для Managed Service нет отдельного container list endpoint. Отсутствие
+  container возвращает `managed_service_not_deployed`, а больше одного
+  container для service является internal data integrity violation.
+- Managed Service container reads требуют `project.read`; permission check и
+  проверка существования service выполняются в `ManagedServiceService` до
+  делегирования в `ManagedServiceContainerReadService`.
+- Managed Service container read endpoints:
+  `GET /api/projects/{projectId}/services/{serviceId}/container`,
+  `GET /api/projects/{projectId}/services/{serviceId}/container/stats` и
+  `GET /api/projects/{projectId}/services/{serviceId}/container/logs`.
 - Generic container service должен использовать общий `ContainerService`;
   прямое обращение к `DockerAgentClient` держи внутри `ContainerService` и
   infrastructure adapter.

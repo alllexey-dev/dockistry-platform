@@ -1,5 +1,9 @@
 package io.dockistry.platform.services.application
 
+import io.dockistry.platform.docker.domain.dto.ContainerDetails
+import io.dockistry.platform.docker.domain.dto.ContainerLogs
+import io.dockistry.platform.docker.domain.dto.ContainerStats
+import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.application.ProjectAccessGuard
 import io.dockistry.platform.projects.application.ProjectExistenceService
@@ -28,7 +32,8 @@ class ManagedServiceService(
     private val projectExistenceService: ProjectExistenceService,
     private val managedServiceAccessGuard: ManagedServiceAccessGuard,
     private val managedServiceDeployExecutor: ManagedServiceDeployExecutor,
-    private val managedServiceRuntimeExecutor: ManagedServiceRuntimeExecutor
+    private val managedServiceRuntimeExecutor: ManagedServiceRuntimeExecutor,
+    private val managedServiceContainerReadService: ManagedServiceContainerReadService
 ) {
     @Transactional(readOnly = true)
     fun list(projectId: UUID, principal: Principal): List<ManagedService> {
@@ -47,6 +52,41 @@ class ManagedServiceService(
     fun get(projectId: UUID, serviceId: UUID, principal: Principal): ManagedService {
         projectAccessGuard.requireReadable(projectId, principal)
         return managedServiceLifecycleGuard.requireAvailableForRead(projectId, serviceId)
+    }
+
+    @Transactional(readOnly = true)
+    fun inspectContainer(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ): ContainerDetails {
+        get(projectId, serviceId, principal)
+        return managedServiceContainerReadService.inspectContainer(projectId, serviceId)
+    }
+
+    @Transactional(readOnly = true)
+    fun getContainerStats(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ): ContainerStats {
+        get(projectId, serviceId, principal)
+        return managedServiceContainerReadService.getContainerStats(projectId, serviceId)
+    }
+
+    @Transactional(readOnly = true)
+    fun getContainerLogs(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal,
+        request: DockerContainerLogsRequest
+    ): ContainerLogs {
+        get(projectId, serviceId, principal)
+        return managedServiceContainerReadService.getLogs(
+            projectId = projectId,
+            serviceId = serviceId,
+            request = request
+        )
     }
 
     fun create(command: ManagedServiceCreateCommand): ManagedService {

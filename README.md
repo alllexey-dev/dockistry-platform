@@ -190,10 +190,19 @@ limits и ожидаемое состояние. Это durable source of truth 
 | `GET`    | `/api/projects/{projectId}/services/{serviceId}` | получить managed service                      |
 | `PATCH`  | `/api/projects/{projectId}/services/{serviceId}` | заменить изменяемую конфигурацию service      |
 | `DELETE` | `/api/projects/{projectId}/services/{serviceId}` | удалить managed service, `data="ok"`          |
+| `GET`    | `/api/projects/{projectId}/services/{serviceId}/container` | inspect container service        |
+| `GET`    | `/api/projects/{projectId}/services/{serviceId}/container/stats` | stats container service      |
+| `GET`    | `/api/projects/{projectId}/services/{serviceId}/container/logs` | logs container service        |
 
 Read endpoints требуют `project.read`. Mutating endpoints требуют
 `projects.services.manage`; эта permission входит в system roles `project_admin`
 и `project_operator`.
+
+Container read endpoints работают с единственным Docker container managed
+service независимо от его runtime state. Отдельного container list endpoint для
+managed service нет. Если service еще не deployed или его container отсутствует,
+возвращается `409 managed_service_not_deployed`. Logs endpoint поддерживает те же
+`tail`, `since`, `until`, `timestamps` и `streams`, что и generic container API.
 
 `name` immutable, уникален внутри проекта, валидируется как slug до 40 символов
 вроде `example-service-name`. `imageRef` нормализуется к виду `repository:tag`;

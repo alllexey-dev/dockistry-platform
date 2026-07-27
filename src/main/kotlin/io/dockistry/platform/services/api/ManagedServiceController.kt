@@ -1,5 +1,9 @@
 package io.dockistry.platform.services.api
 
+import io.dockistry.platform.docker.application.ContainerLogsRequestMapper
+import io.dockistry.platform.docker.domain.dto.ContainerDetails
+import io.dockistry.platform.docker.domain.dto.ContainerLogs
+import io.dockistry.platform.docker.domain.dto.ContainerStats
 import io.dockistry.platform.iam.application.CurrentUserProvider
 import io.dockistry.platform.services.application.ManagedServiceDtoMapper
 import io.dockistry.platform.services.application.ManagedServiceService
@@ -20,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
+import java.time.Instant
 import java.util.UUID
 
 @RestController
@@ -27,7 +32,8 @@ import java.util.UUID
 class ManagedServiceController(
     private val currentUserProvider: CurrentUserProvider,
     private val managedServiceService: ManagedServiceService,
-    private val managedServiceDtoMapper: ManagedServiceDtoMapper
+    private val managedServiceDtoMapper: ManagedServiceDtoMapper,
+    private val containerLogsRequestMapper: ContainerLogsRequestMapper
 ) {
     @GetMapping("")
     fun list(@PathVariable projectId: UUID): ApiResponse<List<ManagedServiceDto>> {
@@ -65,6 +71,65 @@ class ManagedServiceController(
         return ApiResponse(
             managedServiceDtoMapper.toDto(
                 managedServiceService.get(projectId, serviceId, user.principal)
+            )
+        )
+    }
+
+    @GetMapping("/{serviceId}/container")
+    fun inspectContainer(
+        @PathVariable projectId: UUID,
+        @PathVariable serviceId: UUID
+    ): ApiResponse<ContainerDetails> {
+        val user = currentUserProvider.getUser()
+        return ApiResponse(
+            managedServiceService.inspectContainer(
+                projectId,
+                serviceId,
+                user.principal
+            )
+        )
+    }
+
+    @GetMapping("/{serviceId}/container/stats")
+    fun getContainerStats(
+        @PathVariable projectId: UUID,
+        @PathVariable serviceId: UUID
+    ): ApiResponse<ContainerStats> {
+        val user = currentUserProvider.getUser()
+        return ApiResponse(
+            managedServiceService.getContainerStats(
+                projectId,
+                serviceId,
+                user.principal
+            )
+        )
+    }
+
+    @GetMapping("/{serviceId}/container/logs")
+    fun getContainerLogs(
+        @PathVariable projectId: UUID,
+        @PathVariable serviceId: UUID,
+        @RequestParam(required = false) tail: Int?,
+        @RequestParam(required = false) since: Instant?,
+        @RequestParam(required = false) until: Instant?,
+        @RequestParam(required = false) timestamps: Boolean?,
+        @RequestParam(required = false) streams: String?
+    ): ApiResponse<ContainerLogs> {
+        val user = currentUserProvider.getUser()
+        val request = containerLogsRequestMapper.fromQueryParameters(
+            tail = tail,
+            since = since,
+            until = until,
+            timestamps = timestamps,
+            streams = streams
+        )
+
+        return ApiResponse(
+            managedServiceService.getContainerLogs(
+                projectId = projectId,
+                serviceId = serviceId,
+                principal = user.principal,
+                request = request
             )
         )
     }

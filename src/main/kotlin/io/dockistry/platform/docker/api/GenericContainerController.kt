@@ -1,13 +1,11 @@
 package io.dockistry.platform.docker.api
 
+import io.dockistry.platform.docker.application.ContainerLogsRequestMapper
 import io.dockistry.platform.docker.application.GenericContainerService
-import io.dockistry.platform.docker.domain.InvalidContainerLogsRequestException
 import io.dockistry.platform.docker.domain.dto.ContainerDetails
 import io.dockistry.platform.docker.domain.dto.ContainerLogs
 import io.dockistry.platform.docker.domain.dto.ContainerStats
 import io.dockistry.platform.docker.domain.dto.ContainerSummary
-import io.dockistry.platform.docker.domain.model.DockerContainerLogStream
-import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
 import io.dockistry.platform.iam.application.CurrentUserProvider
 import io.dockistry.platform.shared.api.ApiResponse
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -23,7 +21,8 @@ import java.time.Instant
 @RequestMapping("/api/docker/containers")
 class GenericContainerController(
     private val currentUserProvider: CurrentUserProvider,
-    private val genericContainerService: GenericContainerService
+    private val genericContainerService: GenericContainerService,
+    private val containerLogsRequestMapper: ContainerLogsRequestMapper
 ) {
     @GetMapping("")
     fun list(): ApiResponse<List<ContainerSummary>> {
@@ -63,12 +62,12 @@ class GenericContainerController(
         @RequestParam(required = false) streams: String?
     ): ApiResponse<ContainerLogs> {
         val user = currentUserProvider.getUser()
-        val request = DockerContainerLogsRequest(
-            tail = tail ?: DockerContainerLogsRequest.DEFAULT_TAIL,
+        val request = containerLogsRequestMapper.fromQueryParameters(
+            tail = tail,
             since = since,
             until = until,
-            timestamps = timestamps ?: false,
-            streams = streams.toLogStreams()
+            timestamps = timestamps,
+            streams = streams
         )
 
         return ApiResponse(
@@ -132,24 +131,5 @@ class GenericContainerController(
         val user = currentUserProvider.getUser()
         genericContainerService.deleteContainer(containerId, user.principal)
         return ApiResponse("ok")
-    }
-
-    private fun String?.toLogStreams(): Set<DockerContainerLogStream> {
-        if (isNullOrBlank()) {
-            return setOf(DockerContainerLogStream.STDOUT, DockerContainerLogStream.STDERR)
-        }
-
-        return split(",")
-            .map { it.trim().lowercase() }
-            .map { stream ->
-                when (stream) {
-                    "stdout" -> DockerContainerLogStream.STDOUT
-                    "stderr" -> DockerContainerLogStream.STDERR
-                    else -> throw InvalidContainerLogsRequestException(
-                        "Container logs streams must contain only stdout or stderr"
-                    )
-                }
-            }
-            .toSet()
     }
 }
