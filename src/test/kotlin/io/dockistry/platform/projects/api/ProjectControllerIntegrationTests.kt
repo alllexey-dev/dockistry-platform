@@ -180,7 +180,6 @@ class ProjectControllerIntegrationTests {
                 contentType = MediaType.APPLICATION_JSON
                 content = projectUpdateJson(
                     name = "  New\tName  ",
-                    slug = "new-name",
                     description = "New description",
                     expectedVersion = context.project.version
                 )
@@ -189,7 +188,7 @@ class ProjectControllerIntegrationTests {
                 content { contentTypeCompatibleWith(MediaType.APPLICATION_JSON) }
                 jsonPath("$.data.id") { value(context.project.id.toString()) }
                 jsonPath("$.data.name") { value("New Name") }
-                jsonPath("$.data.slug") { value("new-name") }
+                jsonPath("$.data.slug") { value(context.project.slug) }
                 jsonPath("$.data.description") { value("New description") }
                 jsonPath("$.data.status") { value(ProjectStatus.ACTIVE.name) }
                 jsonPath("$.data.createdAt") {
@@ -317,7 +316,6 @@ class ProjectControllerIntegrationTests {
                 contentType = MediaType.APPLICATION_JSON
                 content = projectUpdateJson(
                     name = "New Name",
-                    slug = "new-name",
                     expectedVersion = context.project.version
                 )
             }.andExpect {
@@ -339,7 +337,6 @@ class ProjectControllerIntegrationTests {
                 contentType = MediaType.APPLICATION_JSON
                 content = projectUpdateJson(
                     name = "New Name",
-                    slug = "new-name",
                     expectedVersion = context.project.version
                 )
             }.andExpect {
@@ -470,7 +467,6 @@ class ProjectControllerIntegrationTests {
             contentType = MediaType.APPLICATION_JSON
             content = projectUpdateJson(
                 name = "Missing",
-                slug = "missing",
                 expectedVersion = 0
             )
         }.andExpect {
@@ -538,28 +534,6 @@ class ProjectControllerIntegrationTests {
             content = projectJson(name = "Valid Name", slug = "Invalid Slug")
         }.andExpect {
             expectApiError(statusCode = 400, errorCode = "invalid_project_slug")
-        }
-    }
-
-    @Test
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    fun `update returns invalid project slug error for invalid slug`() {
-        val context = committedUpdateContext(SystemPermissionNames.PROJECT_UPDATE)
-
-        try {
-            mockMvc.patch("/api/projects/${context.project.id}") {
-                bearer(context.user)
-                contentType = MediaType.APPLICATION_JSON
-                content = projectUpdateJson(
-                    name = "Valid Name",
-                    slug = "Invalid Slug",
-                    expectedVersion = context.project.version
-                )
-            }.andExpect {
-                expectApiError(statusCode = 400, errorCode = "invalid_project_slug")
-            }
-        } finally {
-            cleanupCommittedProject(context.project.id)
         }
     }
 
@@ -731,14 +705,12 @@ class ProjectControllerIntegrationTests {
 
     private fun projectUpdateJson(
         name: String,
-        slug: String,
         description: String? = null,
         expectedVersion: Long
     ): String {
         return objectMapper.writeValueAsString(
             ProjectUpdateRequest(
                 name = name,
-                slug = slug,
                 description = description,
                 expectedVersion = expectedVersion
             )

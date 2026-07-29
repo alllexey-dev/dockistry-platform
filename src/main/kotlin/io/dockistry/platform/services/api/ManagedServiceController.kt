@@ -209,11 +209,10 @@ class ManagedServiceController(
     @DeleteMapping("/{serviceId}")
     fun delete(
         @PathVariable projectId: UUID,
-        @PathVariable serviceId: UUID,
-        @RequestParam(defaultValue = "false") removeVolumes: Boolean
+        @PathVariable serviceId: UUID
     ): ApiResponse<String> {
         val user = currentUserProvider.getUser()
-        managedServiceService.delete(projectId, serviceId, user.principal, removeVolumes)
+        managedServiceService.delete(projectId, serviceId, user.principal)
         return ApiResponse("ok")
     }
 }

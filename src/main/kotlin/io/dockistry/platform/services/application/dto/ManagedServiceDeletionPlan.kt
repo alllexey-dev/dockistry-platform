@@ -4,6 +4,5 @@ import java.util.UUID
 
 data class ManagedServiceDeletionPlan(
     val projectId: UUID,
-    val serviceId: UUID,
-    val removeVolumes: Boolean
+    val serviceId: UUID
 )

@@ -14,7 +14,6 @@ interface ProjectRepository : JpaRepository<Project, UUID> {
     @Query("""
         UPDATE Project project
         SET project.name = :name,
-            project.slug = :slug,
             project.description = :description,
             project.version = project.version + 1
         WHERE project.id = :projectId
@@ -23,7 +22,6 @@ interface ProjectRepository : JpaRepository<Project, UUID> {
     fun updateWithExpectedVersion(
         @Param("projectId") projectId: UUID,
         @Param("name") name: String,
-        @Param("slug") slug: String,
         @Param("description") description: String?,
         @Param("expectedVersion") expectedVersion: Long
     ): Int

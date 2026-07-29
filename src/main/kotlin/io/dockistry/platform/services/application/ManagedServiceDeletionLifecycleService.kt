@@ -30,8 +30,7 @@ class ManagedServiceDeletionLifecycleService(
     fun begin(
         projectId: UUID,
         serviceId: UUID,
-        principal: Principal,
-        removeVolumes: Boolean
+        principal: Principal
     ) {
         projectAccessGuard.requireServicesManageable(projectId, principal)
 
@@ -46,10 +45,7 @@ class ManagedServiceDeletionLifecycleService(
             )
         }
 
-        service.beginDeletion(
-            removeVolumes = removeVolumes,
-            updatedAt = clock.instant()
-        )
+        service.beginDeletion(clock.instant())
         managedServiceRepository.saveAndFlush(service)
     }
 
@@ -65,15 +61,15 @@ class ManagedServiceDeletionLifecycleService(
             )
         }
 
-        val deletionContext = service.deletionContext
-            ?: throw InternalDataIntegrityException(
+        if (service.deletionContext == null) {
+            throw InternalDataIntegrityException(
                 "Deleting managed service $serviceId has no deletion context"
             )
+        }
 
         return ManagedServiceDeletionPlan(
             projectId = service.project.id,
-            serviceId = service.id,
-            removeVolumes = deletionContext.removeVolumes
+            serviceId = service.id
         )
     }
 

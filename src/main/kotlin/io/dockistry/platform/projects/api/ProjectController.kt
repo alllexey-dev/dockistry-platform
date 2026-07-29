@@ -67,7 +67,6 @@ class ProjectController(
         val project = projectService.updateForUser(
             projectId = id,
             name = updateRequest.name,
-            slug = updateRequest.slug,
             description = updateRequest.description,
             expectedVersion = updateRequest.expectedVersion,
             user = user

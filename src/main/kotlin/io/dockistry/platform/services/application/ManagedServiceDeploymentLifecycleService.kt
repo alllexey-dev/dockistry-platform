@@ -39,6 +39,7 @@ class ManagedServiceDeploymentLifecycleService(
             deploymentId = deployment.id,
             serviceId = service.id,
             projectId = service.project.id,
+            projectSlug = service.project.slug,
             serviceName = service.name,
             snapshot = snapshot
         )

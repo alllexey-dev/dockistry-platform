@@ -135,10 +135,7 @@ class ManagedServicePersistenceIntegrationTests {
             name = "deleting-service",
             draft = managedServiceDraft()
         )
-        service.beginDeletion(
-            removeVolumes = true,
-            updatedAt = DELETION_REQUESTED_AT
-        )
+        service.beginDeletion(DELETION_REQUESTED_AT)
         entityManager.persist(service)
         entityManager.flush()
         val serviceId = service.id
@@ -150,7 +147,6 @@ class ManagedServicePersistenceIntegrationTests {
         assertEquals(ManagedServiceLifecycleStatus.DELETING, saved.lifecycleStatus)
         assertEquals(DELETION_REQUESTED_AT, saved.updatedAt)
         val deletionContext = assertNotNull(saved.deletionContext)
-        assertTrue(deletionContext.removeVolumes)
         assertEquals(DELETION_REQUESTED_AT, deletionContext.requestedAt)
         assertEquals(null, deletionContext.lastCleanupAttemptAt)
         assertEquals(null, deletionContext.cleanupErrorMessage)

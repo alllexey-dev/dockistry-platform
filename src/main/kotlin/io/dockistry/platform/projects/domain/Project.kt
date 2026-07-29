@@ -63,14 +63,9 @@ class Project(
         }
 
     @field:Column(unique = true, nullable = false)
-    var slug: String = SlugValidator.validate(slug) {
+    val slug: String = SlugValidator.validate(slug) {
         InvalidProjectSlugException("Project slug '$it' is invalid")
     }
-        set(value) {
-            field = SlugValidator.validate(value) {
-                InvalidProjectSlugException("Project slug '$it' is invalid")
-            }
-        }
 
     @OneToMany(mappedBy = "project", cascade = [CascadeType.ALL], fetch = FetchType.LAZY)
     val customRoles: MutableSet<Role> = mutableSetOf()

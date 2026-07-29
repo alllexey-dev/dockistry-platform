@@ -4,17 +4,19 @@ import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.DockerNetworkCreateNameConflictException
 import io.dockistry.platform.docker.domain.DockerNetworkCreateVerificationFailedException
+import io.dockistry.platform.docker.domain.DockerNetworkNotFoundException
 import io.dockistry.platform.docker.domain.DockerNetworkOwnershipConflictException
 import io.dockistry.platform.docker.domain.model.DockerNetworkRef
+import io.dockistry.platform.projects.application.ports.ProjectNetworkRemovalPort
 import org.springframework.stereotype.Service
 import java.util.UUID
 
 @Service
 class ProjectNetworkService(
     private val dockerAgentClient: DockerAgentClient
-) {
-    fun createNetwork(projectId: UUID): String {
-        val name = projectNetworkName(projectId)
+) : ProjectNetworkRemovalPort {
+    fun createNetwork(projectId: UUID, projectSlug: String): String {
+        val name = projectNetworkName(projectSlug)
         try {
             dockerAgentClient.createNetwork(
                 name = name,
@@ -24,22 +26,39 @@ class ProjectNetworkService(
             // Another deployment may have created the shared project network first.
         }
 
-        return findNetwork(projectId)
+        return findNetwork(projectId, projectSlug)
             ?: throw DockerNetworkCreateVerificationFailedException(name)
     }
 
-    fun findNetwork(projectId: UUID): String? {
+    fun findNetwork(projectId: UUID, projectSlug: String): String? {
+        return findNetworkRef(projectId, projectSlug)?.name
+    }
+
+    override fun removeNetwork(projectId: UUID, projectSlug: String) {
+        val network = findNetworkRef(projectId, projectSlug) ?: return
+
+        try {
+            dockerAgentClient.removeNetwork(network.id)
+        } catch (_: DockerNetworkNotFoundException) {
+            // A concurrent removal already reached the target state.
+        }
+    }
+
+    fun projectNetworkName(projectSlug: String) = "dockistry_$projectSlug"
+
+    private fun findNetworkRef(
+        projectId: UUID,
+        projectSlug: String
+    ): DockerNetworkRef? {
         val network = dockerAgentClient.findNetworkByName(
-            projectNetworkName(projectId)
+            projectNetworkName(projectSlug)
         ) ?: return null
 
         if (!network.hasLabels(DockerLabels.forProject(projectId))) {
             throw DockerNetworkOwnershipConflictException()
         }
-        return network.name
+        return network
     }
-
-    fun projectNetworkName(projectId: UUID) = "dockistry_$projectId"
 
     private fun DockerNetworkRef.hasLabels(expected: Map<String, String>): Boolean {
         return expected.all { (name, value) -> labels[name] == value }

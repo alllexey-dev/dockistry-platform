@@ -183,14 +183,12 @@ class ManagedServiceService(
     fun delete(
         projectId: UUID,
         serviceId: UUID,
-        principal: Principal,
-        removeVolumes: Boolean
+        principal: Principal
     ) {
         managedServiceDeletionLifecycleService.begin(
             projectId = projectId,
             serviceId = serviceId,
-            principal = principal,
-            removeVolumes = removeVolumes
+            principal = principal
         )
 
         managedServiceDeletionExecutor.execute(projectId, serviceId)

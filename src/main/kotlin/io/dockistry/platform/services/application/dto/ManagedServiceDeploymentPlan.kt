@@ -7,6 +7,7 @@ data class ManagedServiceDeploymentPlan(
     val deploymentId: UUID,
     val serviceId: UUID,
     val projectId: UUID,
+    val projectSlug: String,
     val serviceName: String,
     val snapshot: ManagedServiceConfiguration
 )

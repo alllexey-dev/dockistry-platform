@@ -6,9 +6,6 @@ import java.time.Instant
 
 @Embeddable
 class ManagedServiceDeletionContext(
-    @Column(name = "deletion_remove_volumes")
-    val removeVolumes: Boolean,
-
     @Column(name = "deletion_requested_at")
     val requestedAt: Instant,
 

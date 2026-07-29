@@ -16,7 +16,6 @@ CREATE TABLE services
     cpu_limit_nano_cpus  BIGINT,
     desired_state        VARCHAR(255)                NOT NULL,
     lifecycle_status     VARCHAR(255)                NOT NULL,
-    deletion_remove_volumes          BOOLEAN,
     deletion_requested_at            TIMESTAMP WITHOUT TIME ZONE,
     deletion_last_cleanup_attempt_at TIMESTAMP WITHOUT TIME ZONE,
     deletion_cleanup_error_message   TEXT,
@@ -28,13 +27,11 @@ CREATE TABLE services
     CONSTRAINT ck_services_deletion_context CHECK (
         (
             lifecycle_status = 'DELETING'
-            AND deletion_remove_volumes IS NOT NULL
             AND deletion_requested_at IS NOT NULL
         )
         OR
         (
             lifecycle_status <> 'DELETING'
-            AND deletion_remove_volumes IS NULL
             AND deletion_requested_at IS NULL
             AND deletion_last_cleanup_attempt_at IS NULL
             AND deletion_cleanup_error_message IS NULL

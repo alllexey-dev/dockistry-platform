@@ -182,14 +182,13 @@ class ProjectServiceIntegrationTests {
             val updated = projectService.update(
                 projectId = context.projectId,
                 name = "  New\tName  ",
-                slug = "new-name",
                 description = "Updated description",
                 expectedVersion = context.version,
                 principal = context.principal
             )
 
             assertEquals("New Name", updated.name)
-            assertEquals("new-name", updated.slug)
+            assertEquals("old-name", updated.slug)
             assertEquals("Updated description", updated.description)
         } finally {
             cleanupCommittedProject(context.projectId)
@@ -205,7 +204,6 @@ class ProjectServiceIntegrationTests {
             projectService.update(
                 projectId = UUID.randomUUID(),
                 name = "Missing",
-                slug = "missing",
                 expectedVersion = 0,
                 principal = principal
             )
@@ -222,7 +220,6 @@ class ProjectServiceIntegrationTests {
                 projectService.update(
                     projectId = context.projectId,
                     name = "Forbidden",
-                    slug = "forbidden",
                     expectedVersion = context.version,
                     principal = context.principal
                 )
@@ -242,7 +239,6 @@ class ProjectServiceIntegrationTests {
                 projectService.update(
                     projectId = context.projectId,
                     name = "Forbidden",
-                    slug = "forbidden",
                     expectedVersion = context.version,
                     principal = context.principal
                 )
@@ -254,30 +250,7 @@ class ProjectServiceIntegrationTests {
 
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    fun `update converts invalid slug validation failure to invalid project slug exception`() {
-        val context = committedUpdateContext(
-            SystemPermissionNames.PROJECT_READ,
-            SystemPermissionNames.PROJECT_UPDATE
-        )
-
-        try {
-            assertFailsWith<InvalidProjectSlugException> {
-                projectService.update(
-                    projectId = context.projectId,
-                    name = "Invalid Slug",
-                    slug = "Invalid Slug",
-                    expectedVersion = context.version,
-                    principal = context.principal
-                )
-            }
-        } finally {
-            cleanupCommittedProject(context.projectId)
-        }
-    }
-
-    @Test
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    fun `update converts duplicate name or slug to project already exists exception`() {
+    fun `update converts duplicate name to project already exists exception`() {
         val context = committedDuplicateUpdateContext()
 
         try {
@@ -285,7 +258,6 @@ class ProjectServiceIntegrationTests {
                 projectService.update(
                     projectId = context.projectId,
                     name = context.existingName,
-                    slug = "edited-project-new",
                     expectedVersion = context.version,
                     principal = context.principal
                 )

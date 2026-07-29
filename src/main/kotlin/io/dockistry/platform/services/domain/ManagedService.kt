@@ -247,11 +247,10 @@ class ManagedService(
         )
     }
 
-    fun beginDeletion(removeVolumes: Boolean, updatedAt: Instant) {
+    fun beginDeletion(updatedAt: Instant) {
         requireLifecycleStatus(ManagedServiceLifecycleStatus.ACTIVE)
         lifecycleStatus = ManagedServiceLifecycleStatus.DELETING
         deletionContext = ManagedServiceDeletionContext(
-            removeVolumes = removeVolumes,
             requestedAt = updatedAt
         )
         this.updatedAt = updatedAt

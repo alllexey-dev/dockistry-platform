@@ -149,7 +149,7 @@ Project endpoints требуют access token и возвращают JSON в en
 | `GET`    | `/api/projects`              | список проектов, доступных текущему пользователю        |
 | `POST`   | `/api/projects`              | создать проект                                          |
 | `GET`    | `/api/projects/{id}`         | получить project info                                   |
-| `PATCH`  | `/api/projects/{id}`         | обновить основные поля проекта                          |
+| `PATCH`  | `/api/projects/{id}`         | обновить имя и описание проекта                         |
 | `POST`   | `/api/projects/{id}/archive` | архивировать проект                                     |
 | `DELETE` | `/api/projects/{id}`         | удалить проект, успешный ответ содержит `data="ok"`     |
 
@@ -175,6 +175,7 @@ permission `project.read`. Mutating member endpoints требуют permission
 Для операций по конкретному project id отсутствие проекта и отсутствие read-access
 оба отображаются как `404 project_not_found`; если read-access есть, но не хватает
 права на действие, возвращается `403 insufficient_permission_for_operation`.
+Slug задается при создании проекта и после этого не изменяется.
 
 ## Managed Services API
 
@@ -199,6 +200,7 @@ limits и ожидаемое состояние. Это durable source of truth 
 Read endpoints требуют `project.read`. Mutating endpoints требуют
 `projects.services.manage`; эта permission входит в system roles `project_admin`
 и `project_operator`.
+Удаление managed service всегда удаляет его Docker container и managed volumes.
 
 Container read endpoints работают с единственным Docker container managed
 service независимо от его runtime state. Отдельного container list endpoint для

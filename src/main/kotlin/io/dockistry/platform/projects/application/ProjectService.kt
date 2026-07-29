@@ -14,6 +14,7 @@ import io.dockistry.platform.iam.infrastructure.RoleBindingRepository
 import io.dockistry.platform.iam.infrastructure.RoleRepository
 import io.dockistry.platform.iam.infrastructure.ScopeQueryRepository
 import io.dockistry.platform.projects.application.ports.ProjectManagedServicesExistencePort
+import io.dockistry.platform.projects.application.ports.ProjectNetworkRemovalPort
 import io.dockistry.platform.projects.domain.InvalidProjectSlugException
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.projects.domain.ProjectAlreadyExistsException
@@ -41,6 +42,7 @@ class ProjectService(
     private val scopeQueryRepository: ScopeQueryRepository,
     private val roleBindingRepository: RoleBindingRepository,
     private val projectManagedServicesExistencePort: ProjectManagedServicesExistencePort,
+    private val projectNetworkRemovalPort: ProjectNetworkRemovalPort,
     private val projectDeleteExecutor: ProjectDeleteExecutor,
     private val projectUpdateExecutor: ProjectUpdateExecutor
 ) {
@@ -93,7 +95,6 @@ class ProjectService(
     fun update(
         projectId: UUID,
         name: String,
-        slug: String,
         description: String? = null,
         expectedVersion: Long,
         principal: Principal
@@ -102,7 +103,6 @@ class ProjectService(
             projectUpdateExecutor.execute(
                 projectId = projectId,
                 name = name,
-                slug = slug,
                 description = description,
                 expectedVersion = expectedVersion,
                 principal = principal
@@ -111,7 +111,6 @@ class ProjectService(
             projectUpdateExecutor.resolveConflict(
                 projectId = projectId,
                 name = name,
-                slug = slug,
                 description = description
             )
         }
@@ -151,6 +150,19 @@ class ProjectService(
         projectId: UUID,
         principal: Principal
     ): Project {
+        val project = projectAccessGuard.requireDeletable(projectId, principal)
+
+        if (projectManagedServicesExistencePort.existsByProjectId(projectId)) {
+            throw ProjectDeletionBlockedByManagedServicesException(
+                "Project $projectId has services attached to it hence can't be deleted"
+            )
+        }
+
+        projectNetworkRemovalPort.removeNetwork(
+            projectId = project.id,
+            projectSlug = project.slug
+        )
+
         return try {
             projectDeleteExecutor.execute(
                 projectId = projectId,
@@ -208,7 +220,6 @@ class ProjectService(
     fun updateForUser(
         projectId: UUID,
         name: String,
-        slug: String,
         description: String?,
         expectedVersion: Long,
         user: User
@@ -216,7 +227,6 @@ class ProjectService(
         return update(
             projectId = projectId,
             name = name,
-            slug = slug,
             description = description,
             expectedVersion = expectedVersion,
             principal = user.principal

@@ -313,6 +313,8 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   получать project через `ProjectAccessGuard`: missing project и no-read access
   возвращаются как `project_not_found`, а read-but-no-action возвращается как
   `insufficient_permission_for_operation`.
+- Project slug задается при создании и immutable. Project update меняет только
+  `name` и `description`, используя `expectedVersion`.
 - System role/permission names держи в `SystemRoleNames` и
   `SystemPermissionNames`.
 - Bootstrap базовых ролей/прав и единственного `GLOBAL` scope происходит в
@@ -481,11 +483,12 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   узкий failure path принят как допустимый; более сильный runtime fencing сейчас не
   планируется.
 - Удаление ManagedService является многофазным flow: короткая транзакция под row lock
-  проверяет отсутствие active deployment, сохраняет deletion context с пользовательским
-  `removeVolumes` и фиксирует `ACTIVE -> DELETING`. Затем общий
-  `ManagedServiceDeletionExecutor` читает persisted deletion plan и удаляет Docker
-  resources вне DB-транзакции, после чего lifecycle service физически удаляет только
-  строку в `DELETING`. API delete и будущий reaper должны использовать один executor.
+  проверяет отсутствие active deployment, сохраняет deletion context и фиксирует
+  `ACTIVE -> DELETING`. Затем общий `ManagedServiceDeletionExecutor` под
+  `ManagedServiceOperationGate` по service ID читает persisted deletion plan, всегда
+  удаляет Docker container и volumes вне DB-транзакции и физически удаляет только строку
+  в `DELETING`. Gate удерживается до завершения DB deletion, чтобы отложенный retry не
+  удалил одноименный volume нового service. API delete и reaper используют один executor.
   При ошибке cleanup сервис остается в `DELETING` для будущего retry/reaper; list
   показывает `ACTIVE` и все runtime transient statuses, а get разрешает runtime
   transient statuses и для `DELETING` возвращает typed deletion-in-progress conflict.
@@ -506,6 +509,11 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   после чего их ownership проверяется по project/service labels. Одноименный foreign или
   unlabeled resource нельзя переиспользовать: deploy возвращает typed ownership conflict,
   требующий вмешательства администратора.
+- Managed volume получает имя
+  `dockistry_<project_slug>_<service_name>_<volume_name>`; immutable project slug и
+  immutable service name делают имя стабильным в течение жизни service.
+- Project network получает имя `dockistry_<project_slug>`, а managed container —
+  `dockistry_<project_slug>_<service_name>`.
 - Несколько project networks с одинаковым exact name считаются Docker name ambiguity,
   а не ownership conflict. Если Docker сообщил об успешном создании network/volume, но
   ресурс нельзя сразу перечитать по имени, deploy возвращает typed internal verification

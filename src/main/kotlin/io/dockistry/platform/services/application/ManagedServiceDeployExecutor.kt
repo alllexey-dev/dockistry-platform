@@ -43,8 +43,8 @@ class ManagedServiceDeployExecutor(
         private val logger: Logger =
             LoggerFactory.getLogger(ManagedServiceDeployExecutor::class.java)
 
-        internal fun containerName(projectId: UUID, serviceName: String): String =
-            "dockistry_${projectId}_$serviceName"
+        internal fun containerName(projectSlug: String, serviceName: String): String =
+            "dockistry_${projectSlug}_$serviceName"
     }
 
     fun deploy(serviceId: UUID): String {
@@ -292,8 +292,13 @@ class ManagedServiceDeployExecutor(
     }
 
     private fun ensureNetworkAndGetName(plan: ManagedServiceDeploymentPlan): String {
-        return projectNetworkService.findNetwork(plan.projectId)
-            ?: projectNetworkService.createNetwork(plan.projectId)
+        return projectNetworkService.findNetwork(
+            projectId = plan.projectId,
+            projectSlug = plan.projectSlug
+        ) ?: projectNetworkService.createNetwork(
+            projectId = plan.projectId,
+            projectSlug = plan.projectSlug
+        )
     }
 
     private fun ensureAndMapVolumes(
@@ -314,11 +319,13 @@ class ManagedServiceDeployExecutor(
     ): String {
         return projectVolumeService.findVolume(
             projectId = plan.projectId,
+            projectSlug = plan.projectSlug,
             serviceId = plan.serviceId,
             serviceName = plan.serviceName,
             volumeName = volumeName
         ) ?: projectVolumeService.createVolume(
             projectId = plan.projectId,
+            projectSlug = plan.projectSlug,
             serviceId = plan.serviceId,
             deploymentId = plan.deploymentId,
             serviceName = plan.serviceName,
@@ -337,7 +344,7 @@ class ManagedServiceDeployExecutor(
         ManagedServiceDeploymentCanceled("This deployment was canceled")
 
     private fun containerName(plan: ManagedServiceDeploymentPlan): String =
-        containerName(plan.projectId, plan.serviceName)
+        containerName(plan.projectSlug, plan.serviceName)
 
     private sealed interface DeployOutcome {
         data object CancellationRequested : DeployOutcome
