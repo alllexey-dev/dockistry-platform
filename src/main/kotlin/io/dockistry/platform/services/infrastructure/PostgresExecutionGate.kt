@@ -1,48 +1,36 @@
 package io.dockistry.platform.services.infrastructure
 
 import com.zaxxer.hikari.HikariDataSource
-import io.dockistry.platform.services.application.ports.DeploymentExecutionGate
-import io.dockistry.platform.services.application.ports.DeploymentExecutionGateLockFailureException
-import io.dockistry.platform.services.application.ports.DeploymentExecutionGateLockTimeoutException
-import io.dockistry.platform.services.application.ports.DeploymentExecutionGateOverloadException
+import io.dockistry.platform.services.application.ports.ExecutionGate
+import io.dockistry.platform.services.application.ports.ExecutionGateLockFailureException
+import io.dockistry.platform.services.application.ports.ExecutionGateLockTimeoutException
+import io.dockistry.platform.services.application.ports.ExecutionGateOverloadException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.stereotype.Service
-import java.nio.ByteBuffer
-import java.security.MessageDigest
 import java.sql.Connection
 import java.sql.SQLTransientConnectionException
 import java.time.Duration
-import java.util.UUID
 import java.util.concurrent.locks.LockSupport
 import kotlin.math.min
 
 @Service
-class PostgresDeploymentExecutionGate(
+class PostgresExecutionGate(
     @Qualifier("executionGateDataSource")
-    private val dataSource: HikariDataSource,
-
-    private val executionGateConfig: DeploymentExecutionGateConfig
-) : DeploymentExecutionGate {
+    private val dataSource: HikariDataSource
+) : ExecutionGate {
     companion object {
         private val RETRY_DELAY = Duration.ofMillis(10)
 
         private val logger =
-            LoggerFactory.getLogger(PostgresDeploymentExecutionGate::class.java)
+            LoggerFactory.getLogger(PostgresExecutionGate::class.java)
     }
 
-    override fun <T> withLock(deploymentId: UUID, block: () -> T): T = withLock(
-        deploymentId = deploymentId,
-        timeout = executionGateConfig.lockTimeout,
-        block = block
-    )
-
     override fun <T> withLock(
-        deploymentId: UUID,
+        advisoryLockKey: Long,
         timeout: Duration,
         block: () -> T
     ): T {
-        val lockKey = getAdvisoryLockKey(deploymentId)
         var lockAcquired = false
         var connection: Connection? = null
 
@@ -53,7 +41,7 @@ class PostgresDeploymentExecutionGate(
             while (true) {
                 connection = try {
                     obtainConnection()
-                } catch (exception: DeploymentExecutionGateOverloadException) {
+                } catch (exception: ExecutionGateOverloadException) {
                     throw exception
                 } catch (exception: Exception) {
                     logger.warn(
@@ -61,35 +49,35 @@ class PostgresDeploymentExecutionGate(
                         exception.message,
                         exception
                     )
-                    throw DeploymentExecutionGateLockFailureException(exception)
+                    throw ExecutionGateLockFailureException(exception)
                 }
 
                 try {
-                    lockAcquired = acquireLock(connection, lockKey)
+                    lockAcquired = acquireLock(connection, advisoryLockKey)
                 } catch (exception: Exception) {
                     logger.warn(
-                        "Deployment execution gate lock acquisition failed: {}",
+                        "Execution gate lock acquisition failed: {}",
                         exception.message,
                         exception
                     )
-                    throw DeploymentExecutionGateLockFailureException(exception)
+                    throw ExecutionGateLockFailureException(exception)
                 }
 
                 if (lockAcquired) break
 
                 val elapsedNanos = System.nanoTime() - startedAt
                 if (elapsedNanos >= timeoutNanos) {
-                    throw DeploymentExecutionGateLockTimeoutException()
+                    throw ExecutionGateLockTimeoutException()
                 }
 
-                cleanup(connection, lockKey, false)
+                cleanup(connection, advisoryLockKey, false)
                 connection = null
                 retrySleep(timeoutNanos - elapsedNanos)
             }
 
             block()
         } finally {
-            cleanup(connection, lockKey, lockAcquired)
+            cleanup(connection, advisoryLockKey, lockAcquired)
         }
     }
 
@@ -103,7 +91,7 @@ class PostgresDeploymentExecutionGate(
             } catch (exception: Throwable) {
                 dataSource.evictConnection(connection)
                 logger.warn(
-                    "Deployment execution gate failed to gracefully release lock " +
+                    "Execution gate failed to gracefully release lock " +
                             "and close the connection, evicting connection: {}",
                     exception.message,
                     exception
@@ -120,7 +108,7 @@ class PostgresDeploymentExecutionGate(
         if (Thread.interrupted()) {
             Thread.currentThread().interrupt()
             throw InterruptedException(
-                "Interrupted while waiting for deployment execution gate lock"
+                "Interrupted while waiting for execution gate lock"
             )
         }
     }
@@ -128,7 +116,7 @@ class PostgresDeploymentExecutionGate(
     private fun obtainConnection(): Connection = try {
         dataSource.connection
     } catch (exception: SQLTransientConnectionException) {
-        throw DeploymentExecutionGateOverloadException(exception)
+        throw ExecutionGateOverloadException(exception)
     }
 
     private fun acquireLock(
@@ -151,19 +139,12 @@ class PostgresDeploymentExecutionGate(
             statement.executeQuery().use { resultSet ->
                 if (!resultSet.next() || !resultSet.getBoolean(1)) {
                     throw IllegalStateException(
-                        "PostgreSQL reported that the deployment execution gate lock " +
+                        "PostgreSQL reported that the execution gate lock " +
                                 "was not held by its connection"
                     )
                 }
             }
         }
-    }
-
-    private fun getAdvisoryLockKey(deploymentId: UUID): Long {
-        val bytes = MessageDigest
-            .getInstance("SHA-256")
-            .digest("managed-service-deployment: $deploymentId".toByteArray(Charsets.UTF_8))
-        return ByteBuffer.wrap(bytes).long
     }
 
     private fun Duration.toNanosSaturated(): Long {

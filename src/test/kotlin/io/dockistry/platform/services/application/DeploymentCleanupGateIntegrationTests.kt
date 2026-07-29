@@ -21,9 +21,9 @@ import io.dockistry.platform.docker.domain.model.DockerImageSummary
 import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.docker.domain.model.DockerNetworkRef
 import io.dockistry.platform.docker.domain.model.DockerVolumeRef
-import io.dockistry.platform.services.application.ports.DeploymentExecutionGate
-import io.dockistry.platform.services.application.ports.DeploymentExecutionGateLockFailureException
-import io.dockistry.platform.services.application.ports.DeploymentExecutionGateLockTimeoutException
+import io.dockistry.platform.services.application.ports.ExecutionGate
+import io.dockistry.platform.services.application.ports.ExecutionGateLockFailureException
+import io.dockistry.platform.services.application.ports.ExecutionGateLockTimeoutException
 import io.dockistry.platform.services.domain.DeploymentExecutionCapacityExhaustedException
 import io.dockistry.platform.services.domain.DeploymentOperationConcurrencyCheckFailureException
 import io.dockistry.platform.services.domain.DeploymentOperationInProgressException
@@ -33,7 +33,7 @@ import io.dockistry.platform.services.domain.ServiceVolumeMount
 import io.dockistry.platform.services.infrastructure.ManagedServiceDeploymentRepository
 import io.dockistry.platform.services.infrastructure.ManagedServiceReaper
 import io.dockistry.platform.services.infrastructure.ManagedServiceReaperProperties
-import io.dockistry.platform.services.infrastructure.PostgresDeploymentExecutionGate
+import io.dockistry.platform.services.infrastructure.PostgresExecutionGate
 import io.dockistry.platform.services.testsupport.ManagedServiceFixtures
 import io.dockistry.platform.services.testsupport.managedServiceDraft
 import io.dockistry.platform.testsupport.IamProjectFixtures
@@ -77,10 +77,11 @@ import kotlin.test.assertTrue
 
 private const val TIMEOUT_SECONDS = 15L
 private val TEST_TIME: Instant = Instant.parse("2026-01-01T00:00:00Z")
+private val TEST_EXECUTION_GATE_TIMEOUT: Duration = Duration.ofMillis(100)
 
 @SpringBootTest(
     properties = [
-        "app.managed-services.deployment-execution-gate.lock-timeout=100ms",
+        "app.managed-services.deployment-operation-gate.lock-timeout=100ms",
         "app.datasource.execution-gate.hikari.connection-timeout=250"
     ]
 )
@@ -89,7 +90,7 @@ private val TEST_TIME: Instant = Instant.parse("2026-01-01T00:00:00Z")
     TestcontainersConfig::class,
     TestClockConfig::class,
     DeploymentCleanupGateIntegrationTests.FakeDockerAgentClientConfig::class,
-    DeploymentCleanupGateIntegrationTests.ControllableDeploymentExecutionGateConfig::class
+    DeploymentCleanupGateIntegrationTests.ControllableExecutionGateConfig::class
 )
 class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     private val dockerAgentClient: FakeDockerAgentClient,
@@ -102,8 +103,8 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     private val entityManager: EntityManager,
     private val environment: Environment,
     private val deploymentOperationGate: ManagedServiceDeploymentOperationGate,
-    private val postgresDeploymentExecutionGate: PostgresDeploymentExecutionGate,
-    private val controllableDeploymentExecutionGate: ControllableDeploymentExecutionGate,
+    private val postgresExecutionGate: PostgresExecutionGate,
+    private val controllableExecutionGate: ControllableExecutionGate,
     @Qualifier("executionGateDataSource")
     private val executionGateDataSource: HikariDataSource,
     transactionManager: PlatformTransactionManager,
@@ -532,12 +533,15 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             "Execution gate pool must have more than one connection"
         )
 
-        val deploymentId = UUID.randomUUID()
+        val advisoryLockKey = UUID.randomUUID().mostSignificantBits
         val holderEntered = CountDownLatch(1)
         val holderRelease = CountDownLatch(1)
         val pool = Executors.newFixedThreadPool(poolSize)
         val holder = pool.submit {
-            postgresDeploymentExecutionGate.withLock(deploymentId) {
+            postgresExecutionGate.withLock(
+                advisoryLockKey = advisoryLockKey,
+                timeout = TEST_EXECUTION_GATE_TIMEOUT
+            ) {
                 holderEntered.countDown()
                 await(holderRelease, "Execution gate holder wasn't released")
             }
@@ -550,7 +554,10 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
             val waiters = (1 until poolSize).map {
                 pool.submit {
-                    postgresDeploymentExecutionGate.withLock(deploymentId) {}
+                    postgresExecutionGate.withLock(
+                        advisoryLockKey = advisoryLockKey,
+                        timeout = TEST_EXECUTION_GATE_TIMEOUT
+                    ) {}
                 }
             }
 
@@ -558,7 +565,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 val failure = assertFailsWith<ExecutionException> {
                     waiter.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 }
-                assertIs<DeploymentExecutionGateLockTimeoutException>(failure.cause)
+                assertIs<ExecutionGateLockTimeoutException>(failure.cause)
             }
 
             assertEquals(1, poolMxBean.activeConnections)
@@ -637,7 +644,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     fun `same deployment timeout leaves deployment in process when failure cannot be recorded`() {
         val context = createServiceContext()
         val deploymentPublished =
-            controllableDeploymentExecutionGate.armForPublication()
+            controllableExecutionGate.armForPublication()
         val holderEntered = CountDownLatch(1)
         val holderRelease = CountDownLatch(1)
         val pool = Executors.newFixedThreadPool(2)
@@ -646,20 +653,23 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         }
 
         try {
-            await(deploymentPublished, "Deployment ID wasn't published by the gate")
-            val deploymentId = assertNotNull(
-                controllableDeploymentExecutionGate.publishedDeploymentId
+            await(deploymentPublished, "Advisory lock key wasn't published by the gate")
+            val advisoryLockKey = assertNotNull(
+                controllableExecutionGate.publishedAdvisoryLockKey
             )
 
             pool.submit {
-                postgresDeploymentExecutionGate.withLock(deploymentId) {
+                postgresExecutionGate.withLock(
+                    advisoryLockKey = advisoryLockKey,
+                    timeout = TEST_EXECUTION_GATE_TIMEOUT
+                ) {
                     holderEntered.countDown()
                     await(holderRelease, "Deployment gate holder wasn't released")
                 }
             }
             await(holderEntered, "Deployment gate holder didn't acquire the lock")
 
-            controllableDeploymentExecutionGate.disarmForPublication()
+            controllableExecutionGate.disarmForPublication()
 
             val failure = assertFailsWith<ExecutionException> {
                 deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -670,7 +680,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             )
             assertDeploymentRemainsInProcess(context.serviceId)
         } finally {
-            controllableDeploymentExecutionGate.disarmForPublication()
+            controllableExecutionGate.disarmForPublication()
             holderRelease.countDown()
             terminate(pool, "Same-deployment timeout workers didn't terminate")
         }
@@ -682,7 +692,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
         val failure =
             assertFailsWith<DeploymentOperationConcurrencyCheckFailureException> {
-                controllableDeploymentExecutionGate.failNext(
+                controllableExecutionGate.failNext(
                     count = 2,
                     failureFactory = ::simulatedExecutionGateLockFailure
                 ) {
@@ -702,7 +712,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
         val failure =
             assertFailsWith<DeploymentOperationConcurrencyCheckFailureException> {
-                controllableDeploymentExecutionGate.failNext(
+                controllableExecutionGate.failNext(
                     count = 1,
                     failureFactory = ::simulatedExecutionGateLockFailure
                 ) {
@@ -730,7 +740,10 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     ): List<Future<*>> {
         return (1..poolSize).map {
             pool.submit {
-                postgresDeploymentExecutionGate.withLock(UUID.randomUUID()) {
+                postgresExecutionGate.withLock(
+                    advisoryLockKey = UUID.randomUUID().mostSignificantBits,
+                    timeout = TEST_EXECUTION_GATE_TIMEOUT
+                ) {
                     holdersEntered.countDown()
                     await(
                         holdersRelease,
@@ -754,7 +767,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     }
 
     private fun simulatedExecutionGateLockFailure(): RuntimeException {
-        return DeploymentExecutionGateLockFailureException(
+        return ExecutionGateLockFailureException(
             SQLException("Simulated execution gate lock failure")
         )
     }
@@ -891,21 +904,21 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     }
 
     @TestConfiguration
-    class ControllableDeploymentExecutionGateConfig {
+    class ControllableExecutionGateConfig {
         @Bean
         @Primary
-        fun controllableDeploymentExecutionGate(
-            postgresDeploymentExecutionGate: PostgresDeploymentExecutionGate
-        ): ControllableDeploymentExecutionGate {
-            return ControllableDeploymentExecutionGate(
-                postgresDeploymentExecutionGate
+        fun controllableExecutionGate(
+            postgresExecutionGate: PostgresExecutionGate
+        ): ControllableExecutionGate {
+            return ControllableExecutionGate(
+                postgresExecutionGate
             )
         }
     }
 
-    class ControllableDeploymentExecutionGate(
-        private val delegate: DeploymentExecutionGate
-    ) : DeploymentExecutionGate {
+    class ControllableExecutionGate(
+        private val delegate: ExecutionGate
+    ) : ExecutionGate {
         private val failures =
             ThreadLocal<ArrayDeque<() -> RuntimeException>>()
 
@@ -916,7 +929,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         private var afterPublicationAllowContinue: CountDownLatch? = null
 
         @Volatile
-        var publishedDeploymentId: UUID? = null
+        var publishedAdvisoryLockKey: Long? = null
             private set
 
         @Synchronized
@@ -928,7 +941,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             val deploymentPublished = CountDownLatch(1)
             this.deploymentPublished = deploymentPublished
             afterPublicationAllowContinue = CountDownLatch(1)
-            publishedDeploymentId = null
+            publishedAdvisoryLockKey = null
 
             return deploymentPublished
         }
@@ -962,30 +975,21 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         }
 
         override fun <T> withLock(
-            deploymentId: UUID,
-            block: () -> T
-        ): T {
-            publishDeploymentIdIfArmed(deploymentId)
-            throwNextFailureIfConfigured()
-            return delegate.withLock(deploymentId, block)
-        }
-
-        override fun <T> withLock(
-            deploymentId: UUID,
+            advisoryLockKey: Long,
             timeout: Duration,
             block: () -> T
         ): T {
-            publishDeploymentIdIfArmed(deploymentId)
+            publishAdvisoryLockKeyIfArmed(advisoryLockKey)
             throwNextFailureIfConfigured()
-            return delegate.withLock(deploymentId, timeout, block)
+            return delegate.withLock(advisoryLockKey, timeout, block)
         }
 
-        private fun publishDeploymentIdIfArmed(deploymentId: UUID) {
+        private fun publishAdvisoryLockKeyIfArmed(advisoryLockKey: Long) {
             val deploymentPublished = deploymentPublished ?: return
             val afterPublicationAllowContinue =
                 afterPublicationAllowContinue ?: return
 
-            publishedDeploymentId = deploymentId
+            publishedAdvisoryLockKey = advisoryLockKey
             deploymentPublished.countDown()
             assertTrue(
                 afterPublicationAllowContinue.await(

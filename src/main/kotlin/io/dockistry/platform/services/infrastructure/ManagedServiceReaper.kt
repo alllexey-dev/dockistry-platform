@@ -9,8 +9,8 @@ import io.dockistry.platform.services.application.ManagedServiceDeploymentCancel
 import io.dockistry.platform.services.application.ManagedServiceDeploymentCleanupService
 import io.dockistry.platform.services.application.ManagedServiceDeploymentFinalizationResult
 import io.dockistry.platform.services.application.ManagedServiceDeploymentLifecycleService
+import io.dockistry.platform.services.application.ManagedServiceDeploymentOperationGate
 import io.dockistry.platform.services.application.ManagedServiceDeletionExecutor
-import io.dockistry.platform.services.application.ports.DeploymentExecutionGate
 import io.dockistry.platform.services.domain.DeploymentNotFoundException
 import io.dockistry.platform.services.domain.ManagedServiceDeployment
 import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
@@ -30,7 +30,7 @@ class ManagedServiceReaper(
     private val serviceRepository: ManagedServiceRepository,
     private val deletionExecutor: ManagedServiceDeletionExecutor,
     private val properties: ManagedServiceReaperProperties,
-    private val deploymentExecutionGate: DeploymentExecutionGate
+    private val deploymentOperationGate: ManagedServiceDeploymentOperationGate
 ) {
     companion object {
         private val logger = LoggerFactory.getLogger(ManagedServiceReaper::class.java)
@@ -141,7 +141,7 @@ class ManagedServiceReaper(
 
         val markedCanceling = markCancelingActions.filter { action ->
             try {
-                deploymentExecutionGate.withLock(action.deploymentId) {
+                deploymentOperationGate.withLock(action.deploymentId) {
                     if (getContainerSummary(
                             projectId = action.projectId,
                             serviceId = action.serviceId,
@@ -207,7 +207,7 @@ class ManagedServiceReaper(
         try {
             markFinishedActions.forEach { (action, type) ->
                 try {
-                    deploymentExecutionGate.withLock(action.deploymentId) {
+                    deploymentOperationGate.withLock(action.deploymentId) {
                         if (getContainerSummary(
                                 projectId = action.projectId,
                                 serviceId = action.serviceId,
