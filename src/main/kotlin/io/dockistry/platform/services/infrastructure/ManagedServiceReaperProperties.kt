@@ -10,5 +10,6 @@ data class ManagedServiceReaperProperties(
     val runtimeOperationTimeout: Duration,
     val runtimeOperationBatchLimit: Long,
     val deletingServiceTimeout: Duration,
-    val deletingServiceBatchLimit: Long
+    val deletingServiceBatchLimit: Long,
+    val serviceOperationGateTimeout: Duration
 )

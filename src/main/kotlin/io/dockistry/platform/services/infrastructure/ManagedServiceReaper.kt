@@ -15,6 +15,7 @@ import io.dockistry.platform.services.application.ManagedServiceOperationGate
 import io.dockistry.platform.services.domain.DeploymentNotFoundException
 import io.dockistry.platform.services.domain.ManagedServiceDeployment
 import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
+import io.dockistry.platform.services.domain.ManagedServiceExecutionCapacityExhaustedException
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -105,13 +106,23 @@ class ManagedServiceReaper(
 
         stuckOperations.forEach { operation ->
             try {
-                serviceOperationGate.withLock(operation.id) {
+                serviceOperationGate.withLock(
+                    serviceId = operation.id,
+                    timeout = properties.serviceOperationGateTimeout
+                ) {
                     serviceRepository.setRuntimeOperationToActiveIfVersion(
                         serviceId = operation.id,
                         expectedVersion = operation.version,
                         updatedAt = current
                     )
                 }
+            } catch (exception: ManagedServiceExecutionCapacityExhaustedException) {
+                logger.warn(
+                    "Service operation gate's capacity is currently exhausted, quitting processing stuck runtime operations {}",
+                    exception.message,
+                    exception
+                )
+                return
             } catch (exception: RuntimeException) {
                 logger.warn(
                     "Failed to reap stuck runtime operation for service {}: {}",

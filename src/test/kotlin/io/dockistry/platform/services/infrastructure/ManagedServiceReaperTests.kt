@@ -8,6 +8,7 @@ import io.dockistry.platform.services.application.ManagedServiceDeploymentOperat
 import io.dockistry.platform.services.application.ManagedServiceOperationGate
 import io.dockistry.platform.services.application.ports.ExecutionGate
 import io.dockistry.platform.services.application.ports.ExecutionGateLockTimeoutException
+import io.dockistry.platform.services.application.ports.ExecutionGateOverloadException
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
@@ -57,7 +58,8 @@ class ManagedServiceReaperTests {
             runtimeOperationTimeout = RUNTIME_TIMEOUT,
             runtimeOperationBatchLimit = RUNTIME_BATCH_LIMIT,
             deletingServiceTimeout = Duration.ofMinutes(1),
-            deletingServiceBatchLimit = 100
+            deletingServiceBatchLimit = 100,
+            serviceOperationGateTimeout = REAPER_GATE_TIMEOUT
         )
         Mockito.`when`(
             deploymentRepository.findStuckDeploymentsWithProjectId(
@@ -112,6 +114,7 @@ class ManagedServiceReaperTests {
         reaper.execute()
 
         assertEquals(1, executionGate.lockCalls)
+        assertEquals(REAPER_GATE_TIMEOUT, executionGate.lastTimeout)
         Mockito.verify(serviceRepository).setRuntimeOperationToActiveIfVersion(
             candidate.id,
             candidate.version,
@@ -144,6 +147,33 @@ class ManagedServiceReaperTests {
             )
     }
 
+    @Test
+    fun `execution gate capacity exhaustion stops runtime operation batch`() {
+        val first = StuckRuntimeOperation(UUID.randomUUID(), 3)
+        val second = StuckRuntimeOperation(UUID.randomUUID(), 4)
+        executionGate.failOnCall = 1
+        executionGate.failure =
+            ExecutionGateOverloadException(IllegalStateException("test exhaustion"))
+        Mockito.`when`(
+            serviceRepository.findStuckRuntimeOperations(
+                NOW.minus(RUNTIME_TIMEOUT),
+                RUNTIME_BATCH_LIMIT
+            )
+        ).thenReturn(listOf(first, second))
+
+        reaper.execute()
+
+        assertEquals(1, executionGate.lockCalls)
+        Mockito.verify(serviceRepository, Mockito.never())
+            .setRuntimeOperationToActiveIfVersion(
+                first.id, first.version, NOW
+            )
+        Mockito.verify(serviceRepository, Mockito.never())
+            .setRuntimeOperationToActiveIfVersion(
+                second.id, second.version, NOW
+            )
+    }
+
     private data class StuckRuntimeOperation(
         override val id: UUID,
         override val version: Long
@@ -155,6 +185,9 @@ class ManagedServiceReaperTests {
         var lockCalls = 0
             private set
         var failOnCall: Int? = null
+        var failure: RuntimeException = ExecutionGateLockTimeoutException()
+        var lastTimeout: Duration? = null
+            private set
 
         override fun <T> withLock(
             advisoryLockKey: Long,
@@ -162,8 +195,9 @@ class ManagedServiceReaperTests {
             block: () -> T
         ): T {
             lockCalls += 1
+            lastTimeout = timeout
             if (failOnCall == lockCalls) {
-                throw ExecutionGateLockTimeoutException()
+                throw failure
             }
             if (insideLock) {
                 throw AssertionError("Service operation gate was nested")
@@ -181,6 +215,7 @@ class ManagedServiceReaperTests {
     private companion object {
         val NOW: Instant = Instant.parse("2026-01-01T00:10:00Z")
         val RUNTIME_TIMEOUT: Duration = Duration.ofMinutes(1)
+        val REAPER_GATE_TIMEOUT: Duration = Duration.ofMillis(500)
         const val RUNTIME_BATCH_LIMIT = 100L
     }
 }
