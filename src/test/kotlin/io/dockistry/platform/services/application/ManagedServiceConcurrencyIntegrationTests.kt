@@ -187,6 +187,16 @@ class ManagedServiceConcurrencyIntegrationTests(
     }
 
     @Test
+    fun `stop captures active deployment in operation context`() {
+        val context = createServiceContext()
+        val deployment = deploymentLifecycleService.begin(context.serviceId)
+
+        val operation = runtimeLifecycleService.beginStop(context.serviceId)
+
+        assertEquals(deployment.deploymentId, operation.deploymentId)
+    }
+
+    @Test
     fun `concurrent same name creates produce one service and one typed conflict`() {
         val context = createProjectContext()
         val command = ManagedServiceCreateCommand(

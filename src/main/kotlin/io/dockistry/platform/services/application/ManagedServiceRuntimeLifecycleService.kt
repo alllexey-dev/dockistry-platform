@@ -61,10 +61,13 @@ class ManagedServiceRuntimeLifecycleService(
     fun beginStop(serviceId: UUID): ManagedServiceRuntimeOperationContext {
         val service = managedServiceLifecycleGuard
             .requireActiveForMutationWithWait(serviceId)
+        val deploymentId = findActiveDeploymentId(serviceId)
+
         service.beginStop(clock.instant())
         return operationContext(
             service = managedServiceRepository.saveAndFlush(service),
-            expectedStatus = ManagedServiceLifecycleStatus.STOPPING
+            expectedStatus = ManagedServiceLifecycleStatus.STOPPING,
+            deploymentId = deploymentId
         )
     }
 
@@ -162,6 +165,16 @@ class ManagedServiceRuntimeLifecycleService(
         }
     }
 
+    private fun findActiveDeploymentId(serviceId: UUID): UUID? {
+        val activeDeployments = deploymentRepository.findActiveByServiceId(serviceId)
+        if (activeDeployments.size > 1) {
+            throw InternalDataIntegrityException(
+                "Service $serviceId has more than one active deployment"
+            )
+        }
+        return activeDeployments.singleOrNull()?.id
+    }
+
     private fun requireOperation(
         operation: ManagedServiceRuntimeOperationContext,
         expectedStatus: ManagedServiceLifecycleStatus
@@ -182,11 +195,13 @@ class ManagedServiceRuntimeLifecycleService(
 
     private fun operationContext(
         service: ManagedService,
-        expectedStatus: ManagedServiceLifecycleStatus
+        expectedStatus: ManagedServiceLifecycleStatus,
+        deploymentId: UUID? = null
     ): ManagedServiceRuntimeOperationContext {
         return ManagedServiceRuntimeOperationContext(
             serviceId = service.id,
             projectId = service.project.id,
+            deploymentId = deploymentId,
             expectedStatus = expectedStatus,
             expectedVersion = service.version
         )

@@ -182,7 +182,7 @@ class ManagedServiceReaper(
                         return@withLock false
                     }
 
-                    deploymentLifecycleService.requestDeploymentCancellationForDeploymentId(
+                    deploymentLifecycleService.requestDeploymentCancellation(
                         deploymentId = action.deploymentId
                     ) == ManagedServiceDeploymentCancellationResult.Requested
                 }

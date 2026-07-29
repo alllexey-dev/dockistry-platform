@@ -14,6 +14,14 @@ import java.time.Duration
 import java.util.concurrent.locks.LockSupport
 import kotlin.math.min
 
+/**
+ * Provides cross-instance exclusion while the dedicated PostgreSQL session remains alive.
+ *
+ * This is deliberately not a fencing mechanism: if that session dies while [block]
+ * continues running, PostgreSQL releases the advisory lock before the executor stops.
+ * The platform accepts this narrow failure mode and does not currently attempt stronger
+ * runtime fencing.
+ */
 @Service
 class PostgresExecutionGate(
     @Qualifier("executionGateDataSource")

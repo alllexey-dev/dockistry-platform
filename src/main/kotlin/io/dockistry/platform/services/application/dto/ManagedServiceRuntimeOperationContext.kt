@@ -6,6 +6,7 @@ import java.util.UUID
 data class ManagedServiceRuntimeOperationContext(
     val serviceId: UUID,
     val projectId: UUID,
+    val deploymentId: UUID?,
     val expectedStatus: ManagedServiceLifecycleStatus,
     val expectedVersion: Long
 )

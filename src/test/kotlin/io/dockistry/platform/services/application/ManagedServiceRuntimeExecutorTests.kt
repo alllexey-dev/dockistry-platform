@@ -123,6 +123,35 @@ class ManagedServiceRuntimeExecutorTests {
     }
 
     @Test
+    fun `stop cancels deployment captured by lifecycle operation`() {
+        val serviceId = UUID.randomUUID()
+        val deploymentId = UUID.randomUUID()
+        val operation = operation(
+            serviceId = serviceId,
+            projectId = UUID.randomUUID(),
+            status = ManagedServiceLifecycleStatus.STOPPING,
+            deploymentId = deploymentId
+        )
+        Mockito.`when`(runtimeLifecycleService.beginStop(serviceId)).thenReturn(operation)
+        Mockito.`when`(
+            dockerAgentClient.listContainers(
+                executor.containerFilter(operation.projectId, serviceId)
+            )
+        ).thenReturn(emptyList())
+        Mockito.`when`(
+            deploymentLifecycleService.requestDeploymentCancellation(
+                deploymentId
+            )
+        ).thenReturn(ManagedServiceDeploymentCancellationResult.Requested)
+
+        executor.stop(serviceId)
+
+        Mockito.verify(deploymentLifecycleService)
+            .requestDeploymentCancellation(deploymentId)
+        Mockito.verify(runtimeLifecycleService).completeStop(operation)
+    }
+
+    @Test
     fun `finalization failure leaves runtime operation for reaper`() {
         val serviceId = UUID.randomUUID()
         val operation = operation(
@@ -165,10 +194,12 @@ class ManagedServiceRuntimeExecutorTests {
     private fun operation(
         serviceId: UUID,
         projectId: UUID,
-        status: ManagedServiceLifecycleStatus
+        status: ManagedServiceLifecycleStatus,
+        deploymentId: UUID? = null
     ) = ManagedServiceRuntimeOperationContext(
         serviceId = serviceId,
         projectId = projectId,
+        deploymentId = deploymentId,
         expectedStatus = status,
         expectedVersion = 1
     )

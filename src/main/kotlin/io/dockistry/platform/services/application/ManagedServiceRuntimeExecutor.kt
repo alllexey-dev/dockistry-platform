@@ -7,6 +7,7 @@ import io.dockistry.platform.docker.domain.model.DockerContainerSummary
 import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.docker.infrastructure.LocalDockerAgentClient
 import io.dockistry.platform.services.application.dto.ManagedServiceRuntimeOperationContext
+import io.dockistry.platform.services.domain.DeploymentNotFoundException
 import io.dockistry.platform.services.domain.ManagedServiceNotDeployedException
 import io.dockistry.platform.services.domain.ManagedServiceNotRunningException
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
@@ -48,10 +49,7 @@ class ManagedServiceRuntimeExecutor(
                     stopContainer(
                         projectId = operation.projectId,
                         serviceId = serviceId
-                    ) || requestDeploymentCancellation(
-                        projectId = operation.projectId,
-                        serviceId = serviceId
-                    )
+                    ) || requestDeploymentCancellation(operation)
 
                 if (!stopSucceeded) {
                     throw ManagedServiceNotRunningException(
@@ -180,15 +178,32 @@ class ManagedServiceRuntimeExecutor(
     }
 
     private fun requestDeploymentCancellation(
-        projectId: UUID,
-        serviceId: UUID
+        operation: ManagedServiceRuntimeOperationContext
     ): Boolean {
+        val deploymentId = operation.deploymentId
+            ?: return stopContainer(
+                projectId = operation.projectId,
+                serviceId = operation.serviceId
+            )
+
         return when (
-            val result = deploymentLifecycleService.requestDeploymentCancellation(serviceId)
+            val result = try {
+                deploymentLifecycleService.requestDeploymentCancellation(
+                    deploymentId
+                )
+            } catch (_: DeploymentNotFoundException) {
+                throw InternalDataIntegrityException(
+                    "Deployment $deploymentId captured by stop operation for service " +
+                            "${operation.serviceId} disappeared"
+                )
+            }
         ) {
             ManagedServiceDeploymentCancellationResult.Requested -> true
             ManagedServiceDeploymentCancellationResult.NoDeploymentInProcess ->
-                stopContainer(projectId = projectId, serviceId = serviceId)
+                stopContainer(
+                    projectId = operation.projectId,
+                    serviceId = operation.serviceId
+                )
 
             is ManagedServiceDeploymentCancellationResult.DeploymentFinished ->
                 stopContainer(result.containerId)

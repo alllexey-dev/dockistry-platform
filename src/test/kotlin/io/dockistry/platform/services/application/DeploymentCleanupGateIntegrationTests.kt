@@ -800,7 +800,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         val deployment = deploymentRepository.findActiveByServiceId(serviceId).single()
         assertEquals(
             ManagedServiceDeploymentCancellationResult.Requested,
-            deploymentLifecycleService.requestDeploymentCancellationForDeploymentId(
+            deploymentLifecycleService.requestDeploymentCancellation(
                 deployment.id
             )
         )

@@ -139,26 +139,6 @@ class ManagedServiceDeploymentLifecycleService(
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun requestDeploymentCancellation(
-        serviceId: UUID
-    ): ManagedServiceDeploymentCancellationResult {
-        val activeDeployments = deploymentRepository.findActiveByServiceId(serviceId)
-        if (activeDeployments.size > 1) {
-            throw InternalDataIntegrityException(
-                "Service $serviceId has more than one active deployment"
-            )
-        }
-        val deployment = activeDeployments.singleOrNull()
-            ?: return ManagedServiceDeploymentCancellationResult.NoDeploymentInProcess
-
-        return try {
-            requestDeploymentCancellationForDeploymentId(deployment.id)
-        } catch (_: DeploymentNotFoundException) {
-            throw InternalDataIntegrityException("Deployment ${deployment.id} disappeared after just being found as active deployment for $serviceId")
-        }
-    }
-
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    fun requestDeploymentCancellationForDeploymentId(
         deploymentId: UUID
     ): ManagedServiceDeploymentCancellationResult {
         val deployment = deploymentRepository.findById(deploymentId).orElseThrow {

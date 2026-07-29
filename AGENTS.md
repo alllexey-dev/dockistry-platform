@@ -474,6 +474,12 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `desiredState`; pause/unpause его не меняют. При runtime failure lifecycle
   возвращается в `ACTIVE`; при ошибке финализации transient status остается для
   будущего repair.
+- Runtime executor и repair transient lifecycle сериализуются через
+  `ManagedServiceOperationGate` на session-level PostgreSQL advisory lock. Это
+  сознательно не является полноценным fencing: если PostgreSQL session потеряна, пока
+  executor продолжает Docker operation, lock может исчезнуть раньше executor. Такой
+  узкий failure path принят как допустимый; более сильный runtime fencing сейчас не
+  планируется.
 - Удаление ManagedService является многофазным flow: короткая транзакция под row lock
   проверяет отсутствие active deployment, сохраняет deletion context с пользовательским
   `removeVolumes` и фиксирует `ACTIVE -> DELETING`. Затем общий
