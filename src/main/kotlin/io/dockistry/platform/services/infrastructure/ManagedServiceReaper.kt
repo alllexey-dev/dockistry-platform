@@ -11,6 +11,7 @@ import io.dockistry.platform.services.application.ManagedServiceDeploymentFinali
 import io.dockistry.platform.services.application.ManagedServiceDeploymentLifecycleService
 import io.dockistry.platform.services.application.ManagedServiceDeploymentOperationGate
 import io.dockistry.platform.services.application.ManagedServiceDeletionExecutor
+import io.dockistry.platform.services.application.ManagedServiceOperationGate
 import io.dockistry.platform.services.domain.DeploymentNotFoundException
 import io.dockistry.platform.services.domain.ManagedServiceDeployment
 import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
@@ -30,7 +31,8 @@ class ManagedServiceReaper(
     private val serviceRepository: ManagedServiceRepository,
     private val deletionExecutor: ManagedServiceDeletionExecutor,
     private val properties: ManagedServiceReaperProperties,
-    private val deploymentOperationGate: ManagedServiceDeploymentOperationGate
+    private val deploymentOperationGate: ManagedServiceDeploymentOperationGate,
+    private val serviceOperationGate: ManagedServiceOperationGate
 ) {
     companion object {
         private val logger = LoggerFactory.getLogger(ManagedServiceReaper::class.java)
@@ -96,11 +98,29 @@ class ManagedServiceReaper(
 
     private fun processStuckRuntimeOperations() {
         val current = clock.instant()
-        serviceRepository.setStuckServicesToActive(
+        val stuckOperations = serviceRepository.findStuckRuntimeOperations(
             updatedBefore = current.minus(properties.runtimeOperationTimeout),
-            updatedAt = current,
             batchLimit = properties.runtimeOperationBatchLimit
         )
+
+        stuckOperations.forEach { operation ->
+            try {
+                serviceOperationGate.withLock(operation.id) {
+                    serviceRepository.setRuntimeOperationToActiveIfVersion(
+                        serviceId = operation.id,
+                        expectedVersion = operation.version,
+                        updatedAt = current
+                    )
+                }
+            } catch (exception: RuntimeException) {
+                logger.warn(
+                    "Failed to reap stuck runtime operation for service {}: {}",
+                    operation.id,
+                    exception.message,
+                    exception
+                )
+            }
+        }
     }
 
     private fun processStuckDeletingServices() {

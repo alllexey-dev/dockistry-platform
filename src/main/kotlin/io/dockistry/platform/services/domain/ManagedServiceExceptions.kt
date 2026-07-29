@@ -27,6 +27,19 @@ class ManagedServiceOperationInProgressException(
     message: String = "Another managed service operation is currently in progress"
 ) : ConflictException(message, "managed_service_operation_in_progress")
 
+class ManagedServiceOperationConcurrencyCheckFailureException :
+    InternalServerErrorException(
+        message = "Couldn't make sure there are no other managed service Docker " +
+                "operations running concurrently",
+        code = "managed_service_operation_concurrency_check_failure"
+    )
+
+class ManagedServiceExecutionCapacityExhaustedException :
+    ServiceUnavailableException(
+        message = "Managed service execution capacity is temporarily exhausted, try again later",
+        code = "managed_service_execution_capacity_exhausted"
+    )
+
 class ManagedServiceDeletionInProgressException(
     message: String = "Managed service deletion is currently in progress"
 ) : ConflictException(message, "managed_service_deletion_in_progress")

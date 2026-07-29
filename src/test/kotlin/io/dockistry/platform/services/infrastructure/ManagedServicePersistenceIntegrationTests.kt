@@ -37,6 +37,9 @@ class ManagedServicePersistenceIntegrationTests {
     @Autowired
     private lateinit var deploymentRepository: ManagedServiceDeploymentRepository
 
+    @Autowired
+    private lateinit var serviceRepository: ManagedServiceRepository
+
     @PersistenceContext
     private lateinit var entityManager: EntityManager
 
@@ -250,6 +253,86 @@ class ManagedServicePersistenceIntegrationTests {
         assertEquals(draft.restartPolicy, saved.configSnapshot.restartPolicy)
         assertEquals(draft.memoryLimitBytes, saved.configSnapshot.memoryLimitBytes)
         assertEquals(draft.cpuLimitNanoCpus, saved.configSnapshot.cpuLimitNanoCpus)
+    }
+
+    @Test
+    fun `stuck runtime operation is selected and reset with version CAS`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val service = managedService(
+            project = fixtures.project(),
+            name = "stuck-runtime-operation",
+            createdAt = CREATED_AT,
+            updatedAt = CREATED_AT
+        )
+        service.beginStart(CREATED_AT)
+        entityManager.persist(service)
+        entityManager.flush()
+        val serviceId = service.id
+        entityManager.clear()
+
+        val candidate = serviceRepository.findStuckRuntimeOperations(
+            updatedBefore = UPDATED_AT,
+            batchLimit = 10
+        ).single { it.id == serviceId }
+
+        assertEquals(0, candidate.version)
+        assertEquals(
+            1,
+            serviceRepository.setRuntimeOperationToActiveIfVersion(
+                serviceId = candidate.id,
+                expectedVersion = candidate.version,
+                updatedAt = UPDATED_AT
+            )
+        )
+        entityManager.clear()
+
+        val saved = entityManager.find(ManagedService::class.java, serviceId)
+        assertEquals(ManagedServiceLifecycleStatus.ACTIVE, saved.lifecycleStatus)
+        assertEquals(1, saved.version)
+        assertEquals(UPDATED_AT, saved.updatedAt)
+    }
+
+    @Test
+    fun `stuck runtime CAS does not overwrite a newer service version`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val service = managedService(
+            project = fixtures.project(),
+            name = "stale-runtime-operation",
+            createdAt = CREATED_AT,
+            updatedAt = CREATED_AT
+        )
+        service.beginStart(CREATED_AT)
+        entityManager.persist(service)
+        entityManager.flush()
+        val serviceId = service.id
+        entityManager.clear()
+
+        val candidate = serviceRepository.findStuckRuntimeOperations(
+            updatedBefore = UPDATED_AT,
+            batchLimit = 10
+        ).single { it.id == serviceId }
+        val concurrentlyUpdated = entityManager.find(ManagedService::class.java, serviceId)
+        concurrentlyUpdated.updateDesiredState(
+            ManagedServiceDesiredState.STOPPED,
+            UPDATED_AT
+        )
+        entityManager.flush()
+
+        assertEquals(
+            0,
+            serviceRepository.setRuntimeOperationToActiveIfVersion(
+                serviceId = candidate.id,
+                expectedVersion = candidate.version,
+                updatedAt = DELETION_REQUESTED_AT
+            )
+        )
+        entityManager.clear()
+
+        val saved = entityManager.find(ManagedService::class.java, serviceId)
+        assertEquals(ManagedServiceLifecycleStatus.STARTING, saved.lifecycleStatus)
+        assertEquals(ManagedServiceDesiredState.STOPPED, saved.desiredState)
+        assertEquals(1, saved.version)
+        assertEquals(UPDATED_AT, saved.updatedAt)
     }
 
     companion object {

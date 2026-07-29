@@ -6,6 +6,7 @@ import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
 import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.docker.infrastructure.LocalDockerAgentClient
+import io.dockistry.platform.services.application.dto.ManagedServiceRuntimeOperationContext
 import io.dockistry.platform.services.domain.ManagedServiceNotDeployedException
 import io.dockistry.platform.services.domain.ManagedServiceNotRunningException
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
@@ -16,94 +17,111 @@ import java.util.UUID
 class ManagedServiceRuntimeExecutor(
     private val runtimeLifecycleService: ManagedServiceRuntimeLifecycleService,
     private val deploymentLifecycleService: ManagedServiceDeploymentLifecycleService,
-    private val dockerAgentClient: LocalDockerAgentClient
+    private val dockerAgentClient: LocalDockerAgentClient,
+    private val serviceOperationGate: ManagedServiceOperationGate
 ) {
     fun start(serviceId: UUID) {
-        val operation = runtimeLifecycleService.beginStart(serviceId)
+        executeRuntimeOperation(
+            serviceId = serviceId,
+            beginTransition = runtimeLifecycleService::beginStart,
+            runtimeOperation = { operation ->
+                val container = findServiceContainer(
+                    projectId = operation.projectId,
+                    serviceId = serviceId
+                ) ?: throw ManagedServiceNotDeployedException(
+                    "Service can't be started because it's not deployed"
+                )
 
-        try {
-            val container = findServiceContainer(
-                projectId = operation.projectId,
-                serviceId = serviceId
-            ) ?: throw ManagedServiceNotDeployedException(
-                "Service can't be started because it's not deployed"
-            )
-
-            dockerAgentClient.startContainer(container.id)
-        } catch (exception: RuntimeException) {
-            failRuntimeOperation(exception) {
-                runtimeLifecycleService.failStart(operation)
-            }
-        }
-
-        runtimeLifecycleService.completeStart(operation)
+                dockerAgentClient.startContainer(container.id)
+            },
+            failTransition = runtimeLifecycleService::failStart,
+            completeTransition = runtimeLifecycleService::completeStart
+        )
     }
 
     fun stop(serviceId: UUID) {
-        val operation = runtimeLifecycleService.beginStop(serviceId)
-
-        try {
-            val stopSucceeded =
-                stopContainer(projectId = operation.projectId, serviceId = serviceId)
-                    || requestDeploymentCancellation(
+        executeRuntimeOperation(
+            serviceId = serviceId,
+            beginTransition = runtimeLifecycleService::beginStop,
+            runtimeOperation = { operation ->
+                val stopSucceeded =
+                    stopContainer(
+                        projectId = operation.projectId,
+                        serviceId = serviceId
+                    ) || requestDeploymentCancellation(
                         projectId = operation.projectId,
                         serviceId = serviceId
                     )
 
-            if (!stopSucceeded) {
-                throw ManagedServiceNotRunningException(
-                    "The service can't be stopped because it is neither deployed nor being deployed"
-                )
-            }
-        } catch (exception: RuntimeException) {
-            failRuntimeOperation(exception) {
-                runtimeLifecycleService.failStop(operation)
-            }
-        }
-
-        runtimeLifecycleService.completeStop(operation)
+                if (!stopSucceeded) {
+                    throw ManagedServiceNotRunningException(
+                        "The service can't be stopped because it is neither deployed nor being deployed"
+                    )
+                }
+            },
+            failTransition = runtimeLifecycleService::failStop,
+            completeTransition = runtimeLifecycleService::completeStop
+        )
     }
 
     fun pause(serviceId: UUID) {
-        val operation = runtimeLifecycleService.beginPause(serviceId)
+        executeRuntimeOperation(
+            serviceId = serviceId,
+            beginTransition = runtimeLifecycleService::beginPause,
+            runtimeOperation = { operation ->
+                val container = findServiceContainer(
+                    projectId = operation.projectId,
+                    serviceId = serviceId
+                ) ?: throw ManagedServiceNotDeployedException(
+                    "Service can't be paused because it's not deployed"
+                )
 
-        try {
-            val container = findServiceContainer(
-                projectId = operation.projectId,
-                serviceId = serviceId
-            ) ?: throw ManagedServiceNotDeployedException(
-                "Service can't be paused because it's not deployed"
-            )
-
-            dockerAgentClient.pauseContainer(container.id)
-        } catch (exception: RuntimeException) {
-            failRuntimeOperation(exception) {
-                runtimeLifecycleService.failPause(operation)
-            }
-        }
-
-        runtimeLifecycleService.completePause(operation)
+                dockerAgentClient.pauseContainer(container.id)
+            },
+            failTransition = runtimeLifecycleService::failPause,
+            completeTransition = runtimeLifecycleService::completePause
+        )
     }
 
     fun unpause(serviceId: UUID) {
-        val operation = runtimeLifecycleService.beginUnpause(serviceId)
+        executeRuntimeOperation(
+            serviceId = serviceId,
+            beginTransition = runtimeLifecycleService::beginUnpause,
+            runtimeOperation = { operation ->
+                val container = findServiceContainer(
+                    projectId = operation.projectId,
+                    serviceId = serviceId
+                ) ?: throw ManagedServiceNotDeployedException(
+                    "Service can't be unpaused because it's not deployed"
+                )
 
-        try {
-            val container = findServiceContainer(
-                projectId = operation.projectId,
-                serviceId = serviceId
-            ) ?: throw ManagedServiceNotDeployedException(
-                "Service can't be unpaused because it's not deployed"
-            )
+                dockerAgentClient.unpauseContainer(container.id)
+            },
+            failTransition = runtimeLifecycleService::failUnpause,
+            completeTransition = runtimeLifecycleService::completeUnpause
+        )
+    }
 
-            dockerAgentClient.unpauseContainer(container.id)
-        } catch (exception: RuntimeException) {
-            failRuntimeOperation(exception) {
-                runtimeLifecycleService.failUnpause(operation)
+    private fun executeRuntimeOperation(
+        serviceId: UUID,
+        beginTransition: (UUID) -> ManagedServiceRuntimeOperationContext,
+        runtimeOperation: (ManagedServiceRuntimeOperationContext) -> Unit,
+        failTransition: (ManagedServiceRuntimeOperationContext) -> Unit,
+        completeTransition: (ManagedServiceRuntimeOperationContext) -> Unit
+    ) {
+        serviceOperationGate.withLock(serviceId) {
+            val operation = beginTransition(serviceId)
+
+            try {
+                runtimeOperation(operation)
+            } catch (exception: RuntimeException) {
+                failRuntimeOperation(exception) {
+                    failTransition(operation)
+                }
             }
-        }
 
-        runtimeLifecycleService.completeUnpause(operation)
+            completeTransition(operation)
+        }
     }
 
     fun removeContainer(projectId: UUID, serviceId: UUID) {

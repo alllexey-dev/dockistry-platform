@@ -104,43 +104,47 @@ interface ManagedServiceRepository :
         @Param("attemptedAt") attemptedAt: Instant
     ): Int
 
-    @Transactional
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(
         value = """
-            WITH stuck_services AS (
-                SELECT id
-                FROM services
-                WHERE lifecycle_status IN (
-                    'STARTING',
-                    'STOPPING',
-                    'PAUSING',
-                    'UNPAUSING'
-                )
-                  AND updated_at < :updatedBefore
-                ORDER BY updated_at
-                LIMIT :batchLimit
+            SELECT id, version
+            FROM services
+            WHERE lifecycle_status IN (
+                'STARTING',
+                'STOPPING',
+                'PAUSING',
+                'UNPAUSING'
             )
-            UPDATE services service
-            SET lifecycle_status = 'ACTIVE',
-                updated_at = :updatedAt,
-                version = service.version + 1
-            FROM stuck_services
-            WHERE service.id = stuck_services.id
-              AND service.lifecycle_status IN (
-                  'STARTING',
-                  'STOPPING',
-                  'PAUSING',
-                  'UNPAUSING'
-              )
-              AND service.updated_at < :updatedBefore
+              AND updated_at < :updatedBefore
+            ORDER BY updated_at
+            LIMIT :batchLimit
         """,
         nativeQuery = true
     )
-    fun setStuckServicesToActive(
+    fun findStuckRuntimeOperations(
         @Param("updatedBefore") updatedBefore: Instant,
-        @Param("updatedAt") updatedAt: Instant,
         @Param("batchLimit") batchLimit: Long
+    ): List<StuckManagedServiceRuntimeOperation>
+
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        UPDATE ManagedService service
+        SET service.lifecycleStatus = ManagedServiceLifecycleStatus.ACTIVE,
+            service.updatedAt = :updatedAt,
+            service.version = service.version + 1
+        WHERE service.id = :serviceId
+          AND service.version = :expectedVersion
+          AND service.lifecycleStatus IN (
+              ManagedServiceLifecycleStatus.STARTING,
+              ManagedServiceLifecycleStatus.STOPPING,
+              ManagedServiceLifecycleStatus.PAUSING,
+              ManagedServiceLifecycleStatus.UNPAUSING
+          )
+    """)
+    fun setRuntimeOperationToActiveIfVersion(
+        @Param("serviceId") serviceId: UUID,
+        @Param("expectedVersion") expectedVersion: Long,
+        @Param("updatedAt") updatedAt: Instant
     ): Int
 
     @Query("""
@@ -156,4 +160,9 @@ interface ManagedServiceRepository :
         @Param("updatedBefore") updatedBefore: Instant,
         @Param("batchLimit") batchLimit: Long
     ): List<ManagedService>
+}
+
+interface StuckManagedServiceRuntimeOperation {
+    val id: UUID
+    val version: Long
 }
