@@ -25,6 +25,19 @@ interface ManagedServiceDeploymentRepository :
     ): List<ManagedServiceDeployment>
 
     @Query("""
+        SELECT deployment.id
+        FROM ManagedServiceDeployment deployment
+        WHERE deployment.service.id = :serviceId
+          AND deployment.status IN (
+              ManagedServiceDeploymentStatus.IN_PROCESS,
+              ManagedServiceDeploymentStatus.CANCELING
+          )
+    """)
+    fun findActiveIdsByServiceId(
+        @Param("serviceId") serviceId: UUID
+    ): List<UUID>
+
+    @Query("""
         SELECT EXISTS (
             SELECT 1
             FROM ManagedServiceDeployment deployment

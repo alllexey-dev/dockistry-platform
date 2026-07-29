@@ -166,13 +166,13 @@ class ManagedServiceRuntimeLifecycleService(
     }
 
     private fun findActiveDeploymentId(serviceId: UUID): UUID? {
-        val activeDeployments = deploymentRepository.findActiveByServiceId(serviceId)
-        if (activeDeployments.size > 1) {
+        val activeDeploymentIds = deploymentRepository.findActiveIdsByServiceId(serviceId)
+        if (activeDeploymentIds.size > 1) {
             throw InternalDataIntegrityException(
                 "Service $serviceId has more than one active deployment"
             )
         }
-        return activeDeployments.singleOrNull()?.id
+        return activeDeploymentIds.singleOrNull()
     }
 
     private fun requireOperation(

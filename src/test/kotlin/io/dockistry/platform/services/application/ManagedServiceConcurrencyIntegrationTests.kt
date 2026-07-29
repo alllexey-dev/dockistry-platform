@@ -1,6 +1,11 @@
 package io.dockistry.platform.services.application
 
+import com.github.dockerjava.api.DockerClient
 import io.dockistry.platform.TestcontainersConfig
+import io.dockistry.platform.docker.domain.model.DockerContainerSummary
+import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
+import io.dockistry.platform.docker.infrastructure.DockerAgentProperties
+import io.dockistry.platform.docker.infrastructure.LocalDockerAgentClient
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
@@ -9,7 +14,9 @@ import io.dockistry.platform.services.application.dto.ManagedServiceUpdateComman
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceAlreadyExistsException
 import io.dockistry.platform.services.domain.ManagedServiceConfigurationDraft
+import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
 import io.dockistry.platform.services.domain.ManagedServiceOperationInProgressException
+import io.dockistry.platform.services.infrastructure.ManagedServiceDeploymentRepository
 import io.dockistry.platform.services.infrastructure.ManagedServiceRepository
 import io.dockistry.platform.services.testsupport.managedService
 import io.dockistry.platform.services.testsupport.managedServiceDraft
@@ -41,6 +48,7 @@ import java.util.concurrent.TimeoutException
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 private const val TIMEOUT_SECONDS = 15L
@@ -68,7 +76,16 @@ class ManagedServiceConcurrencyIntegrationTests(
     private lateinit var runtimeLifecycleService: ManagedServiceRuntimeLifecycleService
 
     @Autowired
+    private lateinit var runtimeExecutor: ManagedServiceRuntimeExecutor
+
+    @Autowired
     private lateinit var managedServiceRepository: ManagedServiceRepository
+
+    @Autowired
+    private lateinit var deploymentRepository: ManagedServiceDeploymentRepository
+
+    @Autowired
+    private lateinit var dockerAgentClient: EmptyContainerDockerAgentClient
 
     @Autowired
     private lateinit var entityManager: EntityManager
@@ -197,6 +214,70 @@ class ManagedServiceConcurrencyIntegrationTests(
     }
 
     @Test
+    fun `stop does not cancel deployment that became active after begin stop captured another deployment`() {
+        val context = createServiceContext()
+        val replacementDeployment = deploymentLifecycleService.begin(context.serviceId)
+        deploymentLifecycleService.fail(
+            deploymentId = replacementDeployment.deploymentId,
+            errorMessage = "Prepared replacement deployment"
+        )
+        val capturedDeployment = deploymentLifecycleService.begin(context.serviceId)
+        assertNotEquals(
+            replacementDeployment.deploymentId,
+            capturedDeployment.deploymentId
+        )
+        assertEquals(
+            listOf(capturedDeployment.deploymentId),
+            activeDeploymentIds(context.serviceId)
+        )
+
+        val instantLatch = clock.armLatch()
+        val executor = Executors.newSingleThreadExecutor()
+        val stop = executor.submit {
+            clock.coordinate {
+                runtimeExecutor.stop(context.serviceId)
+            }
+        }
+
+        try {
+            assertTrue(
+                instantLatch.instantEntered.await(TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                "Stop didn't reach beginStop's clock call"
+            )
+
+            replaceActiveDeployment(
+                capturedDeploymentId = capturedDeployment.deploymentId,
+                replacementDeploymentId = replacementDeployment.deploymentId
+            )
+
+            assertEquals(
+                listOf(replacementDeployment.deploymentId),
+                activeDeploymentIds(context.serviceId)
+            )
+
+            instantLatch.instantContinue.countDown()
+            stop.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        } finally {
+            instantLatch.instantContinue.countDown()
+            executor.shutdownNow()
+            assertTrue(
+                executor.awaitTermination(TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                "Stop executor didn't terminate"
+            )
+            clock.disarm()
+        }
+
+        assertEquals(
+            ManagedServiceDeploymentStatus.CANCELED,
+            deploymentStatus(capturedDeployment.deploymentId)
+        )
+        assertEquals(
+            ManagedServiceDeploymentStatus.IN_PROCESS,
+            deploymentStatus(replacementDeployment.deploymentId)
+        )
+    }
+
+    @Test
     fun `concurrent same name creates produce one service and one typed conflict`() {
         val context = createProjectContext()
         val command = ManagedServiceCreateCommand(
@@ -271,6 +352,58 @@ class ManagedServiceConcurrencyIntegrationTests(
                 .count { it.name == name }
                 .toLong()
         }
+
+    private fun activeDeploymentIds(serviceId: UUID): List<UUID> =
+        inNewTransaction {
+            deploymentRepository.findActiveIdsByServiceId(serviceId)
+        }
+
+    private fun deploymentStatus(deploymentId: UUID): ManagedServiceDeploymentStatus =
+        inNewTransaction {
+            deploymentRepository.findById(deploymentId).orElseThrow().status
+        }
+
+    /**
+     * Models the active deployment changing after `beginStop` captured its ID, but before
+     * that transaction persisted the service transition. A regular deployment begin
+     * cannot create this deliberately adversarial state while the service row is locked,
+     * so the test promotes a pre-existing terminal deployment with direct deployment-row
+     * CAS updates.
+     */
+    private fun replaceActiveDeployment(
+        capturedDeploymentId: UUID,
+        replacementDeploymentId: UUID
+    ) {
+        inNewTransaction {
+            val updatedAt = clock.instant()
+            val canceledRows = entityManager.createNativeQuery("""
+                UPDATE service_deployments
+                SET status = 'CANCELED',
+                    cleanup_error_message = NULL,
+                    last_cleanup_attempt_at = :updatedAt,
+                    updated_at = :updatedAt
+                WHERE id = :deploymentId
+                  AND status = 'IN_PROCESS'
+            """.trimIndent())
+                .setParameter("deploymentId", capturedDeploymentId)
+                .setParameter("updatedAt", updatedAt)
+                .executeUpdate()
+            assertEquals(1, canceledRows)
+
+            val activatedRows = entityManager.createNativeQuery("""
+                UPDATE service_deployments
+                SET status = 'IN_PROCESS',
+                    error_message = NULL,
+                    updated_at = :updatedAt
+                WHERE id = :deploymentId
+                  AND status = 'FAILED'
+            """.trimIndent())
+                .setParameter("deploymentId", replacementDeploymentId)
+                .setParameter("updatedAt", updatedAt)
+                .executeUpdate()
+            assertEquals(1, activatedRows)
+        }
+    }
 
     private fun createProjectContextInternal(): ProjectContext {
         val fixtures = IamProjectFixtures(entityManager)
@@ -378,12 +511,35 @@ class ManagedServiceConcurrencyIntegrationTests(
         fun barrierClock(): BarrierClock {
             return BarrierClock(Instant.parse("2026-01-01T00:00:00Z"))
         }
+
+        @Bean
+        @Primary
+        fun fakeDockerAgentClient(
+            dockerClient: DockerClient,
+            dockerAgentProperties: DockerAgentProperties
+        ): EmptyContainerDockerAgentClient {
+            return EmptyContainerDockerAgentClient(
+                dockerClient = dockerClient,
+                dockerAgentProperties = dockerAgentProperties
+            )
+        }
+    }
+}
+
+class EmptyContainerDockerAgentClient(
+    dockerClient: DockerClient,
+    dockerAgentProperties: DockerAgentProperties
+) : LocalDockerAgentClient(dockerClient, dockerAgentProperties) {
+    override fun listContainers(
+        filter: DockerLabelsFilter
+    ): List<DockerContainerSummary> {
+        return emptyList()
     }
 }
 
 /**
- * Fixed test clock that also provides a deterministic rendezvous at the production
- * write boundary.
+ * Fixed test clock that also provides deterministic coordination at production write
+ * boundaries.
  *
  * `ManagedServiceCreateExecutor` obtains the current time after its pre-check and
  * immediately before creating persistent state. Registering this clock as `@Primary`
@@ -391,15 +547,18 @@ class ManagedServiceConcurrencyIntegrationTests(
  * production code or relying on thread timing.
  *
  * The Spring context may use the same primary [Clock] for unrelated work. Only threads
- * wrapped by [coordinate] participate in the barrier; every other caller receives the
- * fixed time immediately. The volatile barrier publishes the instance installed by the
- * test thread to worker threads.
+ * wrapped by [coordinate] participate in an armed barrier or latch; every other caller
+ * receives the fixed time immediately. Volatile coordination state publishes the
+ * primitive installed by the test thread to worker threads.
  */
 class BarrierClock(
     private val current: Instant
 ) : Clock() {
     @Volatile
     private var barrier: CyclicBarrier? = null
+
+    @Volatile
+    private var instantLatch: InstantLatch? = null
 
     private val participatingThread = ThreadLocal.withInitial { false }
 
@@ -410,8 +569,26 @@ class BarrierClock(
      * than silently replacing a barrier that workers may still be using.
      */
     fun arm(parties: Int) {
-        check(barrier == null) { "Barrier clock is already armed" }
+        check(barrier == null && instantLatch == null) {
+            "Barrier clock is already armed"
+        }
         barrier = CyclicBarrier(parties)
+    }
+
+    /**
+     * Installs one-way latches for a worker that must pause at its next clock call.
+     *
+     * The test waits for [InstantLatch.instantEntered], changes the concurrent database
+     * state, then releases [InstantLatch.instantContinue]. The same continue latch may
+     * safely be observed by later clock calls in that worker because it stays open.
+     */
+    fun armLatch(): InstantLatch {
+        check(barrier == null && instantLatch == null) {
+            "Barrier clock is already armed"
+        }
+        return InstantLatch().also {
+            instantLatch = it
+        }
     }
 
     /**
@@ -430,21 +607,29 @@ class BarrierClock(
     }
 
     /**
-     * Clears the active barrier after a concurrent run, including exceptional exits, so
-     * no synchronization state leaks into the next test.
+     * Clears active coordination after a concurrent run, including exceptional exits,
+     * so no synchronization state leaks into the next test.
      */
     fun disarm() {
         barrier = null
+        instantLatch = null
     }
 
     /**
-     * Returns [current] immediately for ordinary callers. Participating workers wait
-     * until every task reaches the same production clock call, then all receive the same
-     * timestamp. The timeout converts a missing participant into a bounded test failure
-     * instead of a deadlock.
+     * Returns [current] immediately for ordinary callers. Participating workers wait on
+     * the armed latch or until every barrier party reaches the same production clock
+     * call. The timeout converts missing coordination into a bounded test failure.
      */
     override fun instant(): Instant {
         if (!participatingThread.get()) {
+            return current
+        }
+
+        instantLatch?.let {
+            it.instantEntered.countDown()
+            check(it.instantContinue.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                "Timed out waiting to continue from coordinated clock call"
+            }
             return current
         }
 
@@ -459,13 +644,18 @@ class BarrierClock(
     override fun getZone(): ZoneId = ZoneOffset.UTC
 
     /**
-     * Keeps barrier behavior when UTC is requested. Other zones receive a regular fixed
-     * clock because concurrency coordination is scoped to the injected UTC test bean.
+     * Keeps coordination behavior when UTC is requested. Other zones receive a regular
+     * fixed clock because coordination is scoped to the injected UTC test bean.
      */
     override fun withZone(zone: ZoneId): Clock {
         return if (zone == ZoneOffset.UTC) this else fixed(current, zone)
     }
 }
+
+class InstantLatch(
+    val instantEntered: CountDownLatch = CountDownLatch(1),
+    val instantContinue: CountDownLatch = CountDownLatch(1)
+)
 
 private data class ProjectContext(
     val projectId: UUID,
