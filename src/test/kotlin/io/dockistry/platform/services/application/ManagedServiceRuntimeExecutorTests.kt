@@ -8,6 +8,7 @@ import io.dockistry.platform.services.application.ports.ExecutionGate
 import io.dockistry.platform.services.application.ports.ExecutionGateLockTimeoutException
 import io.dockistry.platform.services.domain.ManagedServiceLifecycleStatus
 import io.dockistry.platform.services.domain.ManagedServiceOperationInProgressException
+import io.dockistry.platform.services.infrastructure.DeploymentOperationGateConfig
 import io.dockistry.platform.services.infrastructure.ServiceOperationGateConfig
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -47,6 +48,14 @@ class ManagedServiceRuntimeExecutorTests {
             serviceOperationGate = ManagedServiceOperationGate(
                 executionGate = executionGate,
                 config = ServiceOperationGateConfig(Duration.ofSeconds(5))
+            ),
+            cleanupService = ManagedServiceDeploymentCleanupService(
+                dockerAgentClient = dockerAgentClient,
+                deploymentLifecycleService = deploymentLifecycleService,
+                deploymentOperationGate = ManagedServiceDeploymentOperationGate(
+                    executionGate = executionGate,
+                    config = DeploymentOperationGateConfig(Duration.ofSeconds(5))
+                )
             )
         )
     }

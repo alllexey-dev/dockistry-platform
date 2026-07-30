@@ -19,7 +19,8 @@ class ManagedServiceRuntimeExecutor(
     private val runtimeLifecycleService: ManagedServiceRuntimeLifecycleService,
     private val deploymentLifecycleService: ManagedServiceDeploymentLifecycleService,
     private val dockerAgentClient: LocalDockerAgentClient,
-    private val serviceOperationGate: ManagedServiceOperationGate
+    private val serviceOperationGate: ManagedServiceOperationGate,
+    private val cleanupService: ManagedServiceDeploymentCleanupService
 ) {
     fun start(serviceId: UUID) {
         executeRuntimeOperation(
@@ -41,7 +42,7 @@ class ManagedServiceRuntimeExecutor(
     }
 
     fun stop(serviceId: UUID) {
-        executeRuntimeOperation(
+        val operation = executeRuntimeOperation(
             serviceId = serviceId,
             beginTransition = runtimeLifecycleService::beginStop,
             runtimeOperation = { operation ->
@@ -60,6 +61,13 @@ class ManagedServiceRuntimeExecutor(
             failTransition = runtimeLifecycleService::failStop,
             completeTransition = runtimeLifecycleService::completeStop
         )
+        if (operation.deploymentId != null) {
+            cleanupService.cleanup(
+                projectId = operation.projectId,
+                serviceId = operation.serviceId,
+                deploymentId = operation.deploymentId
+            )
+        }
     }
 
     fun pause(serviceId: UUID) {
@@ -106,8 +114,8 @@ class ManagedServiceRuntimeExecutor(
         runtimeOperation: (ManagedServiceRuntimeOperationContext) -> Unit,
         failTransition: (ManagedServiceRuntimeOperationContext) -> Unit,
         completeTransition: (ManagedServiceRuntimeOperationContext) -> Unit
-    ) {
-        serviceOperationGate.withLock(serviceId) {
+    ): ManagedServiceRuntimeOperationContext {
+        return serviceOperationGate.withLock(serviceId) {
             val operation = beginTransition(serviceId)
 
             try {
@@ -119,6 +127,7 @@ class ManagedServiceRuntimeExecutor(
             }
 
             completeTransition(operation)
+            operation
         }
     }
 
