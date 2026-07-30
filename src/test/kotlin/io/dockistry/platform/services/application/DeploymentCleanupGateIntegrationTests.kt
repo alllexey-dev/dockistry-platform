@@ -21,6 +21,8 @@ import io.dockistry.platform.docker.domain.model.DockerImageSummary
 import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.docker.domain.model.DockerNetworkRef
 import io.dockistry.platform.docker.domain.model.DockerVolumeRef
+import io.dockistry.platform.projects.domain.ProjectExecutionCapacityExhaustedException
+import io.dockistry.platform.projects.domain.ProjectOperationConcurrencyCheckFailureException
 import io.dockistry.platform.services.application.ports.ExecutionGate
 import io.dockistry.platform.services.application.ports.ExecutionGateLockFailureException
 import io.dockistry.platform.services.application.ports.ExecutionGateLockTimeoutException
@@ -252,8 +254,14 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     }
 
     @Test
-    fun `cleanup cannot pass network creation and cancellation completes afterwards`() {
-        val context = createServiceContext()
+    fun `cleanup can pass network creation and cancellation completes afterwards`() {
+        val volumeName = randomResourceName("data")
+        val context = createServiceContext(
+            volume = ServiceVolumeMount(
+                name = volumeName,
+                mountPath = "/data/$volumeName"
+            )
+        )
         val createNetworkEntered = CountDownLatch(1)
         val networkCreationAllowed = CountDownLatch(1)
         val afterCreateNetwork = CountDownLatch(1)
@@ -276,7 +284,15 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             await(createNetworkEntered, "Network creation wasn't entered")
             val deploymentId = requestCancellation(context.serviceId)
 
-            assertCleanupBlocked(context, deploymentId)
+            cleanupService.cleanup(
+                projectId = context.projectId,
+                serviceId = context.serviceId,
+                deploymentId = deploymentId
+            )
+            assertDeploymentStatus(
+                deploymentId,
+                ManagedServiceDeploymentStatus.CANCELED
+            )
             networkCreationAllowed.countDown()
             await(afterCreateNetwork, "Network wasn't created")
 
@@ -294,6 +310,14 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).getOrThrow()
             }
 
+            assertTrue(
+                dockerAgentClient.createdVolumes.isEmpty(),
+                "Canceled deployment created a volume after network creation"
+            )
+            assertTrue(
+                dockerAgentClient.createdContainerCommands.isEmpty(),
+                "Canceled deployment created a container after network creation"
+            )
             assertEquals(
                 createdNetwork,
                 dockerAgentClient.networksByName[createdNetwork.name],
@@ -629,7 +653,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 deployExecutor.deploy(context.serviceId)
             }
 
-            assertIs<DeploymentExecutionCapacityExhaustedException>(
+            assertIs<ProjectExecutionCapacityExhaustedException>(
                 failure.suppressed.single()
             )
             assertDeploymentRemainsInProcess(context.serviceId)
@@ -644,7 +668,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     fun `same deployment timeout leaves deployment in process when failure cannot be recorded`() {
         val context = createServiceContext()
         val deploymentPublished =
-            controllableExecutionGate.armForPublication()
+            controllableExecutionGate.armForPublication(publicationsToSkip = 1)
         val holderEntered = CountDownLatch(1)
         val holderRelease = CountDownLatch(1)
         val pool = Executors.newFixedThreadPool(2)
@@ -700,7 +724,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 }
             }
 
-        assertIs<DeploymentOperationConcurrencyCheckFailureException>(
+        assertIs<ProjectOperationConcurrencyCheckFailureException>(
             failure.suppressed.single()
         )
         assertDeploymentRemainsInProcess(context.serviceId)
@@ -711,7 +735,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         val context = createServiceContext()
 
         val failure =
-            assertFailsWith<DeploymentOperationConcurrencyCheckFailureException> {
+            assertFailsWith<ProjectOperationConcurrencyCheckFailureException> {
                 controllableExecutionGate.failNext(
                     count = 1,
                     failureFactory = ::simulatedExecutionGateLockFailure
@@ -932,8 +956,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         var publishedAdvisoryLockKey: Long? = null
             private set
 
+        @Volatile
+        private var publicationsToSkip: Int = 0
+
         @Synchronized
-        fun armForPublication(): CountDownLatch {
+        fun armForPublication(publicationsToSkip: Int = 0): CountDownLatch {
             check(deploymentPublished == null) {
                 "Deployment publication is already armed"
             }
@@ -942,6 +969,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             this.deploymentPublished = deploymentPublished
             afterPublicationAllowContinue = CountDownLatch(1)
             publishedAdvisoryLockKey = null
+            this.publicationsToSkip = publicationsToSkip
 
             return deploymentPublished
         }
@@ -951,6 +979,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             afterPublicationAllowContinue?.countDown()
             deploymentPublished = null
             afterPublicationAllowContinue = null
+            publicationsToSkip = 0
         }
 
         fun <T> failNext(
@@ -988,6 +1017,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             val deploymentPublished = deploymentPublished ?: return
             val afterPublicationAllowContinue =
                 afterPublicationAllowContinue ?: return
+
+            if (publicationsToSkip > 0) {
+                publicationsToSkip -= 1
+                return
+            }
 
             publishedAdvisoryLockKey = advisoryLockKey
             deploymentPublished.countDown()

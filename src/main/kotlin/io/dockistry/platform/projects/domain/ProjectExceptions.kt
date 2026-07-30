@@ -2,7 +2,9 @@ package io.dockistry.platform.projects.domain
 
 import io.dockistry.platform.shared.exception.BadRequestException
 import io.dockistry.platform.shared.exception.ConflictException
+import io.dockistry.platform.shared.exception.InternalServerErrorException
 import io.dockistry.platform.shared.exception.NotFoundException
+import io.dockistry.platform.shared.exception.ServiceUnavailableException
 
 class InvalidProjectNameException(
     message: String
@@ -23,6 +25,25 @@ class ProjectAlreadyExistsException(
 class ProjectVersionConflictException(
     message: String
 ) : ConflictException(message, "project_version_conflict")
+
+class ProjectOperationInProgressException :
+    ConflictException(
+        message = "Another project-related Docker operation is currently in progress",
+        code = "project_operation_in_progress"
+    )
+
+class ProjectOperationConcurrencyCheckFailureException :
+    InternalServerErrorException(
+        message = "Couldn't make sure there are no other project-related " +
+                "Docker operations running concurrently",
+        code = "project_operation_concurrency_check_failure"
+    )
+
+class ProjectExecutionCapacityExhaustedException :
+    ServiceUnavailableException(
+        message = "Project execution capacity is temporarily exhausted, try again later",
+        code = "project_execution_capacity_exhausted"
+    )
 
 class ProjectRoleNotAssignableException(
     message: String

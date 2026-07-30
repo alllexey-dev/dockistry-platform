@@ -36,7 +36,8 @@ class ManagedServiceDeployExecutor(
     private val projectVolumeService: ProjectVolumeService,
     private val deploymentRepository: ManagedServiceDeploymentRepository,
     private val dockerAgentClient: DockerAgentClient,
-    private val deploymentOperationGate: ManagedServiceDeploymentOperationGate
+    private val deploymentOperationGate: ManagedServiceDeploymentOperationGate,
+    private val projectOperationGate: ProjectOperationGate
 ) {
 
     companion object {
@@ -188,7 +189,7 @@ class ManagedServiceDeployExecutor(
     private fun createCommand(
         plan: ManagedServiceDeploymentPlan
     ): DockerContainerCreateCommand {
-        val networkName = deploymentOperationGate.withLock(plan.deploymentId) {
+        val networkName = projectOperationGate.withLock(plan.projectId) {
             throwIfDeploymentCanceled(plan)
             ensureNetworkAndGetName(plan)
         }
