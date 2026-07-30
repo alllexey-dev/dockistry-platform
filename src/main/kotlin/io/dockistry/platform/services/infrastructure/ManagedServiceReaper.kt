@@ -173,12 +173,13 @@ class ManagedServiceReaper(
         val markedCanceling = markCancelingActions.filter { action ->
             try {
                 deploymentOperationGate.withLock(action.deploymentId) {
-                    if (getContainerSummary(
-                            projectId = action.projectId,
-                            serviceId = action.serviceId,
-                            deploymentId = action.deploymentId
-                        )?.state == DockerContainerState.RUNNING
-                    ) {
+                    val container = getContainerSummary(
+                        projectId = action.projectId,
+                        serviceId = action.serviceId,
+                        deploymentId = action.deploymentId
+                    )
+
+                    if (container != null && container.state != DockerContainerState.CREATED) {
                         return@withLock false
                     }
 
@@ -239,14 +240,15 @@ class ManagedServiceReaper(
             markFinishedActions.forEach { (action, type) ->
                 try {
                     deploymentOperationGate.withLock(action.deploymentId) {
-                        if (getContainerSummary(
-                                projectId = action.projectId,
-                                serviceId = action.serviceId,
-                                deploymentId = action.deploymentId
-                            )?.let {
-                                it.state != DockerContainerState.RUNNING ||
-                                        it.id != type.containerId
-                            } ?: true
+                        val container = getContainerSummary(
+                            projectId = action.projectId,
+                            serviceId = action.serviceId,
+                            deploymentId = action.deploymentId
+                        ) ?: return@withLock
+
+                        if (container.id != type.containerId
+                            || container.state == DockerContainerState.UNKNOWN
+                            || container.state == DockerContainerState.CREATED
                         ) {
                             return@withLock
                         }
@@ -303,32 +305,42 @@ class ManagedServiceReaper(
                     deploymentId = deploymentId
                 )
             )
-        ).let {
+        ).also {
             if (it.size > 1) {
                 logger.warn(
                     "Docker agent client returned {} containers for deployment {} Docker labels",
                     it.size,
                     deploymentId
                 )
-                null
-            } else it
-        }?.singleOrNull()
+                throw InternalDataIntegrityException("Docker agent client returned ${it.size} containers for $deploymentId deployment's Docker labels")
+            }
+        }.singleOrNull()
     }
 
     private fun decideActionForInProcessDeployment(deployment: ManagedServiceDeployment):
-            DeploymentReaperAction {
+            DeploymentReaperAction? {
         val container = getContainerSummary(
             projectId = deployment.service.project.id,
             serviceId = deployment.service.id,
             deploymentId = deployment.id
         )
 
+        if (container?.state == DockerContainerState.UNKNOWN) {
+            logger.warn(
+                "Container {} of deployment {} is in state {} and is skipped for reaper action",
+                container.id,
+                deployment.id,
+                container.state
+            )
+            return null
+        }
+
         return DeploymentReaperAction(
             projectId = deployment.service.project.id,
             serviceId = deployment.service.id,
             deploymentId = deployment.id,
             type =
-                if (container != null && container.state == DockerContainerState.RUNNING)
+                if (container != null && container.state != DockerContainerState.CREATED)
                     DeploymentReaperActionType.MarkFinished(
                         container.id
                     )
