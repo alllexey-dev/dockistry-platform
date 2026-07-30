@@ -151,6 +151,18 @@ class ManagedServiceDeploymentLifecycleService(
         ) {
             return ManagedServiceDeploymentCancellationResult.Requested
         }
+
+        if (deployment.status == ManagedServiceDeploymentStatus.FINISHED) {
+            return ManagedServiceDeploymentCancellationResult.DeploymentFinished(
+                deployment.containerId
+                    ?: throw InternalDataIntegrityException("Deployment $deploymentId marked FINISHED but has no container ID")
+            )
+        }
+
+        if (deployment.status == ManagedServiceDeploymentStatus.FAILED) {
+            return ManagedServiceDeploymentCancellationResult.NoDeploymentInProcess
+        }
+
         if (deployment.status != ManagedServiceDeploymentStatus.IN_PROCESS) {
             throw unexpectedState(
                 deploymentId = deployment.id,
