@@ -59,7 +59,8 @@ class ManagedServiceReaperTests {
             runtimeOperationBatchLimit = RUNTIME_BATCH_LIMIT,
             deletingServiceTimeout = Duration.ofMinutes(1),
             deletingServiceBatchLimit = 100,
-            serviceOperationGateTimeout = REAPER_GATE_TIMEOUT
+            deploymentOperationGateLockTimeout = REAPER_GATE_TIMEOUT,
+            serviceOperationGateLockTimeout = REAPER_GATE_TIMEOUT
         )
         Mockito.`when`(
             deploymentRepository.findStuckDeploymentsWithProjectId(
@@ -67,7 +68,7 @@ class ManagedServiceReaperTests {
                 properties.deploymentBatchLimit
             )
         ).thenReturn(emptyList())
-        Mockito.`when`(
+        Mockito.lenient().`when`(
             serviceRepository.findStuckDeletingServices(
                 NOW.minus(properties.deletingServiceTimeout),
                 properties.deletingServiceBatchLimit

@@ -12,6 +12,7 @@ import io.dockistry.platform.services.application.ManagedServiceDeploymentLifecy
 import io.dockistry.platform.services.application.ManagedServiceDeploymentOperationGate
 import io.dockistry.platform.services.application.ManagedServiceDeletionExecutor
 import io.dockistry.platform.services.application.ManagedServiceOperationGate
+import io.dockistry.platform.services.domain.DeploymentExecutionCapacityExhaustedException
 import io.dockistry.platform.services.domain.DeploymentNotFoundException
 import io.dockistry.platform.services.domain.ManagedServiceDeployment
 import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
@@ -41,49 +42,64 @@ class ManagedServiceReaper(
     }
 
     fun execute() {
+        try {
+            processDeploymentActions(prepareDeploymentActions())
+            processStuckServices()
+        } catch (exception: ManagedServiceExecutionCapacityExhaustedException) {
+            logger.warn(
+                "Service operation gate's capacity is currently exhausted, quitting this reaper run: {}",
+                exception.message,
+                exception
+            )
+        } catch (exception: DeploymentExecutionCapacityExhaustedException) {
+            logger.warn(
+                "Deployment operation gate's capacity is currently exhausted, quitting this reaper run: {}",
+                exception.message,
+                exception
+            )
+        }
+    }
+
+    private fun prepareDeploymentActions(): List<DeploymentReaperAction> {
         val updatedBefore = clock.instant().minus(properties.deploymentTimeout)
 
-        processDeploymentActions(
-            deploymentRepository.findStuckDeploymentsWithProjectId(
-                updatedBefore,
-                properties.deploymentBatchLimit
-            )
-                .mapNotNull { deployment ->
-                    when (deployment.status) {
-                        ManagedServiceDeploymentStatus.IN_PROCESS -> try {
-                            decideActionForInProcessDeployment(
-                                deployment
-                            )
-                        } catch (exception: RuntimeException) {
-                            logger.warn(
-                                "Failed to pick reaper action for deployment {}: {}",
-                                deployment.id,
-                                exception.message,
-                                exception
-                            )
-                            null
-                        }
-
-                        ManagedServiceDeploymentStatus.CANCELING -> DeploymentReaperAction(
-                            projectId = deployment.service.project.id,
-                            serviceId = deployment.service.id,
-                            deploymentId = deployment.id,
-                            type = DeploymentReaperActionType.CleanupAndCancel
+        return deploymentRepository.findStuckDeploymentsWithProjectId(
+            updatedBefore,
+            properties.deploymentBatchLimit
+        )
+            .mapNotNull { deployment ->
+                when (deployment.status) {
+                    ManagedServiceDeploymentStatus.IN_PROCESS -> try {
+                        decideActionForInProcessDeployment(
+                            deployment
                         )
+                    } catch (exception: RuntimeException) {
+                        logger.warn(
+                            "Failed to pick reaper action for deployment {}: {}",
+                            deployment.id,
+                            exception.message,
+                            exception
+                        )
+                        null
+                    }
 
-                        else -> {
-                            logger.warn(
-                                "Deployment {} with status {} is considered stuck by deployment repo",
-                                deployment.id,
-                                deployment.status
-                            )
-                            null
-                        }
+                    ManagedServiceDeploymentStatus.CANCELING -> DeploymentReaperAction(
+                        projectId = deployment.service.project.id,
+                        serviceId = deployment.service.id,
+                        deploymentId = deployment.id,
+                        type = DeploymentReaperActionType.CleanupAndCancel
+                    )
+
+                    else -> {
+                        logger.warn(
+                            "Deployment {} with status {} is considered stuck by deployment repo",
+                            deployment.id,
+                            deployment.status
+                        )
+                        null
                     }
                 }
-        )
-
-        processStuckServices()
+            }
     }
 
     private fun processDeploymentActions(actions: Collection<DeploymentReaperAction>) {
@@ -109,7 +125,7 @@ class ManagedServiceReaper(
             try {
                 serviceOperationGate.withLock(
                     serviceId = operation.id,
-                    timeout = properties.serviceOperationGateTimeout
+                    timeout = properties.serviceOperationGateLockTimeout
                 ) {
                     serviceRepository.setRuntimeOperationToActiveIfVersion(
                         serviceId = operation.id,
@@ -118,12 +134,7 @@ class ManagedServiceReaper(
                     )
                 }
             } catch (exception: ManagedServiceExecutionCapacityExhaustedException) {
-                logger.warn(
-                    "Service operation gate's capacity is currently exhausted, quitting processing stuck runtime operations {}",
-                    exception.message,
-                    exception
-                )
-                return
+                throw exception
             } catch (exception: RuntimeException) {
                 logger.warn(
                     "Failed to reap stuck runtime operation for service {}: {}",
@@ -148,6 +159,8 @@ class ManagedServiceReaper(
                 )
             } catch (_: ManagedServiceNotFoundException) {
                 // Concurrent deletion succeeded
+            } catch (exception: ManagedServiceExecutionCapacityExhaustedException) {
+                throw exception
             } catch (exception: RuntimeException) {
                 logger.warn(
                     "Failed to delete stuck deleting service {}: {}",
@@ -175,7 +188,10 @@ class ManagedServiceReaper(
 
         val markedCanceling = markCancelingActions.filter { action ->
             try {
-                deploymentOperationGate.withLock(action.deploymentId) {
+                deploymentOperationGate.withLock(
+                    deploymentId = action.deploymentId,
+                    timeout = properties.deploymentOperationGateLockTimeout
+                ) {
                     val container = getContainerSummary(
                         projectId = action.projectId,
                         serviceId = action.serviceId,
@@ -190,6 +206,8 @@ class ManagedServiceReaper(
                         deploymentId = action.deploymentId
                     ) == ManagedServiceDeploymentCancellationResult.Requested
                 }
+            } catch (exception: DeploymentExecutionCapacityExhaustedException) {
+                throw exception
             } catch (exception: DeploymentNotFoundException) {
                 logger.warn(
                     "Deployment {} disappeared before a cancellation could be requested",
@@ -219,6 +237,8 @@ class ManagedServiceReaper(
                     serviceId = action.serviceId,
                     deploymentId = action.deploymentId
                 )
+            } catch (exception: DeploymentExecutionCapacityExhaustedException) {
+                throw exception
             } catch (exception: RuntimeException) {
                 logger.warn(
                     "Deployment cleanup failed for deployment {}: {}",
@@ -239,57 +259,54 @@ class ManagedServiceReaper(
         }
 
         val requireCleanupAndCancel = mutableListOf<DeploymentReaperAction>()
-        try {
-            markFinishedActions.forEach { (action, type) ->
-                try {
-                    deploymentOperationGate.withLock(action.deploymentId) {
-                        val container = getContainerSummary(
-                            projectId = action.projectId,
-                            serviceId = action.serviceId,
-                            deploymentId = action.deploymentId
-                        ) ?: return@withLock
+        markFinishedActions.forEach { (action, type) ->
+            try {
+                deploymentOperationGate.withLock(
+                    deploymentId = action.deploymentId,
+                    timeout = properties.deploymentOperationGateLockTimeout
+                ) {
+                    val container = getContainerSummary(
+                        projectId = action.projectId,
+                        serviceId = action.serviceId,
+                        deploymentId = action.deploymentId
+                    ) ?: return@withLock
 
-                        if (container.id != type.containerId
-                            || container.state == DockerContainerState.UNKNOWN
-                            || container.state == DockerContainerState.CREATED
-                        ) {
-                            return@withLock
-                        }
-
-                        val finishResult = deploymentLifecycleService.finish(
-                            deploymentId = action.deploymentId,
-                            containerId = type.containerId
-                        )
-
-                        if (finishResult ==
-                            ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED
-                        ) {
-
-                            requireCleanupAndCancel.add(
-                                DeploymentReaperAction(
-                                    projectId = action.projectId,
-                                    serviceId = action.serviceId,
-                                    deploymentId = action.deploymentId,
-                                    type = DeploymentReaperActionType.CleanupAndCancel
-                                )
-                            )
-                        }
+                    if (container.id != type.containerId
+                        || container.state == DockerContainerState.UNKNOWN
+                        || container.state == DockerContainerState.CREATED
+                    ) {
+                        return@withLock
                     }
-                } catch (exception: InternalDataIntegrityException) {
-                    logger.warn(
-                        "Internal data integrity exception encountered while marking deployment {} finished: {}",
-                        action.deploymentId,
-                        exception.message,
-                        exception
+
+                    val finishResult = deploymentLifecycleService.finish(
+                        deploymentId = action.deploymentId,
+                        containerId = type.containerId
                     )
+
+                    if (finishResult ==
+                        ManagedServiceDeploymentFinalizationResult.CANCELLATION_REQUESTED
+                    ) {
+
+                        requireCleanupAndCancel.add(
+                            DeploymentReaperAction(
+                                projectId = action.projectId,
+                                serviceId = action.serviceId,
+                                deploymentId = action.deploymentId,
+                                type = DeploymentReaperActionType.CleanupAndCancel
+                            )
+                        )
+                    }
                 }
+            } catch (exception: DeploymentExecutionCapacityExhaustedException) {
+                throw exception
+            } catch (exception: RuntimeException) {
+                logger.warn(
+                    "Failed to mark deployment {} finished: {}",
+                    action.deploymentId,
+                    exception.message,
+                    exception
+                )
             }
-        } catch (exception: RuntimeException) {
-            logger.warn(
-                "Failed to mark deployments finished: {}",
-                exception.message,
-                exception
-            )
         }
 
         return MarkForFinishedResult(requireCleanupAndCancel)
