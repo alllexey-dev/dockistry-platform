@@ -16,6 +16,7 @@ import io.dockistry.platform.services.domain.DeploymentNotFoundException
 import io.dockistry.platform.services.domain.ManagedServiceDeployment
 import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
 import io.dockistry.platform.services.domain.ManagedServiceExecutionCapacityExhaustedException
+import io.dockistry.platform.services.domain.ManagedServiceNotFoundException
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -145,6 +146,8 @@ class ManagedServiceReaper(
                     projectId = service.project.id,
                     serviceId = service.id
                 )
+            } catch (_: ManagedServiceNotFoundException) {
+                // Concurrent deletion succeeded
             } catch (exception: RuntimeException) {
                 logger.warn(
                     "Failed to delete stuck deleting service {}: {}",
