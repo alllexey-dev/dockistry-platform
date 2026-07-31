@@ -1,6 +1,6 @@
 package io.dockistry.platform.services.application
 
-import io.dockistry.platform.docker.application.ports.DockerAgentClient
+import io.dockistry.platform.docker.application.ContainerService
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.DockerVolumeNotFoundException
@@ -10,7 +10,7 @@ import java.util.UUID
 
 @Service
 class ManagedServiceDeploymentCleanupService(
-    private val dockerAgentClient: DockerAgentClient,
+    private val containerService: ContainerService,
     private val deploymentLifecycleService: ManagedServiceDeploymentLifecycleService,
     private val deploymentOperationGate: ManagedServiceDeploymentOperationGate
 ) {
@@ -33,17 +33,17 @@ class ManagedServiceDeploymentCleanupService(
                     )
                 )
 
-                dockerAgentClient.listContainers(filter).forEach { container ->
+                containerService.listContainers(filter).forEach { container ->
                     try {
-                        dockerAgentClient.deleteContainer(container.id)
+                        containerService.deleteContainer(container.id)
                     } catch (_: DockerContainerNotFoundException) {
                         // A concurrent cleanup already removed this container.
                     }
                 }
 
-                dockerAgentClient.listVolumes(filter).forEach { volume ->
+                containerService.listVolumes(filter).forEach { volume ->
                     try {
-                        dockerAgentClient.removeVolume(volume.name)
+                        containerService.removeVolume(volume.name)
                     } catch (_: DockerVolumeNotFoundException) {
                         // A concurrent cleanup already removed this volume.
                     }

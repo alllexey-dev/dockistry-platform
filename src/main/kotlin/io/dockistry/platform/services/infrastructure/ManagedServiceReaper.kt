@@ -1,6 +1,6 @@
 package io.dockistry.platform.services.infrastructure
 
-import io.dockistry.platform.docker.application.ports.DockerAgentClient
+import io.dockistry.platform.docker.application.ContainerService
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerContainerState
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
@@ -30,7 +30,7 @@ class ManagedServiceReaper(
     private val deploymentRepository: ManagedServiceDeploymentRepository,
     private val deploymentLifecycleService: ManagedServiceDeploymentLifecycleService,
     private val deploymentCleanupService: ManagedServiceDeploymentCleanupService,
-    private val dockerAgentClient: DockerAgentClient,
+    private val containerService: ContainerService,
     private val serviceRepository: ManagedServiceRepository,
     private val deletionExecutor: ManagedServiceDeletionExecutor,
     private val properties: ManagedServiceReaperProperties,
@@ -317,7 +317,7 @@ class ManagedServiceReaper(
         serviceId: UUID,
         deploymentId: UUID
     ): DockerContainerSummary? {
-        return dockerAgentClient.listContainers(
+        return containerService.listContainers(
             DockerLabelsFilter(
                 DockerLabels.forDeployment(
                     projectId = projectId,
@@ -328,11 +328,14 @@ class ManagedServiceReaper(
         ).also {
             if (it.size > 1) {
                 logger.warn(
-                    "Docker agent client returned {} containers for deployment {} Docker labels",
+                    "Container service returned {} containers for deployment {} Docker labels",
                     it.size,
                     deploymentId
                 )
-                throw InternalDataIntegrityException("Docker agent client returned ${it.size} containers for $deploymentId deployment's Docker labels")
+                throw InternalDataIntegrityException(
+                    "Container service returned ${it.size} containers for " +
+                        "$deploymentId deployment's Docker labels"
+                )
             }
         }.singleOrNull()
     }

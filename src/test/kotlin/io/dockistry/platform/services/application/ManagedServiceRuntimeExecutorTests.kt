@@ -1,8 +1,8 @@
 package io.dockistry.platform.services.application
 
+import io.dockistry.platform.docker.application.ContainerService
 import io.dockistry.platform.docker.domain.model.DockerContainerState
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
-import io.dockistry.platform.docker.infrastructure.LocalDockerAgentClient
 import io.dockistry.platform.services.application.dto.ManagedServiceRuntimeOperationContext
 import io.dockistry.platform.services.application.ports.ExecutionGate
 import io.dockistry.platform.services.application.ports.ExecutionGateLockTimeoutException
@@ -33,7 +33,7 @@ class ManagedServiceRuntimeExecutorTests {
     private lateinit var deploymentLifecycleService: ManagedServiceDeploymentLifecycleService
 
     @Mock
-    private lateinit var dockerAgentClient: LocalDockerAgentClient
+    private lateinit var containerService: ContainerService
 
     private lateinit var executionGate: RecordingExecutionGate
     private lateinit var executor: ManagedServiceRuntimeExecutor
@@ -44,13 +44,13 @@ class ManagedServiceRuntimeExecutorTests {
         executor = ManagedServiceRuntimeExecutor(
             runtimeLifecycleService = runtimeLifecycleService,
             deploymentLifecycleService = deploymentLifecycleService,
-            dockerAgentClient = dockerAgentClient,
+            containerService = containerService,
             serviceOperationGate = ManagedServiceOperationGate(
                 executionGate = executionGate,
                 config = ServiceOperationGateConfig(Duration.ofSeconds(5))
             ),
             cleanupService = ManagedServiceDeploymentCleanupService(
-                dockerAgentClient = dockerAgentClient,
+                containerService = containerService,
                 deploymentLifecycleService = deploymentLifecycleService,
                 deploymentOperationGate = ManagedServiceDeploymentOperationGate(
                     executionGate = executionGate,
@@ -74,7 +74,7 @@ class ManagedServiceRuntimeExecutorTests {
         Mockito.`when`(runtimeLifecycleService.beginPause(serviceId)).thenReturn(pause)
         Mockito.`when`(runtimeLifecycleService.beginUnpause(serviceId)).thenReturn(unpause)
         Mockito.`when`(
-            dockerAgentClient.listContainers(
+            containerService.listContainers(
                 executor.containerFilter(projectId, serviceId)
             )
         ).thenAnswer {
@@ -88,10 +88,10 @@ class ManagedServiceRuntimeExecutorTests {
         executor.unpause(serviceId)
 
         assertEquals(4, executionGate.lockCalls)
-        Mockito.verify(dockerAgentClient).startContainer(CONTAINER_ID)
-        Mockito.verify(dockerAgentClient).stopContainer(CONTAINER_ID)
-        Mockito.verify(dockerAgentClient).pauseContainer(CONTAINER_ID)
-        Mockito.verify(dockerAgentClient).unpauseContainer(CONTAINER_ID)
+        Mockito.verify(containerService).startContainer(CONTAINER_ID)
+        Mockito.verify(containerService).stopContainer(CONTAINER_ID)
+        Mockito.verify(containerService).pauseContainer(CONTAINER_ID)
+        Mockito.verify(containerService).unpauseContainer(CONTAINER_ID)
         Mockito.verify(runtimeLifecycleService).completeStart(start)
         Mockito.verify(runtimeLifecycleService).completeStop(stop)
         Mockito.verify(runtimeLifecycleService).completePause(pause)
@@ -109,12 +109,12 @@ class ManagedServiceRuntimeExecutorTests {
         val runtimeFailure = RuntimeException("stop failed")
         Mockito.`when`(runtimeLifecycleService.beginStop(serviceId)).thenReturn(operation)
         Mockito.`when`(
-            dockerAgentClient.listContainers(
+            containerService.listContainers(
                 executor.containerFilter(operation.projectId, serviceId)
             )
         ).thenReturn(listOf(containerSummary()))
         Mockito.doThrow(runtimeFailure)
-            .`when`(dockerAgentClient)
+            .`when`(containerService)
             .stopContainer(CONTAINER_ID)
         Mockito.doAnswer {
             assertTrue(executionGate.insideLock)
@@ -143,7 +143,7 @@ class ManagedServiceRuntimeExecutorTests {
         )
         Mockito.`when`(runtimeLifecycleService.beginStop(serviceId)).thenReturn(operation)
         Mockito.`when`(
-            dockerAgentClient.listContainers(
+            containerService.listContainers(
                 executor.containerFilter(operation.projectId, serviceId)
             )
         ).thenReturn(emptyList())
@@ -171,7 +171,7 @@ class ManagedServiceRuntimeExecutorTests {
         val finalizationFailure = RuntimeException("complete failed")
         Mockito.`when`(runtimeLifecycleService.beginStart(serviceId)).thenReturn(operation)
         Mockito.`when`(
-            dockerAgentClient.listContainers(
+            containerService.listContainers(
                 executor.containerFilter(operation.projectId, serviceId)
             )
         ).thenReturn(listOf(containerSummary()))
@@ -197,7 +197,7 @@ class ManagedServiceRuntimeExecutorTests {
         }
 
         Mockito.verifyNoInteractions(runtimeLifecycleService)
-        Mockito.verifyNoInteractions(dockerAgentClient)
+        Mockito.verifyNoInteractions(containerService)
     }
 
     private fun operation(

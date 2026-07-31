@@ -1,13 +1,13 @@
 package io.dockistry.platform.services.application
 
-import io.dockistry.platform.docker.application.ports.DockerAgentClient
+import io.dockistry.platform.docker.application.ContainerService
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.mock
 import kotlin.test.assertEquals
 
 class ManagedServiceRuntimeNamingTests {
-    private val dockerAgentClient = mock(DockerAgentClient::class.java)
-    private val projectVolumeService = ProjectVolumeService(dockerAgentClient)
+    private val containerService = mock(ContainerService::class.java)
+    private val projectVolumeService = ProjectVolumeService(containerService)
 
     @Test
     fun `managed volume name uses project slug and service name`() {

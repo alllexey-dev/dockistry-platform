@@ -1,6 +1,6 @@
 package io.dockistry.platform.services.application
 
-import io.dockistry.platform.docker.application.ports.DockerAgentClient
+import io.dockistry.platform.docker.application.ContainerService
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.DockerVolumeCreateNameConflictException
 import io.dockistry.platform.docker.domain.DockerVolumeCreateVerificationFailedException
@@ -12,7 +12,7 @@ import org.springframework.stereotype.Service
 import java.util.UUID
 
 @Service
-class ProjectVolumeService(private val dockerAgentClient: DockerAgentClient) {
+class ProjectVolumeService(private val containerService: ContainerService) {
     fun createVolume(
         projectId: UUID,
         projectSlug: String,
@@ -24,7 +24,7 @@ class ProjectVolumeService(private val dockerAgentClient: DockerAgentClient) {
         val name = fullVolumeName(projectSlug, serviceName, volumeName)
 
         try {
-            dockerAgentClient.createVolume(
+            containerService.createVolume(
                 name = name,
                 labels = DockerLabels.forDeployment(
                     projectId = projectId,
@@ -53,7 +53,7 @@ class ProjectVolumeService(private val dockerAgentClient: DockerAgentClient) {
         volumeName: String
     ): String? {
         val name = fullVolumeName(projectSlug, serviceName, volumeName)
-        val volume = dockerAgentClient.findVolumeByName(name) ?: return null
+        val volume = containerService.findVolumeByName(name) ?: return null
 
         if (!volume.hasLabels(DockerLabels.forService(projectId, serviceId))) {
             throw DockerVolumeOwnershipConflictException()
@@ -65,7 +65,7 @@ class ProjectVolumeService(private val dockerAgentClient: DockerAgentClient) {
         projectId: UUID,
         serviceId: UUID
     ) {
-        dockerAgentClient.listVolumes(
+        containerService.listVolumes(
             DockerLabelsFilter(
                 DockerLabels.forService(
                     projectId = projectId,
@@ -74,7 +74,7 @@ class ProjectVolumeService(private val dockerAgentClient: DockerAgentClient) {
             )
         ).forEach {
             try {
-                dockerAgentClient.removeVolume(it.name)
+                containerService.removeVolume(it.name)
             } catch (_: DockerVolumeNotFoundException) {
                 // A concurrent Docker-side removal already reached the target state.
             }

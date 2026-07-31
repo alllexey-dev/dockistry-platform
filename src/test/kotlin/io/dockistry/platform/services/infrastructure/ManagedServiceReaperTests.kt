@@ -1,6 +1,6 @@
 package io.dockistry.platform.services.infrastructure
 
-import io.dockistry.platform.docker.application.ports.DockerAgentClient
+import io.dockistry.platform.docker.application.ContainerService
 import io.dockistry.platform.services.application.ManagedServiceDeletionExecutor
 import io.dockistry.platform.services.application.ManagedServiceDeploymentCleanupService
 import io.dockistry.platform.services.application.ManagedServiceDeploymentLifecycleService
@@ -35,7 +35,7 @@ class ManagedServiceReaperTests {
     private lateinit var deploymentCleanupService: ManagedServiceDeploymentCleanupService
 
     @Mock
-    private lateinit var dockerAgentClient: DockerAgentClient
+    private lateinit var containerService: ContainerService
 
     @Mock
     private lateinit var serviceRepository: ManagedServiceRepository
@@ -80,7 +80,7 @@ class ManagedServiceReaperTests {
             deploymentRepository = deploymentRepository,
             deploymentLifecycleService = deploymentLifecycleService,
             deploymentCleanupService = deploymentCleanupService,
-            dockerAgentClient = dockerAgentClient,
+            containerService = containerService,
             serviceRepository = serviceRepository,
             deletionExecutor = deletionExecutor,
             properties = properties,

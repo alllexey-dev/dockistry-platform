@@ -1,6 +1,6 @@
 package io.dockistry.platform.services.application
 
-import io.dockistry.platform.docker.application.ports.DockerAgentClient
+import io.dockistry.platform.docker.application.ContainerService
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.DockerNetworkCreateNameConflictException
 import io.dockistry.platform.docker.domain.DockerNetworkCreateVerificationFailedException
@@ -13,12 +13,12 @@ import java.util.UUID
 
 @Service
 class ProjectNetworkService(
-    private val dockerAgentClient: DockerAgentClient
+    private val containerService: ContainerService
 ) : ProjectNetworkRemovalPort {
     fun createNetwork(projectId: UUID, projectSlug: String): String {
         val name = projectNetworkName(projectSlug)
         try {
-            dockerAgentClient.createNetwork(
+            containerService.createNetwork(
                 name = name,
                 labels = DockerLabels.forProject(projectId)
             )
@@ -38,7 +38,7 @@ class ProjectNetworkService(
         val network = findNetworkRef(projectId, projectSlug) ?: return
 
         try {
-            dockerAgentClient.removeNetwork(network.id)
+            containerService.removeNetwork(network.id)
         } catch (_: DockerNetworkNotFoundException) {
             // A concurrent removal already reached the target state.
         }
@@ -50,7 +50,7 @@ class ProjectNetworkService(
         projectId: UUID,
         projectSlug: String
     ): DockerNetworkRef? {
-        val network = dockerAgentClient.findNetworkByName(
+        val network = containerService.findNetworkByName(
             projectNetworkName(projectSlug)
         ) ?: return null
 

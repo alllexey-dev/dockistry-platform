@@ -1,11 +1,11 @@
 package io.dockistry.platform.services.application
 
+import io.dockistry.platform.docker.application.ContainerService
 import io.dockistry.platform.docker.domain.DockerContainerAlreadyStoppedException
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
 import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
-import io.dockistry.platform.docker.infrastructure.LocalDockerAgentClient
 import io.dockistry.platform.services.application.dto.ManagedServiceRuntimeOperationContext
 import io.dockistry.platform.services.domain.DeploymentNotFoundException
 import io.dockistry.platform.services.domain.ManagedServiceNotDeployedException
@@ -18,7 +18,7 @@ import java.util.UUID
 class ManagedServiceRuntimeExecutor(
     private val runtimeLifecycleService: ManagedServiceRuntimeLifecycleService,
     private val deploymentLifecycleService: ManagedServiceDeploymentLifecycleService,
-    private val dockerAgentClient: LocalDockerAgentClient,
+    private val containerService: ContainerService,
     private val serviceOperationGate: ManagedServiceOperationGate,
     private val cleanupService: ManagedServiceDeploymentCleanupService
 ) {
@@ -34,7 +34,7 @@ class ManagedServiceRuntimeExecutor(
                     "Service can't be started because it's not deployed"
                 )
 
-                dockerAgentClient.startContainer(container.id)
+                containerService.startContainer(container.id)
             },
             failTransition = runtimeLifecycleService::failStart,
             completeTransition = runtimeLifecycleService::completeStart
@@ -82,7 +82,7 @@ class ManagedServiceRuntimeExecutor(
                     "Service can't be paused because it's not deployed"
                 )
 
-                dockerAgentClient.pauseContainer(container.id)
+                containerService.pauseContainer(container.id)
             },
             failTransition = runtimeLifecycleService::failPause,
             completeTransition = runtimeLifecycleService::completePause
@@ -101,7 +101,7 @@ class ManagedServiceRuntimeExecutor(
                     "Service can't be unpaused because it's not deployed"
                 )
 
-                dockerAgentClient.unpauseContainer(container.id)
+                containerService.unpauseContainer(container.id)
             },
             failTransition = runtimeLifecycleService::failUnpause,
             completeTransition = runtimeLifecycleService::completeUnpause
@@ -137,7 +137,7 @@ class ManagedServiceRuntimeExecutor(
             serviceId = serviceId
         )?.let {
             try {
-                dockerAgentClient.deleteContainer(containerId = it.id)
+                containerService.deleteContainer(containerId = it.id)
             } catch (_: DockerContainerNotFoundException) {
                 // A concurrent Docker-side removal already reached the target state.
             }
@@ -162,7 +162,7 @@ class ManagedServiceRuntimeExecutor(
 
     private fun stopContainer(containerId: String): Boolean {
         try {
-            dockerAgentClient.stopContainer(containerId)
+            containerService.stopContainer(containerId)
         } catch (_: DockerContainerAlreadyStoppedException) {
             // Target service state is already reached
         }
@@ -173,7 +173,7 @@ class ManagedServiceRuntimeExecutor(
         projectId: UUID,
         serviceId: UUID
     ): DockerContainerSummary? {
-        return dockerAgentClient.listContainers(
+        return containerService.listContainers(
             containerFilter(
                 projectId = projectId,
                 serviceId = serviceId

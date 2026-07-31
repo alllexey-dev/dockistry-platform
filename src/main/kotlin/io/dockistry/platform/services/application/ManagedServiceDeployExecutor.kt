@@ -1,6 +1,6 @@
 package io.dockistry.platform.services.application
 
-import io.dockistry.platform.docker.application.ports.DockerAgentClient
+import io.dockistry.platform.docker.application.ContainerService
 import io.dockistry.platform.docker.domain.DockerContainerCreateNameConflictException
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerLabels
@@ -35,7 +35,7 @@ class ManagedServiceDeployExecutor(
     private val projectNetworkService: ProjectNetworkService,
     private val projectVolumeService: ProjectVolumeService,
     private val deploymentRepository: ManagedServiceDeploymentRepository,
-    private val dockerAgentClient: DockerAgentClient,
+    private val containerService: ContainerService,
     private val deploymentOperationGate: ManagedServiceDeploymentOperationGate,
     private val projectOperationGate: ProjectOperationGate
 ) {
@@ -112,8 +112,8 @@ class ManagedServiceDeployExecutor(
     ): String {
         return try {
             throwIfDeploymentCanceled(plan)
-            val containerId = dockerAgentClient.createContainer(command)
-            dockerAgentClient.startContainer(containerId)
+            val containerId = containerService.createContainer(command)
+            containerService.startContainer(containerId)
 
             containerId
         } catch (exception: DockerContainerCreateNameConflictException) {
@@ -125,8 +125,8 @@ class ManagedServiceDeployExecutor(
 
             // If conflicting container was automatically deleted, try again once
             throwIfDeploymentCanceled(plan)
-            val containerId = dockerAgentClient.createContainer(command)
-            dockerAgentClient.startContainer(containerId)
+            val containerId = containerService.createContainer(command)
+            containerService.startContainer(containerId)
 
             containerId
         }
@@ -201,7 +201,7 @@ class ManagedServiceDeployExecutor(
 
         val imageRef = plan.snapshot.imageRef.toDockerImageRef()
         throwIfDeploymentCanceled(plan)
-        dockerAgentClient.pullImage(imageRef)
+        containerService.pullImage(imageRef)
 
         return DockerContainerCreateCommand(
             name = containerName(plan),
@@ -266,13 +266,13 @@ class ManagedServiceDeployExecutor(
 
         if (deployment?.status == ManagedServiceDeploymentStatus.FAILED) {
             try {
-                dockerAgentClient.deleteContainer(containerDetails.id)
+                containerService.deleteContainer(containerDetails.id)
                 return true
             } catch (exception: DockerContainerNotFoundException) {
                 logger.error(
                     "Container ${containerDetails.id} not found while handling " +
                             "container creation name conflict, even though it was just found " +
-                            "through dockerAgentClient.listContainers",
+                            "through ContainerService.listContainers",
                     exception
                 )
             }
@@ -283,7 +283,7 @@ class ManagedServiceDeployExecutor(
     private fun getConflictingContainer(
         plan: ManagedServiceDeploymentPlan
     ): DockerContainerSummary? {
-        return dockerAgentClient.listContainers(
+        return containerService.listContainers(
             DockerLabelsFilter(
                 labels = DockerLabels.forService(plan.projectId, plan.serviceId)
             )
