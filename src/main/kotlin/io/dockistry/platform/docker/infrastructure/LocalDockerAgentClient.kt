@@ -3,12 +3,8 @@ package io.dockistry.platform.docker.infrastructure
 import com.github.dockerjava.api.DockerClient
 import com.github.dockerjava.api.async.ResultCallback
 import com.github.dockerjava.api.command.HealthState
-import com.github.dockerjava.api.command.PullImageResultCallback
 import com.github.dockerjava.api.exception.DockerClientException
 import com.github.dockerjava.api.exception.DockerException
-import com.github.dockerjava.api.exception.ConflictException as DockerConflictException
-import com.github.dockerjava.api.exception.NotFoundException as DockerNotFoundException
-import com.github.dockerjava.api.exception.NotModifiedException as DockerNotModifiedException
 import com.github.dockerjava.api.model.BlkioStatEntry
 import com.github.dockerjava.api.model.BlkioStatsConfig
 import com.github.dockerjava.api.model.Container
@@ -33,18 +29,31 @@ import io.dockistry.platform.docker.domain.DockerContainerAlreadyStartedExceptio
 import io.dockistry.platform.docker.domain.DockerContainerAlreadyStoppedException
 import io.dockistry.platform.docker.domain.DockerContainerCreateDependencyNotFoundException
 import io.dockistry.platform.docker.domain.DockerContainerCreateNameConflictException
+import io.dockistry.platform.docker.domain.DockerContainerCreateRejectedException
 import io.dockistry.platform.docker.domain.DockerContainerLifecycleConflictException
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerContainerNotPausedException
 import io.dockistry.platform.docker.domain.DockerContainerNotRunningException
+import io.dockistry.platform.docker.domain.DockerContainerRemoveConflictException
+import io.dockistry.platform.docker.domain.DockerContainerRuntimeResourceConflictException
 import io.dockistry.platform.docker.domain.DockerImageNotFoundException
+import io.dockistry.platform.docker.domain.DockerImagePullAccessDeniedException
+import io.dockistry.platform.docker.domain.DockerImagePullFailedException
 import io.dockistry.platform.docker.domain.DockerImagePullTimeoutException
+import io.dockistry.platform.docker.domain.DockerImageRegistryUnavailableException
 import io.dockistry.platform.docker.domain.DockerImageRemoveConflictException
+import io.dockistry.platform.docker.domain.DockerNetworkCreateDependencyNotFoundException
 import io.dockistry.platform.docker.domain.DockerNetworkCreateNameConflictException
+import io.dockistry.platform.docker.domain.DockerNetworkCreateRejectedException
 import io.dockistry.platform.docker.domain.DockerNetworkNameAmbiguityException
 import io.dockistry.platform.docker.domain.DockerNetworkNotFoundException
+import io.dockistry.platform.docker.domain.DockerNetworkRemoveConflictException
+import io.dockistry.platform.docker.domain.DockerOperationFailedException
+import io.dockistry.platform.docker.domain.DockerVolumeCreateDependencyNotFoundException
 import io.dockistry.platform.docker.domain.DockerVolumeCreateNameConflictException
+import io.dockistry.platform.docker.domain.DockerVolumeCreateRejectedException
 import io.dockistry.platform.docker.domain.DockerVolumeNotFoundException
+import io.dockistry.platform.docker.domain.DockerVolumeRemoveConflictException
 import io.dockistry.platform.docker.domain.model.DockerAgentAvailability
 import io.dockistry.platform.docker.domain.model.DockerAgentInfo
 import io.dockistry.platform.docker.domain.model.DockerContainerConfig
@@ -83,6 +92,7 @@ import io.dockistry.platform.docker.domain.model.DockerVolumeRef
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import com.github.dockerjava.api.model.Frame as DockerLogFrame
 import com.github.dockerjava.api.command.GraphData as DockerJavaGraphData
@@ -124,7 +134,7 @@ class LocalDockerAgentClient(
     }
 
     override fun listImages(): List<DockerImageSummary> {
-        return imageDockerCall {
+        return dockerOperationCall {
             dockerClient.listImagesCmd()
                 .withShowAll(true)
                 .exec()
@@ -133,7 +143,15 @@ class LocalDockerAgentClient(
     }
 
     override fun inspectImage(imageId: String): DockerImageInfo {
-        return imageDockerCall {
+        return dockerOperationCall(
+            responseMapper = { response ->
+                if (response.statusCode == HTTP_NOT_FOUND) {
+                    DockerImageNotFoundException("Docker image couldn't be found")
+                } else {
+                    null
+                }
+            }
+        ) {
             dockerClient.inspectImageCmd(imageId)
                 .exec()
                 .toImageInfo()
@@ -141,11 +159,18 @@ class LocalDockerAgentClient(
     }
 
     override fun pullImage(imageRef: DockerImageRef) {
+        val callback = DockerImagePullResultCallback()
+
         try {
-            val completed = dockerClient.pullImageCmd(imageRef.repository)
-                .withTag(imageRef.tag)
-                .exec(PullImageResultCallback())
-                .awaitCompletion(dockerAgentProperties.imagePullTimeout, TimeUnit.MILLISECONDS)
+            val completed = dockerHttpCall {
+                dockerClient.pullImageCmd(imageRef.repository)
+                    .withTag(imageRef.tag)
+                    .exec(callback)
+                    .awaitCompletion(
+                        dockerAgentProperties.imagePullTimeout,
+                        TimeUnit.MILLISECONDS
+                    )
+            }
 
             if (!completed) {
                 dockerLogger.warn(
@@ -156,46 +181,57 @@ class LocalDockerAgentClient(
                 )
                 throw DockerImagePullTimeoutException()
             }
+
+            callback.failure?.let { failure ->
+                throw mapImagePullFailure(failure)
+            }
         } catch (exception: InterruptedException) {
             Thread.currentThread().interrupt()
-            dockerLogger.warn(
-                "Docker image pull was interrupted for {}:{}",
-                imageRef.repository,
-                imageRef.tag,
-                exception
-            )
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
-        } catch (exception: DockerException) {
-            logDockerCallFailure(exception)
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+            throw exception
+        } catch (exception: DockerHttpResponseException) {
+            throw mapImagePullHttpFailure(exception)
         } catch (exception: DockerClientException) {
-            logDockerCallFailure(exception)
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+            val failure = callback.failure
+            if (failure != null) {
+                throw mapImagePullFailure(failure, exception)
+            }
+
+            if (exception.hasIoCause()) {
+                throw exception.toAgentUnavailable()
+            }
+
+            throw DockerImagePullFailedException(exception.safeMessage())
+                .causedBy(exception)
+        } catch (exception: RuntimeException) {
+            if (exception.hasIoCause()) {
+                throw exception.toAgentUnavailable()
+            }
+
+            throw exception
         }
     }
 
     override fun removeImage(imageId: String, force: Boolean) {
-        try {
+        dockerOperationCall(
+            responseMapper = { response ->
+                when (response.statusCode) {
+                    HTTP_CONFLICT -> DockerImageRemoveConflictException(
+                        response.messageOr(DOCKER_IMAGE_REMOVE_CONFLICT_MESSAGE)
+                    )
+                    HTTP_NOT_FOUND ->
+                        DockerImageNotFoundException("Docker image couldn't be found")
+                    else -> null
+                }
+            }
+        ) {
             dockerClient.removeImageCmd(imageId)
                 .withForce(force)
                 .exec()
-        } catch (exception: DockerConflictException) {
-            throw DockerImageRemoveConflictException(
-                exception.safeDockerMessage(DOCKER_IMAGE_REMOVE_CONFLICT_MESSAGE)
-            )
-        } catch (_: DockerNotFoundException) {
-            throw DockerImageNotFoundException("Docker image couldn't be found")
-        } catch (exception: DockerException) {
-            logDockerCallFailure(exception)
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
-        } catch (exception: DockerClientException) {
-            logDockerCallFailure(exception)
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
         }
     }
 
     override fun findNetworkByName(name: String): DockerNetworkRef? {
-        return dockerCall {
+        return dockerOperationCall {
             val networks = dockerClient.listNetworksCmd()
                 .withNameFilter(name)
                 .exec()
@@ -219,17 +255,33 @@ class LocalDockerAgentClient(
         name: String,
         labels: Map<String, String>
     ): DockerNetworkRef {
-        return dockerCall {
-            val response = try {
-                dockerClient.createNetworkCmd()
-                    .withName(name)
-                    .withLabels(labels)
-                    .exec()
-            } catch (exception: DockerConflictException) {
-                throw DockerNetworkCreateNameConflictException(
-                    exception.safeDockerMessage("Docker network name is already in use")
-                )
+        return dockerOperationCall(
+            responseMapper = { response ->
+                when (response.statusCode) {
+                    HTTP_BAD_REQUEST,
+                    HTTP_FORBIDDEN,
+                    HTTP_NOT_ACCEPTABLE ->
+                        DockerNetworkCreateRejectedException(
+                            response.messageOr("Docker network creation was rejected")
+                        )
+                    HTTP_NOT_FOUND ->
+                        DockerNetworkCreateDependencyNotFoundException(
+                            response.messageOr(
+                                "Docker network create dependency couldn't be found"
+                            )
+                        )
+                    HTTP_CONFLICT ->
+                        DockerNetworkCreateNameConflictException(
+                            response.messageOr("Docker network name is already in use")
+                        )
+                    else -> null
+                }
             }
+        ) {
+            val response = dockerClient.createNetworkCmd()
+                .withName(name)
+                .withLabels(labels)
+                .exec()
 
             DockerNetworkRef(
                 id = response.id,
@@ -240,9 +292,18 @@ class LocalDockerAgentClient(
     }
 
     override fun removeNetwork(networkId: String) {
-        dockerCall(
-            notFound = {
-                DockerNetworkNotFoundException("Docker network couldn't be found")
+        dockerOperationCall(
+            responseMapper = { response ->
+                when (response.statusCode) {
+                    HTTP_NOT_FOUND ->
+                        DockerNetworkNotFoundException("Docker network couldn't be found")
+                    HTTP_FORBIDDEN,
+                    HTTP_CONFLICT ->
+                        DockerNetworkRemoveConflictException(
+                            response.messageOr("Docker network cannot be removed")
+                        )
+                    else -> null
+                }
             }
         ) {
             dockerClient.removeNetworkCmd(networkId).exec()
@@ -253,19 +314,35 @@ class LocalDockerAgentClient(
         name: String,
         labels: Map<String, String>
     ) {
-        dockerCall {
-            try {
-                dockerClient.createVolumeCmd().withName(name).withLabels(labels).exec()
-            } catch (exception: DockerConflictException) {
-                throw DockerVolumeCreateNameConflictException(
-                    exception.safeDockerMessage("Docker volume name is already in use")
-                )
+        dockerOperationCall(
+            responseMapper = { response ->
+                when (response.statusCode) {
+                    HTTP_BAD_REQUEST,
+                    HTTP_FORBIDDEN,
+                    HTTP_NOT_ACCEPTABLE ->
+                        DockerVolumeCreateRejectedException(
+                            response.messageOr("Docker volume creation was rejected")
+                        )
+                    HTTP_NOT_FOUND ->
+                        DockerVolumeCreateDependencyNotFoundException(
+                            response.messageOr(
+                                "Docker volume create dependency couldn't be found"
+                            )
+                        )
+                    HTTP_CONFLICT ->
+                        DockerVolumeCreateNameConflictException(
+                            response.messageOr("Docker volume name is already in use")
+                        )
+                    else -> null
+                }
             }
+        ) {
+            dockerClient.createVolumeCmd().withName(name).withLabels(labels).exec()
         }
     }
 
     override fun findVolumeByName(name: String): DockerVolumeRef? {
-        return dockerCall {
+        return dockerOperationCall {
             dockerClient.listVolumesCmd()
                 .withFilter("name", listOf(name))
                 .exec()
@@ -281,7 +358,7 @@ class LocalDockerAgentClient(
     }
 
     override fun listVolumes(filter: DockerLabelsFilter): List<DockerVolumeRef> {
-        return dockerCall {
+        return dockerOperationCall {
             val command = dockerClient.listVolumesCmd()
             if (filter.labels.isNotEmpty()) {
                 command.withFilter(
@@ -300,9 +377,17 @@ class LocalDockerAgentClient(
     }
 
     override fun removeVolume(name: String) {
-        dockerCall(
-            notFound = {
-                DockerVolumeNotFoundException("Docker volume couldn't be found")
+        dockerOperationCall(
+            responseMapper = { response ->
+                when (response.statusCode) {
+                    HTTP_NOT_FOUND ->
+                        DockerVolumeNotFoundException("Docker volume couldn't be found")
+                    HTTP_CONFLICT ->
+                        DockerVolumeRemoveConflictException(
+                            response.messageOr("Docker volume is currently in use")
+                        )
+                    else -> null
+                }
             }
         ) {
             dockerClient.removeVolumeCmd(name).exec()
@@ -310,11 +395,35 @@ class LocalDockerAgentClient(
     }
 
     override fun createContainer(command: DockerContainerCreateCommand): String {
-        return dockerCall(
-            notFound = {
-                DockerContainerCreateDependencyNotFoundException(
-                    "Docker container create dependency couldn't be found"
-                )
+        return dockerOperationCall(
+            responseMapper = { response ->
+                when {
+                    response.statusCode == HTTP_BAD_REQUEST ||
+                            response.statusCode == HTTP_FORBIDDEN ||
+                            response.statusCode == HTTP_NOT_ACCEPTABLE ->
+                        DockerContainerCreateRejectedException(
+                            response.messageOr("Docker container creation was rejected")
+                        )
+
+                    response.statusCode == HTTP_NOT_FOUND ->
+                        DockerContainerCreateDependencyNotFoundException(
+                            "Docker container create dependency couldn't be found"
+                        )
+
+                    response.statusCode == HTTP_CONFLICT ->
+                        DockerContainerCreateNameConflictException(
+                            response.messageOr("Docker container name is already in use")
+                        )
+
+                    response.isContainerRuntimeResourceConflict() ->
+                        DockerContainerRuntimeResourceConflictException(
+                            response.messageOr(
+                                "Docker container runtime resource conflict"
+                            )
+                        )
+
+                    else -> null
+                }
             }
         ) {
             val portBindings = Ports()
@@ -368,18 +477,12 @@ class LocalDockerAgentClient(
                 createCommand.withExposedPorts(exposedPorts)
             }
 
-            try {
-                createCommand.exec().id
-            } catch (exception: DockerConflictException) {
-                throw DockerContainerCreateNameConflictException(
-                    exception.safeDockerMessage("Docker container name is already in use")
-                )
-            }
+            createCommand.exec().id
         }
     }
 
     override fun listContainers(filter: DockerLabelsFilter): List<DockerContainerSummary> {
-        return dockerCall {
+        return dockerOperationCall {
             val command = dockerClient.listContainersCmd()
                 .withShowAll(true)
 
@@ -392,7 +495,7 @@ class LocalDockerAgentClient(
     }
 
     override fun inspectContainer(containerId: String): DockerContainerDetails {
-        return dockerCall(notFound = ::containerNotFound) {
+        return containerDockerCall {
             dockerClient.inspectContainerCmd(containerId)
                 .exec()
                 .toDetails()
@@ -400,7 +503,7 @@ class LocalDockerAgentClient(
     }
 
     override fun getContainerStats(containerId: String): DockerContainerStats {
-        return dockerCall(notFound = ::containerNotFound) {
+        return containerDockerCall {
             readSingleStats(containerId).toContainerStats()
         }
     }
@@ -409,7 +512,7 @@ class LocalDockerAgentClient(
         containerId: String,
         request: DockerContainerLogsRequest
     ): DockerContainerLogs {
-        return dockerCall(notFound = ::containerNotFound) {
+        return containerDockerCall {
             readLogs(containerId, request)
         }
     }
@@ -417,7 +520,11 @@ class LocalDockerAgentClient(
     override fun startContainer(containerId: String) {
         lifecycleDockerCall(
             alreadyInTargetState = { DockerContainerAlreadyStartedException() },
-            conflict = { DockerContainerLifecycleConflictException(it.safeDockerMessage()) }
+            conflict = {
+                DockerContainerLifecycleConflictException(
+                    it.messageOr(DOCKER_CONTAINER_LIFECYCLE_CONFLICT_MESSAGE)
+                )
+            }
         ) {
             dockerClient.startContainerCmd(containerId).exec()
         }
@@ -426,7 +533,11 @@ class LocalDockerAgentClient(
     override fun stopContainer(containerId: String) {
         lifecycleDockerCall(
             alreadyInTargetState = { DockerContainerAlreadyStoppedException() },
-            conflict = { DockerContainerLifecycleConflictException(it.safeDockerMessage()) }
+            conflict = {
+                DockerContainerLifecycleConflictException(
+                    it.messageOr(DOCKER_CONTAINER_LIFECYCLE_CONFLICT_MESSAGE)
+                )
+            }
         ) {
             dockerClient.stopContainerCmd(containerId).exec()
         }
@@ -434,8 +545,16 @@ class LocalDockerAgentClient(
 
     override fun restartContainer(containerId: String) {
         lifecycleDockerCall(
-            alreadyInTargetState = { DockerContainerLifecycleConflictException(it.safeDockerMessage()) },
-            conflict = { DockerContainerLifecycleConflictException(it.safeDockerMessage()) }
+            alreadyInTargetState = {
+                DockerContainerLifecycleConflictException(
+                    it.messageOr(DOCKER_CONTAINER_LIFECYCLE_CONFLICT_MESSAGE)
+                )
+            },
+            conflict = {
+                DockerContainerLifecycleConflictException(
+                    it.messageOr(DOCKER_CONTAINER_LIFECYCLE_CONFLICT_MESSAGE)
+                )
+            }
         ) {
             dockerClient.restartContainerCmd(containerId).exec()
         }
@@ -460,7 +579,19 @@ class LocalDockerAgentClient(
     }
 
     override fun deleteContainer(containerId: String) {
-        dockerCall(notFound = ::containerNotFound) {
+        dockerOperationCall(
+            responseMapper = { response ->
+                when (response.statusCode) {
+                    HTTP_BAD_REQUEST,
+                    HTTP_CONFLICT ->
+                        DockerContainerRemoveConflictException(
+                            response.messageOr("Docker container cannot be removed")
+                        )
+                    HTTP_NOT_FOUND -> containerNotFound()
+                    else -> null
+                }
+            }
+        ) {
             dockerClient.removeContainerCmd(containerId)
                 .withForce(true)
                 .exec()
@@ -487,8 +618,7 @@ class LocalDockerAgentClient(
                 .awaitCompletion(STATS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         } catch (exception: InterruptedException) {
             Thread.currentThread().interrupt()
-            dockerLogger.warn("Docker stats command was interrupted for container {}", containerId, exception)
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+            throw exception
         }
 
         if (!completed) {
@@ -528,8 +658,7 @@ class LocalDockerAgentClient(
                 .awaitCompletion(LOGS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         } catch (exception: InterruptedException) {
             Thread.currentThread().interrupt()
-            dockerLogger.warn("Docker logs command was interrupted for container {}", containerId, exception)
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+            throw exception
         }
 
         if (!completed) {
@@ -1055,84 +1184,155 @@ class LocalDockerAgentClient(
         }
     }
 
-    private inline fun <T> dockerCall(
+    private fun <T> dockerHttpCall(operation: () -> T): T {
+        return try {
+            operation()
+        } catch (exception: DockerException) {
+            throw DockerHttpResponseException(
+                statusCode = exception.httpStatus,
+                responseMessage = exception.responseMessage(),
+                cause = exception
+            )
+        }
+    }
+
+    private fun <T> dockerTransportCall(operation: () -> T): T {
+        return try {
+            dockerHttpCall(operation)
+        } catch (exception: DockerHttpResponseException) {
+            throw exception
+        } catch (exception: DockerClientException) {
+            if (exception.hasIoCause()) {
+                throw exception.toAgentUnavailable()
+            }
+
+            throw exception
+        } catch (exception: RuntimeException) {
+            if (exception.hasIoCause()) {
+                throw exception.toAgentUnavailable()
+            }
+
+            throw exception
+        }
+    }
+
+    private fun <T> dockerOperationCall(
+        responseMapper: (DockerHttpResponseException) -> RuntimeException? = { null },
         operation: () -> T
     ): T {
-        return dockerCallInternal(
-            notFound = null,
+        return try {
+            dockerTransportCall(operation)
+        } catch (exception: DockerHttpResponseException) {
+            val mappedException = responseMapper(exception)
+            if (mappedException != null) {
+                throw mappedException.causedBy(exception)
+            }
+
+            logDockerCallFailure(exception)
+            throw DockerOperationFailedException().causedBy(exception)
+        } catch (exception: DockerClientException) {
+            logDockerCallFailure(exception)
+            throw DockerOperationFailedException().causedBy(exception)
+        }
+    }
+
+    private fun <T> containerDockerCall(operation: () -> T): T {
+        return dockerOperationCall(
+            responseMapper = { response ->
+                if (response.statusCode == HTTP_NOT_FOUND) {
+                    containerNotFound()
+                } else {
+                    null
+                }
+            },
             operation = operation
         )
     }
 
-    private inline fun <T> dockerCall(
-        noinline notFound: () -> RuntimeException,
-        operation: () -> T
-    ): T {
-        return dockerCallInternal(
-            notFound = notFound,
-            operation = operation
-        )
-    }
-
-    private inline fun <T> dockerCallInternal(
-        noinline notFound: (() -> RuntimeException)?,
-        operation: () -> T
-    ): T {
-        return try {
-            operation()
-        } catch (exception: DockerNotFoundException) {
-            notFound?.let { throw it() }
-            logDockerCallFailure(exception)
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
-        } catch (exception: DockerException) {
-            logDockerCallFailure(exception)
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
-        } catch (exception: DockerClientException) {
-            logDockerCallFailure(exception)
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
-        }
-    }
-
-    private inline fun <T> imageDockerCall(operation: () -> T): T {
-        return try {
-            operation()
-        } catch (_: DockerNotFoundException) {
-            throw DockerImageNotFoundException("Docker image couldn't be found")
-        } catch (exception: DockerException) {
-            logDockerCallFailure(exception)
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
-        } catch (exception: DockerClientException) {
-            logDockerCallFailure(exception)
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
-        }
-    }
-
-    private inline fun lifecycleDockerCall(
-        alreadyInTargetState: (DockerNotModifiedException) -> RuntimeException,
-        conflict: (DockerConflictException) -> RuntimeException,
+    private fun lifecycleDockerCall(
+        alreadyInTargetState: (DockerHttpResponseException) -> RuntimeException,
+        conflict: (DockerHttpResponseException) -> RuntimeException,
         operation: () -> Unit
     ) {
-        try {
-            operation()
-        } catch (exception: DockerNotModifiedException) {
-            throw alreadyInTargetState(exception)
-        } catch (exception: DockerConflictException) {
-            throw conflict(exception)
-        } catch (_: DockerNotFoundException) {
-            throw DockerContainerNotFoundException("Docker container couldn't be found")
-        } catch (exception: DockerException) {
-            exception.toLifecycleStateConflict()?.let { throw it }
-            logDockerCallFailure(exception)
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
-        } catch (exception: DockerClientException) {
-            logDockerCallFailure(exception)
-            throw DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+        dockerOperationCall(
+            responseMapper = { response ->
+                val lifecycleStateConflict = response.toLifecycleStateConflict()
+                when {
+                    response.statusCode == HTTP_NOT_MODIFIED ->
+                        alreadyInTargetState(response)
+                    response.statusCode == HTTP_CONFLICT ->
+                        conflict(response)
+                    response.statusCode == HTTP_NOT_FOUND ->
+                        containerNotFound()
+                    lifecycleStateConflict != null ->
+                        lifecycleStateConflict
+                    response.isContainerRuntimeResourceConflict() ->
+                        DockerContainerRuntimeResourceConflictException(
+                            response.messageOr(
+                                "Docker container runtime resource conflict"
+                            )
+                        )
+                    else -> null
+                }
+            },
+            operation = operation
+        )
+    }
+
+    private fun mapImagePullHttpFailure(
+        response: DockerHttpResponseException
+    ): RuntimeException {
+        val mappedException = when (response.statusCode) {
+            HTTP_UNAUTHORIZED,
+            HTTP_FORBIDDEN ->
+                DockerImagePullAccessDeniedException(
+                    response.messageOr("Docker registry access was denied")
+                )
+            HTTP_NOT_FOUND ->
+                DockerImageNotFoundException(
+                    response.messageOr("Docker image couldn't be found")
+                )
+            in HTTP_SERVER_ERROR_RANGE ->
+                DockerImageRegistryUnavailableException(
+                    response.messageOr("Docker image registry is unavailable")
+                )
+            else ->
+                DockerImagePullFailedException(
+                    response.messageOr("Docker image pull failed")
+                )
+        }
+
+        return mappedException.causedBy(response)
+    }
+
+    private fun mapImagePullFailure(
+        failure: DockerImagePullFailure,
+        cause: RuntimeException? = null
+    ): RuntimeException {
+        val normalizedMessage = failure.message.lowercase()
+        val mappedException = when {
+            failure.statusCode == HTTP_UNAUTHORIZED ||
+                failure.statusCode == HTTP_FORBIDDEN ||
+                PULL_ACCESS_DENIED_MARKERS.any(normalizedMessage::contains) ->
+                DockerImagePullAccessDeniedException(failure.message)
+            failure.statusCode == HTTP_NOT_FOUND ||
+                PULL_NOT_FOUND_MARKERS.any(normalizedMessage::contains) ->
+                DockerImageNotFoundException(failure.message)
+            failure.statusCode?.let(HTTP_SERVER_ERROR_RANGE::contains) == true ||
+                PULL_REGISTRY_UNAVAILABLE_MARKERS.any(normalizedMessage::contains) ->
+                DockerImageRegistryUnavailableException(failure.message)
+            else -> DockerImagePullFailedException(failure.message)
+        }
+
+        return if (cause != null) {
+            mappedException.causedBy(cause)
+        } else {
+            mappedException
         }
     }
 
-    private fun DockerException.toLifecycleStateConflict(): RuntimeException? {
-        val message = safeDockerMessage()
-        val normalized = message.lowercase()
+    private fun DockerHttpResponseException.toLifecycleStateConflict(): RuntimeException? {
+        val normalized = responseMessage.lowercase()
 
         return when {
             "already started" in normalized || "already running" in normalized ->
@@ -1149,20 +1349,64 @@ class LocalDockerAgentClient(
         }
     }
 
-    private fun DockerConflictException.toPauseConflict(): RuntimeException {
+    private fun DockerHttpResponseException.toPauseConflict(): RuntimeException {
         return toLifecycleStateConflict()
-            ?: DockerContainerLifecycleConflictException(safeDockerMessage())
+            ?: DockerContainerLifecycleConflictException(
+                messageOr(DOCKER_CONTAINER_LIFECYCLE_CONFLICT_MESSAGE)
+            )
     }
 
-    private fun DockerConflictException.toUnpauseConflict(): RuntimeException {
+    private fun DockerHttpResponseException.toUnpauseConflict(): RuntimeException {
         return toLifecycleStateConflict()
-            ?: DockerContainerLifecycleConflictException(safeDockerMessage())
+            ?: DockerContainerLifecycleConflictException(
+                messageOr(DOCKER_CONTAINER_LIFECYCLE_CONFLICT_MESSAGE)
+            )
     }
 
-    private fun DockerException.safeDockerMessage(
-        defaultMessage: String = DOCKER_CONTAINER_LIFECYCLE_CONFLICT_MESSAGE
-    ): String {
-        return message?.takeIf { it.isNotBlank() } ?: defaultMessage
+    private fun DockerHttpResponseException.isContainerRuntimeResourceConflict(): Boolean {
+        if (statusCode != HTTP_INTERNAL_SERVER_ERROR) {
+            return false
+        }
+
+        val normalized = responseMessage.lowercase()
+        return CONTAINER_RUNTIME_RESOURCE_CONFLICT_MARKERS.any(normalized::contains) ||
+            ("network" in normalized && "not found" in normalized)
+    }
+
+    private fun DockerHttpResponseException.messageOr(defaultMessage: String): String {
+        return responseMessage.takeIf { it.isNotBlank() } ?: defaultMessage
+    }
+
+    private fun DockerException.responseMessage(): String {
+        val statusPrefix = "Status $httpStatus:"
+        return message
+            ?.removePrefix(statusPrefix)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: "Docker request failed with status $httpStatus"
+    }
+
+    private fun RuntimeException.toAgentUnavailable(): DockerAgentUnavailableException {
+        logDockerCallFailure(this)
+        return DockerAgentUnavailableException(DOCKER_AGENT_UNAVAILABLE_MESSAGE)
+            .causedBy(this)
+    }
+
+    private fun Throwable.hasIoCause(): Boolean {
+        var current: Throwable? = this
+        while (current != null) {
+            if (current is IOException) {
+                return true
+            }
+            current = current.cause
+        }
+
+        return false
+    }
+
+    private fun <T : RuntimeException> T.causedBy(cause: Throwable): T {
+        initCause(cause)
+        return this
     }
 
     private fun logDockerCallFailure(exception: RuntimeException) {
@@ -1185,6 +1429,50 @@ class LocalDockerAgentClient(
         const val UNTAGGED_IMAGE_REFERENCE = "<none>:<none>"
         const val STATS_TIMEOUT_SECONDS = 5L
         const val LOGS_TIMEOUT_SECONDS = 10L
+
+        const val HTTP_BAD_REQUEST = 400
+        const val HTTP_UNAUTHORIZED = 401
+        const val HTTP_FORBIDDEN = 403
+        const val HTTP_NOT_FOUND = 404
+        const val HTTP_NOT_ACCEPTABLE = 406
+        const val HTTP_CONFLICT = 409
+        const val HTTP_NOT_MODIFIED = 304
+        const val HTTP_INTERNAL_SERVER_ERROR = 500
+
+        val HTTP_SERVER_ERROR_RANGE = 500..599
+        val PULL_ACCESS_DENIED_MARKERS = listOf(
+            "pull access denied",
+            "requested access to the resource is denied",
+            "authentication required",
+            "insufficient_scope",
+            "unauthorized"
+        )
+        val PULL_NOT_FOUND_MARKERS = listOf(
+            "manifest unknown",
+            "name unknown",
+            "no such image",
+            "repository does not exist",
+            "not found"
+        )
+        val PULL_REGISTRY_UNAVAILABLE_MARKERS = listOf(
+            "service unavailable",
+            "registry is unavailable",
+            "connection refused",
+            "context deadline exceeded",
+            "i/o timeout",
+            "no route to host",
+            "temporary failure",
+            "tls handshake timeout"
+        )
+        val CONTAINER_RUNTIME_RESOURCE_CONFLICT_MARKERS = listOf(
+            "port is already allocated",
+            "address already in use",
+            "failed programming external connectivity",
+            "error while mounting volume",
+            "failed to mount",
+            "no such volume",
+            "already exists in network"
+        )
     }
 
     private data class DiskIoBytes(
