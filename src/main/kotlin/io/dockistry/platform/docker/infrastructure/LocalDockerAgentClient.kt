@@ -347,6 +347,7 @@ class LocalDockerAgentClient(
                 .withFilter("name", listOf(name))
                 .exec()
                 .volumes
+                .orEmpty()
                 .firstOrNull { volume -> volume.name == name }
                 ?.let { volume ->
                     DockerVolumeRef(
@@ -367,7 +368,7 @@ class LocalDockerAgentClient(
                 )
             }
 
-            command.exec().volumes.map { volume ->
+            command.exec().volumes.orEmpty().map { volume ->
                 DockerVolumeRef(
                     name = volume.name,
                     labels = volume.labels.orEmpty()
@@ -594,6 +595,7 @@ class LocalDockerAgentClient(
         ) {
             dockerClient.removeContainerCmd(containerId)
                 .withForce(true)
+                .withRemoveVolumes(true)
                 .exec()
         }
     }

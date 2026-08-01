@@ -2,7 +2,10 @@ package io.dockistry.platform.docker.infrastructure
 
 import com.github.dockerjava.api.DockerClient
 import com.github.dockerjava.api.async.ResultCallback
+import com.github.dockerjava.api.command.ListVolumesCmd
+import com.github.dockerjava.api.command.ListVolumesResponse
 import com.github.dockerjava.api.command.PullImageCmd
+import com.github.dockerjava.api.command.RemoveContainerCmd
 import com.github.dockerjava.api.command.RemoveNetworkCmd
 import com.github.dockerjava.api.command.RemoveVolumeCmd
 import com.github.dockerjava.api.command.StatsCmd
@@ -19,6 +22,7 @@ import io.dockistry.platform.docker.domain.DockerNetworkRemoveConflictException
 import io.dockistry.platform.docker.domain.DockerOperationFailedException
 import io.dockistry.platform.docker.domain.DockerVolumeRemoveConflictException
 import io.dockistry.platform.docker.domain.model.DockerImageRef
+import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito
@@ -26,6 +30,7 @@ import java.io.IOException
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class LocalDockerAgentClientExceptionMappingTests {
@@ -109,6 +114,36 @@ class LocalDockerAgentClientExceptionMappingTests {
         }
 
         assertIs<DockerClientException>(exception.cause)
+    }
+
+    @Test
+    fun `empty Docker volume response maps to empty lookup results`() {
+        val command = Mockito.mock(ListVolumesCmd::class.java)
+        val response = Mockito.mock(ListVolumesResponse::class.java)
+
+        Mockito.`when`(dockerClient.listVolumesCmd()).thenReturn(command)
+        Mockito.`when`(command.withFilter("name", listOf(VOLUME_NAME)))
+            .thenReturn(command)
+        Mockito.`when`(command.exec()).thenReturn(response)
+        Mockito.`when`(response.volumes).thenReturn(null)
+
+        assertNull(agentClient.findVolumeByName(VOLUME_NAME))
+        assertTrue(agentClient.listVolumes(DockerLabelsFilter()).isEmpty())
+    }
+
+    @Test
+    fun `container deletion removes anonymous volumes`() {
+        val command = Mockito.mock(RemoveContainerCmd::class.java)
+
+        Mockito.`when`(dockerClient.removeContainerCmd(CONTAINER_ID)).thenReturn(command)
+        Mockito.`when`(command.withForce(true)).thenReturn(command)
+        Mockito.`when`(command.withRemoveVolumes(true)).thenReturn(command)
+
+        agentClient.deleteContainer(CONTAINER_ID)
+
+        Mockito.verify(command).withForce(true)
+        Mockito.verify(command).withRemoveVolumes(true)
+        Mockito.verify(command).exec()
     }
 
     @Test
