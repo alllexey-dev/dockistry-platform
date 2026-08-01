@@ -241,7 +241,6 @@ class ProjectService(
         return archive(projectId = projectId, principal = user.principal)
     }
 
-    @Transactional
     fun deleteForUser(
         projectId: UUID,
         user: User
