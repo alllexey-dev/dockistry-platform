@@ -47,6 +47,10 @@ class Project(
     @Column(nullable = false)
     val createdAt: Instant
 ) {
+    companion object {
+        const val MAX_SLUG_LENGTH = 30
+    }
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     lateinit var id: UUID
@@ -62,9 +66,11 @@ class Project(
             field = ProjectNameNormalizer.normalizeAndValidate(value)
         }
 
-    @field:Column(unique = true, nullable = false)
-    val slug: String = SlugValidator.validate(slug) {
-        InvalidProjectSlugException("Project slug '$it' is invalid")
+    @field:Column(unique = true, nullable = false, length = MAX_SLUG_LENGTH)
+    val slug: String = SlugValidator.validate(slug, MAX_SLUG_LENGTH) {
+        InvalidProjectSlugException(
+            "Project slug '$it' must be a slug up to $MAX_SLUG_LENGTH characters"
+        )
     }
 
     @OneToMany(mappedBy = "project", cascade = [CascadeType.ALL], fetch = FetchType.LAZY)

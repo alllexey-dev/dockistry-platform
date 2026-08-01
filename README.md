@@ -175,7 +175,8 @@ permission `project.read`. Mutating member endpoints требуют permission
 Для операций по конкретному project id отсутствие проекта и отсутствие read-access
 оба отображаются как `404 project_not_found`; если read-access есть, но не хватает
 права на действие, возвращается `403 insufficient_permission_for_operation`.
-Slug задается при создании проекта и после этого не изменяется.
+Slug задается при создании проекта, ограничен 30 символами и после этого не
+изменяется.
 `ProjectInfoDto` содержит текущую `version`. `PATCH /api/projects/{id}` принимает
 `name`, `description` и обязательный `expectedVersion` из последнего полученного
 `ProjectInfoDto`; отрицательная версия возвращает `400 validation_error`.
@@ -227,7 +228,7 @@ start/stop. Во время Docker operation service показывает соо
 поддерживаются. JSONB-поля (`command`, `args`, `env`, `endpoints`, `volumes`)
 возвращаются типизированной структурой в `ApiResponse<ManagedServiceDto>`.
 
-Имена volumes содержат минимум два символа и соответствуют Docker name rules:
+Имена volumes содержат от 2 до 30 символов и соответствуют Docker name rules:
 первый символ alphanumeric, оставшиеся символы — alphanumeric, `_`, `.` или `-`.
 DIRECT endpoints могут использовать одинаковый `externalPort` для разных
 протоколов, но пара `(externalPort, protocol)` должна быть уникальна внутри

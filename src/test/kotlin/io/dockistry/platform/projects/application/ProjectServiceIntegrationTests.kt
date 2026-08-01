@@ -476,7 +476,7 @@ class ProjectServiceIntegrationTests {
     private fun committedUpdateContext(
         vararg permissionKeys: String,
         name: String = "Project ${UUID.randomUUID()}",
-        slug: String = "project-${UUID.randomUUID()}"
+        slug: String = "project-${UUID.randomUUID().toString().take(8)}"
     ): ProjectUpdateContext = inNewTransaction {
         val fixtures = fixtures()
         val project = fixtures.project(name = name, slug = slug)
