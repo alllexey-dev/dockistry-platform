@@ -212,6 +212,31 @@ class ProjectControllerIntegrationTests {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    fun `update rejects negative expected version`() {
+        val context = committedUpdateContext(SystemPermissionNames.PROJECT_UPDATE)
+
+        try {
+            mockMvc.patch("/api/projects/${context.project.id}") {
+                bearer(context.user)
+                contentType = MediaType.APPLICATION_JSON
+                content = projectUpdateJson(
+                    name = context.project.name,
+                    description = context.project.description,
+                    expectedVersion = -1
+                )
+            }.andExpect {
+                expectApiError(statusCode = 400, errorCode = "validation_error")
+                jsonPath("$.errorMessage") {
+                    value("expectedVersion: Project expectedVersion must not be negative")
+                }
+            }
+        } finally {
+            cleanupCommittedProject(context.project.id)
+        }
+    }
+
+    @Test
     fun `archive returns archived project info dto when user can archive project`() {
         val fixtures = fixtures()
         val user = authenticatedUser(fixtures, "archiver")

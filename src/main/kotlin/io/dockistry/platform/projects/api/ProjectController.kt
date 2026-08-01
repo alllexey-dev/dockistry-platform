@@ -8,6 +8,7 @@ import io.dockistry.platform.projects.domain.dto.ProjectInfoDto
 import io.dockistry.platform.projects.domain.dto.ProjectSaveRequest
 import io.dockistry.platform.projects.domain.dto.ProjectUpdateRequest
 import io.dockistry.platform.shared.api.ApiResponse
+import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -61,7 +62,7 @@ class ProjectController(
     @PatchMapping("/{id}")
     fun update(
         @PathVariable id: UUID,
-        @RequestBody updateRequest: ProjectUpdateRequest
+        @RequestBody @Valid updateRequest: ProjectUpdateRequest
     ): ApiResponse<ProjectInfoDto> {
         val user = currentUserProvider.getUser()
         val project = projectService.updateForUser(
