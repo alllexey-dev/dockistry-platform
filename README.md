@@ -176,6 +176,9 @@ permission `project.read`. Mutating member endpoints требуют permission
 оба отображаются как `404 project_not_found`; если read-access есть, но не хватает
 права на действие, возвращается `403 insufficient_permission_for_operation`.
 Slug задается при создании проекта и после этого не изменяется.
+`ProjectInfoDto` содержит текущую `version`. `PATCH /api/projects/{id}` принимает
+`name`, `description` и обязательный `expectedVersion` из последнего полученного
+`ProjectInfoDto`; отрицательная версия возвращает `400 validation_error`.
 
 ## Managed Services API
 
@@ -191,6 +194,9 @@ limits и ожидаемое состояние. Это durable source of truth 
 | `GET`    | `/api/projects/{projectId}/services/{serviceId}` | получить managed service                      |
 | `PATCH`  | `/api/projects/{projectId}/services/{serviceId}` | заменить изменяемую конфигурацию service      |
 | `DELETE` | `/api/projects/{projectId}/services/{serviceId}` | удалить managed service, `data="ok"`          |
+| `POST`   | `/api/projects/{projectId}/services/{serviceId}/deploy` | создать и запустить container service     |
+| `POST`   | `/api/projects/{projectId}/services/{serviceId}/start` | запустить container service                 |
+| `POST`   | `/api/projects/{projectId}/services/{serviceId}/stop` | остановить container service                  |
 | `GET`    | `/api/projects/{projectId}/services/{serviceId}/container` | inspect container service        |
 | `GET`    | `/api/projects/{projectId}/services/{serviceId}/container/stats` | stats container service      |
 | `GET`    | `/api/projects/{projectId}/services/{serviceId}/container/logs` | logs container service        |
