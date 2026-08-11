@@ -60,9 +60,9 @@ class DeployAlreadyInProcessException(
     message: String
 ) : ConflictException(message, "deploy_already_in_process")
 
-class ContainerNameConflictDeletionRequiredException() : ConflictException(
-    message = "Container with same name is already connected to your project, please delete it and try again",
-    code = "container_name_conflict_deletion_required"
+class ManagedServiceStopRequiredException() : ConflictException(
+    message = "Container for your service is currently already running, please stop the service and try again",
+    code = "managed_service_stop_required"
 )
 
 class ContainerNameConflictSupportRequiredException() : ConflictException(

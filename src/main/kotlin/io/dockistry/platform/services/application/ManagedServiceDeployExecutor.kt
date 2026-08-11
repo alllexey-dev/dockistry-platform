@@ -5,6 +5,7 @@ import io.dockistry.platform.docker.domain.DockerContainerCreateNameConflictExce
 import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerContainerCreateCommand
+import io.dockistry.platform.docker.domain.model.DockerContainerState
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
 import io.dockistry.platform.docker.domain.model.DockerImageRef
 import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
@@ -13,11 +14,10 @@ import io.dockistry.platform.docker.domain.model.DockerPortProtocol
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicy
 import io.dockistry.platform.docker.domain.model.DockerVolumeBinding
 import io.dockistry.platform.services.application.dto.ManagedServiceDeploymentPlan
-import io.dockistry.platform.services.domain.ContainerNameConflictDeletionRequiredException
 import io.dockistry.platform.services.domain.ContainerNameConflictSupportRequiredException
 import io.dockistry.platform.services.domain.ManagedServiceDeploymentCanceled
-import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
 import io.dockistry.platform.services.domain.ManagedServiceImageRef
+import io.dockistry.platform.services.domain.ManagedServiceStopRequiredException
 import io.dockistry.platform.services.domain.ServiceEndpointMode
 import io.dockistry.platform.services.domain.ServiceEndpointProtocol
 import io.dockistry.platform.services.infrastructure.ManagedServiceDeploymentRepository
@@ -78,7 +78,10 @@ class ManagedServiceDeployExecutor(
                             DeployOutcome.CancellationRequested
                     }
                 } catch (_: DockerContainerCreateNameConflictException) {
-                    recordFailureWithOutcomeUnderGate(plan, properConflictException(plan))
+                    recordFailureWithOutcomeUnderGate(
+                        plan,
+                        ContainerNameConflictSupportRequiredException()
+                    )
                 } catch (exception: RuntimeException) {
                     recordFailureWithOutcomeUnderGate(plan, exception)
                 }
@@ -242,29 +245,20 @@ class ManagedServiceDeployExecutor(
         )
     }
 
-    private fun properConflictException(plan: ManagedServiceDeploymentPlan): RuntimeException {
-        return if (getConflictingContainer(plan) == null) {
-            ContainerNameConflictSupportRequiredException()
-        } else {
-            ContainerNameConflictDeletionRequiredException()
-        }
-    }
-
     private fun handleConflict(plan: ManagedServiceDeploymentPlan): Boolean {
         val containerDetails = getConflictingContainer(plan)?.takeIf {
             it.labels[DockerLabels.DEPLOYMENT_ID] != null
         }
 
-        val deployment = containerDetails?.labels[DockerLabels.DEPLOYMENT_ID]?.let {
-            try {
-                val deploymentId = UUID.fromString(it)
-                deploymentRepository.findById(deploymentId).getOrNull()
-            } catch (_: IllegalArgumentException) {
-                null
+        if (containerDetails != null) {
+            if (containerDetails.state !in listOf(
+                DockerContainerState.CREATED,
+                DockerContainerState.EXITED,
+                DockerContainerState.DEAD
+            )) {
+                throw ManagedServiceStopRequiredException()
             }
-        }
 
-        if (deployment?.status == ManagedServiceDeploymentStatus.FAILED) {
             try {
                 containerService.deleteContainer(containerDetails.id)
                 return true
