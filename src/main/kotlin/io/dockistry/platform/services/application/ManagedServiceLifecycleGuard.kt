@@ -172,7 +172,7 @@ class ManagedServiceLifecycleGuard(
     }
 
     private fun validateLockTimeout(lockTimeout: Duration) {
-        if (lockTimeout.isNegative || lockTimeout.isZero || lockTimeout.toMillis() == 0L) {
+        if (lockTimeout.isNegative || lockTimeout.toMillis() == 0L) {
             throw InternalDataIntegrityException(
                 "Managed service lifecycle lock timeout must be at least one millisecond"
             )
