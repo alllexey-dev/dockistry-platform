@@ -134,8 +134,8 @@ class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
         )
     }
 
-    @ExceptionHandler(RuntimeException::class)
-    fun handleGenericRuntimeException(exception: RuntimeException): ResponseEntity<ApiResponse<Nothing>> {
+    @ExceptionHandler(Exception::class)
+    fun handleGenericRuntimeException(exception: Exception): ResponseEntity<ApiResponse<Nothing>> {
         handlerLogger.error("Runtime error: {}", exception.message, exception)
 
         return ResponseEntity
