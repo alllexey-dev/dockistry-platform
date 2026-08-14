@@ -12,8 +12,19 @@ import java.util.UUID
 @Service
 class ManagedServiceAccessGuard(
     private val projectAccessGuard: ProjectAccessGuard,
-    private val managedServiceRepository: ManagedServiceRepository
+    private val managedServiceRepository: ManagedServiceRepository,
+    private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard
 ) {
+    @Transactional(readOnly = true)
+    fun requireReadable(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ): ManagedService {
+        projectAccessGuard.requireReadable(projectId, principal)
+        return managedServiceLifecycleGuard.requireAvailableForRead(projectId, serviceId)
+    }
+
     @Transactional(readOnly = true)
     fun requireManageable(
         projectId: UUID,

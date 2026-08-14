@@ -26,7 +26,6 @@ class ManagedServiceService(
     private val createExecutor: ManagedServiceCreateExecutor,
     private val updateExecutor: ManagedServiceUpdateExecutor,
     private val managedServiceRepository: ManagedServiceRepository,
-    private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard,
     private val managedServiceDeletionLifecycleService: ManagedServiceDeletionLifecycleService,
     private val managedServiceDeletionExecutor: ManagedServiceDeletionExecutor,
     private val projectExistenceService: ProjectExistenceService,
@@ -52,38 +51,34 @@ class ManagedServiceService(
 
     @Transactional(readOnly = true)
     fun get(projectId: UUID, serviceId: UUID, principal: Principal): ManagedService {
-        projectAccessGuard.requireReadable(projectId, principal)
-        return managedServiceLifecycleGuard.requireAvailableForRead(projectId, serviceId)
+        return managedServiceAccessGuard.requireReadable(projectId, serviceId, principal)
     }
 
-    @Transactional(readOnly = true)
     fun inspectContainer(
         projectId: UUID,
         serviceId: UUID,
         principal: Principal
     ): ContainerDetails {
-        get(projectId, serviceId, principal)
+        managedServiceAccessGuard.requireReadable(projectId, serviceId, principal)
         return managedServiceContainerReadService.inspectContainer(projectId, serviceId)
     }
 
-    @Transactional(readOnly = true)
     fun getContainerStats(
         projectId: UUID,
         serviceId: UUID,
         principal: Principal
     ): ContainerStats {
-        get(projectId, serviceId, principal)
+        managedServiceAccessGuard.requireReadable(projectId, serviceId, principal)
         return managedServiceContainerReadService.getContainerStats(projectId, serviceId)
     }
 
-    @Transactional(readOnly = true)
     fun getContainerLogs(
         projectId: UUID,
         serviceId: UUID,
         principal: Principal,
         request: DockerContainerLogsRequest
     ): ContainerLogs {
-        get(projectId, serviceId, principal)
+        managedServiceAccessGuard.requireReadable(projectId, serviceId, principal)
         return managedServiceContainerReadService.getLogs(
             projectId = projectId,
             serviceId = serviceId,
@@ -120,12 +115,12 @@ class ManagedServiceService(
         serviceId: UUID,
         principal: Principal
     ): String {
-        val service = managedServiceAccessGuard.requireManageable(
+        managedServiceAccessGuard.requireManageable(
             projectId,
             serviceId,
             principal
         )
-        return managedServiceDeployExecutor.deploy(service.id)
+        return managedServiceDeployExecutor.deploy(serviceId)
     }
 
     fun start(
@@ -133,12 +128,12 @@ class ManagedServiceService(
         serviceId: UUID,
         principal: Principal
     ) {
-        val service = managedServiceAccessGuard.requireManageable(
+        managedServiceAccessGuard.requireManageable(
             projectId,
             serviceId,
             principal
         )
-        managedServiceRuntimeExecutor.start(service.id)
+        managedServiceRuntimeExecutor.start(serviceId)
     }
 
     fun stop(
@@ -146,12 +141,12 @@ class ManagedServiceService(
         serviceId: UUID,
         principal: Principal
     ) {
-        val service = managedServiceAccessGuard.requireManageable(
+        managedServiceAccessGuard.requireManageable(
             projectId,
             serviceId,
             principal
         )
-        managedServiceRuntimeExecutor.stop(service.id)
+        managedServiceRuntimeExecutor.stop(serviceId)
     }
 
     fun pause(
@@ -159,12 +154,12 @@ class ManagedServiceService(
         serviceId: UUID,
         principal: Principal
     ) {
-        val service = managedServiceAccessGuard.requireManageable(
+        managedServiceAccessGuard.requireManageable(
             projectId,
             serviceId,
             principal
         )
-        managedServiceRuntimeExecutor.pause(service.id)
+        managedServiceRuntimeExecutor.pause(serviceId)
     }
 
     fun unpause(
@@ -172,12 +167,12 @@ class ManagedServiceService(
         serviceId: UUID,
         principal: Principal
     ) {
-        val service = managedServiceAccessGuard.requireManageable(
+        managedServiceAccessGuard.requireManageable(
             projectId,
             serviceId,
             principal
         )
-        managedServiceRuntimeExecutor.unpause(service.id)
+        managedServiceRuntimeExecutor.unpause(serviceId)
     }
 
     fun delete(
