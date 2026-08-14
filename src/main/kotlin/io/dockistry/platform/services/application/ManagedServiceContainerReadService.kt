@@ -6,6 +6,7 @@ import io.dockistry.platform.docker.domain.dto.ContainerDetails
 import io.dockistry.platform.docker.domain.dto.ContainerLogs
 import io.dockistry.platform.docker.domain.dto.ContainerStats
 import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
+import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.services.domain.ManagedServiceNotDeployedException
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.springframework.stereotype.Service
@@ -39,13 +40,14 @@ class ManagedServiceContainerReadService(
     }
 
     private fun requireContainerId(projectId: UUID, serviceId: UUID): String {
-        val expectedLabels = DockerLabels.forService(projectId, serviceId)
-        val containers = containerReadService.listContainers()
-            .filter { container ->
-                expectedLabels.all { (key, value) ->
-                    container.labels[key] == value
-                }
-            }
+        val containers = containerReadService.listContainers(
+            filter = DockerLabelsFilter(
+                labels = DockerLabels.forService(
+                    projectId,
+                    serviceId
+                )
+            )
+        )
 
         if (containers.size > 1) {
             throw InternalDataIntegrityException(

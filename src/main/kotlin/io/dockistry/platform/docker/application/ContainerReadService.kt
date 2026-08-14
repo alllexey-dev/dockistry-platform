@@ -13,9 +13,11 @@ class ContainerReadService(
     private val containerService: ContainerService,
     private val dockerApiDtoMapper: DockerApiDtoMapper
 ) {
-    fun listContainers(): List<ContainerSummary> {
+    fun listContainers(
+        filter: DockerLabelsFilter = DockerLabelsFilter()
+    ): List<ContainerSummary> {
         return dockerApiDtoMapper.toSummaryDtos(
-            containerService.listContainers(DockerLabelsFilter())
+            containerService.listContainers(filter)
         )
     }
 
