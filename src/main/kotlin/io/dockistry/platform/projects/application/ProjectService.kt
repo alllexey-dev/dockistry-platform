@@ -150,7 +150,7 @@ class ProjectService(
         projectId: UUID,
         principal: Principal
     ): Project {
-        val project = projectAccessGuard.requireDeletable(projectId, principal)
+        projectAccessGuard.requireDeletable(projectId, principal)
 
         if (projectManagedServicesExistencePort.existsByProjectId(projectId)) {
             throw ProjectDeletionBlockedByManagedServicesException(
@@ -158,23 +158,27 @@ class ProjectService(
             )
         }
 
-        projectNetworkRemovalPort.removeNetwork(
-            projectId = project.id,
-            projectSlug = project.slug
-        )
-
-        return try {
+        val deletedProject = try {
             projectDeleteExecutor.execute(
                 projectId = projectId,
                 principal = principal
             )
         } catch (exception: DataIntegrityViolationException) {
             if (projectManagedServicesExistencePort.existsByProjectId(projectId)) {
-                throw ProjectDeletionBlockedByManagedServicesException("Project $projectId has services attached to it hence can't be deleted")
+                throw ProjectDeletionBlockedByManagedServicesException(
+                    "Project $projectId has services attached to it hence can't be deleted"
+                )
             }
 
             throw exception
         }
+
+        projectNetworkRemovalPort.removeNetwork(
+            projectId = deletedProject.id,
+            projectSlug = deletedProject.slug
+        )
+
+        return deletedProject
     }
 
     @Transactional
