@@ -15,6 +15,7 @@ import io.dockistry.platform.docker.domain.model.DockerRestartPolicy
 import io.dockistry.platform.docker.domain.model.DockerVolumeBinding
 import io.dockistry.platform.services.application.dto.ManagedServiceDeploymentPlan
 import io.dockistry.platform.services.domain.ContainerNameConflictSupportRequiredException
+import io.dockistry.platform.services.domain.DeployAlreadyInProcessException
 import io.dockistry.platform.services.domain.ManagedServiceDeploymentCanceled
 import io.dockistry.platform.services.domain.ManagedServiceImageRef
 import io.dockistry.platform.services.domain.ManagedServiceStopRequiredException
@@ -24,9 +25,9 @@ import io.dockistry.platform.services.infrastructure.ManagedServiceDeploymentRep
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import java.util.UUID
-import kotlin.jvm.optionals.getOrNull
 
 @Service
 class ManagedServiceDeployExecutor(
@@ -34,10 +35,10 @@ class ManagedServiceDeployExecutor(
     private val deploymentCleanupService: ManagedServiceDeploymentCleanupService,
     private val projectNetworkService: ProjectNetworkService,
     private val projectVolumeService: ProjectVolumeService,
-    private val deploymentRepository: ManagedServiceDeploymentRepository,
     private val containerService: ContainerService,
     private val deploymentOperationGate: ManagedServiceDeploymentOperationGate,
-    private val projectOperationGate: ProjectOperationGate
+    private val projectOperationGate: ProjectOperationGate,
+    private val deploymentRepository: ManagedServiceDeploymentRepository
 ) {
 
     companion object {
@@ -49,7 +50,23 @@ class ManagedServiceDeployExecutor(
     }
 
     fun deploy(serviceId: UUID): String {
-        val plan = deploymentLifecycleService.begin(serviceId)
+        if (deploymentRepository.hasActiveDeployments(serviceId)) {
+            throw DeployAlreadyInProcessException(
+                "Deploy for this service is already in process"
+            )
+        }
+
+        val plan = try {
+            deploymentLifecycleService.begin(serviceId)
+        } catch (exception: DataIntegrityViolationException) {
+            if (deploymentRepository.hasActiveDeployments(serviceId)) {
+                throw DeployAlreadyInProcessException(
+                    "Deploy for this service is already in process"
+                )
+            }
+
+            throw exception
+        }
 
         val command = try {
             createCommand(plan)

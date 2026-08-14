@@ -1,7 +1,6 @@
 package io.dockistry.platform.services.application
 
 import io.dockistry.platform.services.application.dto.ManagedServiceDeploymentPlan
-import io.dockistry.platform.services.domain.DeployAlreadyInProcessException
 import io.dockistry.platform.services.domain.DeploymentNotFoundException
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceConfiguration
@@ -10,7 +9,6 @@ import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
 import io.dockistry.platform.services.domain.ManagedServiceDesiredState
 import io.dockistry.platform.services.infrastructure.ManagedServiceDeploymentRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
-import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
@@ -307,20 +305,14 @@ class ManagedServiceDeploymentLifecycleService(
         service: ManagedService,
         snapshot: ManagedServiceConfiguration
     ): ManagedServiceDeployment {
-        return ManagedServiceDeployment(
-            service = service,
-            configSnapshot = snapshot,
-            serviceVersion = service.version,
-            createdAt = clock.instant(),
-            updatedAt = clock.instant(),
-        ).let {
-            try {
-                deploymentRepository.saveAndFlush(it)
-            } catch (_: DataIntegrityViolationException) {
-                throw DeployAlreadyInProcessException(
-                    "Deploy for this service is already in process"
-                )
-            }
-        }
+        return deploymentRepository.saveAndFlush(
+            ManagedServiceDeployment(
+                service = service,
+                configSnapshot = snapshot,
+                serviceVersion = service.version,
+                createdAt = clock.instant(),
+                updatedAt = clock.instant(),
+            )
+        )
     }
 }
