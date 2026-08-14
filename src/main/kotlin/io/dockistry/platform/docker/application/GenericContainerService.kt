@@ -13,7 +13,6 @@ import io.dockistry.platform.iam.domain.InsufficientPermissionException
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 
 @Service
 class GenericContainerService(
@@ -21,14 +20,12 @@ class GenericContainerService(
     private val containerReadService: ContainerReadService,
     private val permissionCheckService: PermissionCheckService
 ) {
-    @Transactional(readOnly = true)
     fun listContainers(principal: Principal): List<ContainerSummary> {
         requireManagePermission(principal)
         return containerReadService.listContainers()
             .filterNot { DockerLabels.containsDockistryLabel(it.labels) }
     }
 
-    @Transactional(readOnly = true)
     fun inspectContainer(
         containerId: String,
         principal: Principal
@@ -37,7 +34,6 @@ class GenericContainerService(
         return requireGenericContainer(containerId)
     }
 
-    @Transactional(readOnly = true)
     fun getContainerStats(
         containerId: String,
         principal: Principal
@@ -47,7 +43,6 @@ class GenericContainerService(
         return containerReadService.getContainerStats(container.id)
     }
 
-    @Transactional(readOnly = true)
     fun getLogs(
         containerId: String,
         principal: Principal,
@@ -58,42 +53,36 @@ class GenericContainerService(
         return containerReadService.getLogs(container.id, request)
     }
 
-    @Transactional(readOnly = true)
     fun startContainer(containerId: String, principal: Principal) {
         requireManagePermission(principal)
         val container = requireGenericContainer(containerId)
         containerService.startContainer(container.id)
     }
 
-    @Transactional(readOnly = true)
     fun stopContainer(containerId: String, principal: Principal) {
         requireManagePermission(principal)
         val container = requireGenericContainer(containerId)
         containerService.stopContainer(container.id)
     }
 
-    @Transactional(readOnly = true)
     fun restartContainer(containerId: String, principal: Principal) {
         requireManagePermission(principal)
         val container = requireGenericContainer(containerId)
         containerService.restartContainer(container.id)
     }
 
-    @Transactional(readOnly = true)
     fun pauseContainer(containerId: String, principal: Principal) {
         requireManagePermission(principal)
         val container = requireGenericContainer(containerId)
         containerService.pauseContainer(container.id)
     }
 
-    @Transactional(readOnly = true)
     fun unpauseContainer(containerId: String, principal: Principal) {
         requireManagePermission(principal)
         val container = requireGenericContainer(containerId)
         containerService.unpauseContainer(container.id)
     }
 
-    @Transactional(readOnly = true)
     fun deleteContainer(containerId: String, principal: Principal) {
         requireManagePermission(principal)
         val container = requireGenericContainer(containerId)
