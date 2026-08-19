@@ -1,8 +1,12 @@
+@file:Suppress("ProtectedInFinal")
+
 package io.dockistry.platform.services.domain
 
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
 import io.dockistry.platform.projects.domain.Project
+import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import jakarta.persistence.Column
+import jakarta.persistence.Embedded
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
 import jakarta.persistence.Enumerated
@@ -113,6 +117,11 @@ class ManagedService(
     var desiredState: ManagedServiceDesiredState = configuration.desiredState
         protected set
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "lifecycle_status", nullable = false)
+    var lifecycleStatus: ManagedServiceLifecycleStatus = ManagedServiceLifecycleStatus.ACTIVE
+        protected set
+
     @Version
     @Column(name = "version", nullable = false)
     var version: Long = 0
@@ -123,6 +132,10 @@ class ManagedService(
 
     @Column(name = "updated_at", nullable = false)
     var updatedAt: Instant = updatedAt
+        protected set
+
+    @Embedded
+    var deletionContext: ManagedServiceDeletionContext? = null
         protected set
 
     fun updateConfiguration(
@@ -142,5 +155,122 @@ class ManagedService(
         cpuLimitNanoCpus = configuration.cpuLimitNanoCpus
         desiredState = configuration.desiredState
         this.updatedAt = updatedAt
+    }
+
+    fun updateDesiredState(
+        state: ManagedServiceDesiredState,
+        updatedAt: Instant
+    ) {
+        desiredState = state
+        this.updatedAt = updatedAt
+    }
+
+    fun beginStart(updatedAt: Instant) {
+        requireLifecycleStatus(ManagedServiceLifecycleStatus.ACTIVE)
+        lifecycleStatus = ManagedServiceLifecycleStatus.STARTING
+        desiredState = ManagedServiceDesiredState.RUNNING
+        this.updatedAt = updatedAt
+    }
+
+    fun completeStart(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.STARTING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun failStart(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.STARTING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun beginStop(updatedAt: Instant) {
+        requireLifecycleStatus(ManagedServiceLifecycleStatus.ACTIVE)
+        lifecycleStatus = ManagedServiceLifecycleStatus.STOPPING
+        desiredState = ManagedServiceDesiredState.STOPPED
+        this.updatedAt = updatedAt
+    }
+
+    fun completeStop(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.STOPPING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun failStop(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.STOPPING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun beginPause(updatedAt: Instant) {
+        requireLifecycleStatus(ManagedServiceLifecycleStatus.ACTIVE)
+        lifecycleStatus = ManagedServiceLifecycleStatus.PAUSING
+        this.updatedAt = updatedAt
+    }
+
+    fun completePause(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.PAUSING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun failPause(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.PAUSING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun beginUnpause(updatedAt: Instant) {
+        requireLifecycleStatus(ManagedServiceLifecycleStatus.ACTIVE)
+        lifecycleStatus = ManagedServiceLifecycleStatus.UNPAUSING
+        this.updatedAt = updatedAt
+    }
+
+    fun completeUnpause(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.UNPAUSING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun failUnpause(updatedAt: Instant) {
+        transitionRuntimeOperationToActive(
+            expectedStatus = ManagedServiceLifecycleStatus.UNPAUSING,
+            updatedAt = updatedAt
+        )
+    }
+
+    fun beginDeletion(updatedAt: Instant) {
+        requireLifecycleStatus(ManagedServiceLifecycleStatus.ACTIVE)
+        lifecycleStatus = ManagedServiceLifecycleStatus.DELETING
+        deletionContext = ManagedServiceDeletionContext(
+            requestedAt = updatedAt
+        )
+        this.updatedAt = updatedAt
+    }
+
+    private fun transitionRuntimeOperationToActive(
+        expectedStatus: ManagedServiceLifecycleStatus,
+        updatedAt: Instant
+    ) {
+        requireLifecycleStatus(expectedStatus)
+        lifecycleStatus = ManagedServiceLifecycleStatus.ACTIVE
+        this.updatedAt = updatedAt
+    }
+
+    private fun requireLifecycleStatus(expectedStatus: ManagedServiceLifecycleStatus) {
+        if (lifecycleStatus != expectedStatus) {
+            throw InternalDataIntegrityException(
+                "Managed service lifecycle status is $lifecycleStatus instead of " +
+                        expectedStatus
+            )
+        }
     }
 }

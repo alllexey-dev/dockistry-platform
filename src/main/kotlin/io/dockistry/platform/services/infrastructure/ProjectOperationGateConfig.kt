@@ -1,0 +1,9 @@
+package io.dockistry.platform.services.infrastructure
+
+import org.springframework.boot.context.properties.ConfigurationProperties
+import java.time.Duration
+
+@ConfigurationProperties(prefix = "app.managed-services.project-operation-gate")
+data class ProjectOperationGateConfig(
+    val lockTimeout: Duration
+)

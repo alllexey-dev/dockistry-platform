@@ -10,16 +10,21 @@ import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.iam.domain.SystemRoleNames
 import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.iam.infrastructure.PrincipalRepository
+import io.dockistry.platform.iam.infrastructure.RoleBindingRepository
 import io.dockistry.platform.iam.infrastructure.RoleRepository
 import io.dockistry.platform.iam.infrastructure.ScopeQueryRepository
+import io.dockistry.platform.projects.application.ports.ProjectManagedServicesExistencePort
+import io.dockistry.platform.projects.application.ports.ProjectNetworkRemovalPort
 import io.dockistry.platform.projects.domain.InvalidProjectSlugException
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.projects.domain.ProjectAlreadyExistsException
-import io.dockistry.platform.projects.domain.ProjectStatus
+import io.dockistry.platform.projects.domain.ProjectDeletionBlockedByManagedServicesException
+import io.dockistry.platform.projects.domain.ProjectNotFoundException
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import jakarta.validation.ConstraintViolationException
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
@@ -34,7 +39,12 @@ class ProjectService(
     private val roleRepository: RoleRepository,
     private val principalRepository: PrincipalRepository,
     private val permissionCheckService: PermissionCheckService,
-    private val scopeQueryRepository: ScopeQueryRepository
+    private val scopeQueryRepository: ScopeQueryRepository,
+    private val roleBindingRepository: RoleBindingRepository,
+    private val projectManagedServicesExistencePort: ProjectManagedServicesExistencePort,
+    private val projectNetworkRemovalPort: ProjectNetworkRemovalPort,
+    private val projectDeleteExecutor: ProjectDeleteExecutor,
+    private val projectUpdateExecutor: ProjectUpdateExecutor
 ) {
     @Transactional
     fun create(
@@ -67,39 +77,42 @@ class ProjectService(
         val systemAdminRole = roleRepository.findByNameAndIsSystemTrue(SystemRoleNames.PROJECT_ADMIN)
             ?: throw InternalDataIntegrityException("Basic system role project_admin couldn't be found")
 
-        ownerPrincipal.roleBindings.add(
-            RoleBinding(ownerPrincipal, scope, systemAdminRole)
-        )
-
-        try {
-            return projectRepository.saveAndFlush(project)
+        val savedProject = try {
+            projectRepository.saveAndFlush(project)
         } catch (_: ConstraintViolationException) {
             throw InvalidProjectSlugException("Project slug '$slug' is invalid")
         } catch (_: DataIntegrityViolationException) {
             throw ProjectAlreadyExistsException("Project with such name/slug already exists")
         }
+
+        roleBindingRepository.saveAndFlush(
+            RoleBinding(ownerPrincipal, savedProject.scope, systemAdminRole)
+        )
+
+        return savedProject
     }
 
-    @Transactional
     fun update(
         projectId: UUID,
         name: String,
-        slug: String,
         description: String? = null,
+        expectedVersion: Long,
         principal: Principal
     ): Project {
-        val project = projectAccessGuard.requireUpdatable(projectId, principal)
-
-        project.name = name
-        project.slug = slug
-        project.description = description
-
-        try {
-            return projectRepository.saveAndFlush(project)
-        } catch (_: ConstraintViolationException) {
-            throw InvalidProjectSlugException("Project slug '$slug' is invalid")
-        } catch (_: DataIntegrityViolationException) {
-            throw ProjectAlreadyExistsException("Project with such name/slug already exists")
+        return try {
+            projectUpdateExecutor.execute(
+                projectId = projectId,
+                name = name,
+                description = description,
+                expectedVersion = expectedVersion,
+                principal = principal
+            )
+        } catch (_: ObjectOptimisticLockingFailureException) {
+            projectUpdateExecutor.resolveConflict(
+                projectId = projectId,
+                name = name,
+                description = description
+            )
         }
     }
 
@@ -109,26 +122,63 @@ class ProjectService(
         principal: Principal
     ): Project {
         val project = projectAccessGuard.requireArchivable(projectId, principal)
+        val archivedRows = projectRepository.archive(project.id)
 
-        project.status = ProjectStatus.ARCHIVED
+        if (archivedRows == 0) {
+            when (projectRepository.isArchived(project.id)) {
+                true -> Unit
+                false -> throw InternalDataIntegrityException(
+                    "Project ${project.id} was not archived after an archive update affected no rows"
+                )
+                null -> throw ProjectNotFoundException(
+                    "Project with provided ID couldn't be found"
+                )
+            }
+        }
 
-        return project
+        return projectRepository.findProjectById(project.id)
+            ?: if (archivedRows == 0) {
+                throw ProjectNotFoundException("Project with provided ID couldn't be found")
+            } else {
+                throw InternalDataIntegrityException(
+                    "Project ${project.id} disappeared after it was archived"
+                )
+            }
     }
 
-    @Transactional
     fun delete(
         projectId: UUID,
         principal: Principal
     ): Project {
-        val project = projectAccessGuard.requireDeletable(projectId, principal)
+        projectAccessGuard.requireDeletable(projectId, principal)
 
-        project.scope.roleBindings.toList().forEach { binding ->
-            binding.subjectPrincipal.roleBindings.remove(binding)
-            binding.role.roleBindings.remove(binding)
-            project.scope.roleBindings.remove(binding)
+        if (projectManagedServicesExistencePort.existsByProjectId(projectId)) {
+            throw ProjectDeletionBlockedByManagedServicesException(
+                "Project $projectId has services attached to it hence can't be deleted"
+            )
         }
-        projectRepository.delete(project)
-        return project
+
+        val deletedProject = try {
+            projectDeleteExecutor.execute(
+                projectId = projectId,
+                principal = principal
+            )
+        } catch (exception: DataIntegrityViolationException) {
+            if (projectManagedServicesExistencePort.existsByProjectId(projectId)) {
+                throw ProjectDeletionBlockedByManagedServicesException(
+                    "Project $projectId has services attached to it hence can't be deleted"
+                )
+            }
+
+            throw exception
+        }
+
+        projectNetworkRemovalPort.removeNetwork(
+            projectId = deletedProject.id,
+            projectSlug = deletedProject.slug
+        )
+
+        return deletedProject
     }
 
     @Transactional
@@ -171,19 +221,18 @@ class ProjectService(
         )
     }
 
-    @Transactional
     fun updateForUser(
         projectId: UUID,
         name: String,
-        slug: String,
         description: String?,
+        expectedVersion: Long,
         user: User
     ): Project {
         return update(
             projectId = projectId,
             name = name,
-            slug = slug,
             description = description,
+            expectedVersion = expectedVersion,
             principal = user.principal
         )
     }
@@ -196,7 +245,6 @@ class ProjectService(
         return archive(projectId = projectId, principal = user.principal)
     }
 
-    @Transactional
     fun deleteForUser(
         projectId: UUID,
         user: User

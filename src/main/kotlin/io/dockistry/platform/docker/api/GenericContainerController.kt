@@ -1,13 +1,11 @@
 package io.dockistry.platform.docker.api
 
-import io.dockistry.platform.docker.application.ProjectContainerService
+import io.dockistry.platform.docker.application.ContainerLogsRequestMapper
+import io.dockistry.platform.docker.application.GenericContainerService
 import io.dockistry.platform.docker.domain.dto.ContainerDetails
 import io.dockistry.platform.docker.domain.dto.ContainerLogs
 import io.dockistry.platform.docker.domain.dto.ContainerStats
 import io.dockistry.platform.docker.domain.dto.ContainerSummary
-import io.dockistry.platform.docker.domain.InvalidContainerLogsRequestException
-import io.dockistry.platform.docker.domain.model.DockerContainerLogStream
-import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
 import io.dockistry.platform.iam.application.CurrentUserProvider
 import io.dockistry.platform.shared.api.ApiResponse
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -18,47 +16,44 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.time.Instant
-import java.util.UUID
 
 @RestController
-@RequestMapping("/api/projects/{projectId}/containers")
-class ProjectContainerController(
+@RequestMapping("/api/docker/containers")
+class GenericContainerController(
     private val currentUserProvider: CurrentUserProvider,
-    private val projectContainerService: ProjectContainerService
+    private val genericContainerService: GenericContainerService,
+    private val containerLogsRequestMapper: ContainerLogsRequestMapper
 ) {
     @GetMapping("")
-    fun list(@PathVariable projectId: UUID): ApiResponse<List<ContainerSummary>> {
+    fun list(): ApiResponse<List<ContainerSummary>> {
         val user = currentUserProvider.getUser()
         return ApiResponse(
-            projectContainerService.listContainers(projectId, user.principal)
+            genericContainerService.listContainers(user.principal)
         )
     }
 
     @GetMapping("/{containerId}")
     fun inspect(
-        @PathVariable projectId: UUID,
         @PathVariable containerId: String
     ): ApiResponse<ContainerDetails> {
         val user = currentUserProvider.getUser()
         return ApiResponse(
-            projectContainerService.inspectContainer(projectId, containerId, user.principal)
+            genericContainerService.inspectContainer(containerId, user.principal)
         )
     }
 
     @GetMapping("/{containerId}/stats")
     fun stats(
-        @PathVariable projectId: UUID,
         @PathVariable containerId: String
     ): ApiResponse<ContainerStats> {
         val user = currentUserProvider.getUser()
         return ApiResponse(
-            projectContainerService.getContainerStats(projectId, containerId, user.principal)
+            genericContainerService.getContainerStats(containerId, user.principal)
         )
     }
 
     @GetMapping("/{containerId}/logs")
     fun logs(
-        @PathVariable projectId: UUID,
         @PathVariable containerId: String,
         @RequestParam(required = false) tail: Int?,
         @RequestParam(required = false) since: Instant?,
@@ -67,17 +62,16 @@ class ProjectContainerController(
         @RequestParam(required = false) streams: String?
     ): ApiResponse<ContainerLogs> {
         val user = currentUserProvider.getUser()
-        val request = DockerContainerLogsRequest(
-            tail = tail ?: DockerContainerLogsRequest.DEFAULT_TAIL,
+        val request = containerLogsRequestMapper.fromQueryParameters(
+            tail = tail,
             since = since,
             until = until,
-            timestamps = timestamps ?: false,
-            streams = streams.toLogStreams()
+            timestamps = timestamps,
+            streams = streams
         )
 
         return ApiResponse(
-            projectContainerService.getLogs(
-                projectId = projectId,
+            genericContainerService.getLogs(
                 containerId = containerId,
                 principal = user.principal,
                 request = request
@@ -87,80 +81,55 @@ class ProjectContainerController(
 
     @PostMapping("/{containerId}/start")
     fun start(
-        @PathVariable projectId: UUID,
         @PathVariable containerId: String
     ): ApiResponse<String> {
         val user = currentUserProvider.getUser()
-        projectContainerService.startContainer(projectId, containerId, user.principal)
+        genericContainerService.startContainer(containerId, user.principal)
         return ApiResponse("ok")
     }
 
     @PostMapping("/{containerId}/stop")
     fun stop(
-        @PathVariable projectId: UUID,
         @PathVariable containerId: String
     ): ApiResponse<String> {
         val user = currentUserProvider.getUser()
-        projectContainerService.stopContainer(projectId, containerId, user.principal)
+        genericContainerService.stopContainer(containerId, user.principal)
         return ApiResponse("ok")
     }
 
     @PostMapping("/{containerId}/restart")
     fun restart(
-        @PathVariable projectId: UUID,
         @PathVariable containerId: String
     ): ApiResponse<String> {
         val user = currentUserProvider.getUser()
-        projectContainerService.restartContainer(projectId, containerId, user.principal)
+        genericContainerService.restartContainer(containerId, user.principal)
         return ApiResponse("ok")
     }
 
     @PostMapping("/{containerId}/pause")
     fun pause(
-        @PathVariable projectId: UUID,
         @PathVariable containerId: String
     ): ApiResponse<String> {
         val user = currentUserProvider.getUser()
-        projectContainerService.pauseContainer(projectId, containerId, user.principal)
+        genericContainerService.pauseContainer(containerId, user.principal)
         return ApiResponse("ok")
     }
 
     @PostMapping("/{containerId}/unpause")
     fun unpause(
-        @PathVariable projectId: UUID,
         @PathVariable containerId: String
     ): ApiResponse<String> {
         val user = currentUserProvider.getUser()
-        projectContainerService.unpauseContainer(projectId, containerId, user.principal)
+        genericContainerService.unpauseContainer(containerId, user.principal)
         return ApiResponse("ok")
     }
 
     @DeleteMapping("/{containerId}")
     fun delete(
-        @PathVariable projectId: UUID,
         @PathVariable containerId: String
     ): ApiResponse<String> {
         val user = currentUserProvider.getUser()
-        projectContainerService.deleteContainer(projectId, containerId, user.principal)
+        genericContainerService.deleteContainer(containerId, user.principal)
         return ApiResponse("ok")
-    }
-
-    private fun String?.toLogStreams(): Set<DockerContainerLogStream> {
-        if (isNullOrBlank()) {
-            return setOf(DockerContainerLogStream.STDOUT, DockerContainerLogStream.STDERR)
-        }
-
-        return split(",")
-            .map { it.trim().lowercase() }
-            .map { stream ->
-                when (stream) {
-                    "stdout" -> DockerContainerLogStream.STDOUT
-                    "stderr" -> DockerContainerLogStream.STDERR
-                    else -> throw InvalidContainerLogsRequestException(
-                        "Container logs streams must contain only stdout or stderr"
-                    )
-                }
-            }
-            .toSet()
     }
 }

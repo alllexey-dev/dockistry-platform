@@ -21,8 +21,13 @@ enum class DockerAgentAvailability {
     UNAVAILABLE
 }
 
-data class DockerContainerFilter(
+data class DockerLabelsFilter(
     val labels: Map<String, String> = emptyMap()
+)
+
+data class DockerVolumeRef(
+    val name: String,
+    val labels: Map<String, String>
 )
 
 data class DockerImageRef(

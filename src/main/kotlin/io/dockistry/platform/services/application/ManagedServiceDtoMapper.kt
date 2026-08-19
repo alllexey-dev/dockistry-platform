@@ -29,6 +29,7 @@ class ManagedServiceDtoMapper {
             memoryLimitBytes = service.memoryLimitBytes,
             cpuLimitNanoCpus = service.cpuLimitNanoCpus,
             desiredState = service.desiredState,
+            lifecycleStatus = service.lifecycleStatus,
             version = service.version,
             createdAt = service.createdAt,
             updatedAt = service.updatedAt
@@ -97,3 +98,18 @@ class ManagedServiceDtoMapper {
             desiredState = desiredState
         )
 }
+
+fun ManagedService.toConfigurationDraft() =
+    ManagedServiceConfigurationDraft(
+        imageRef = imageRef.asString(),
+        command = command,
+        args = args,
+        env = env,
+        endpoints = endpoints,
+        volumes = volumes,
+        restartPolicy = restartPolicy,
+        restartMaxRetries = restartMaxRetries,
+        memoryLimitBytes = memoryLimitBytes,
+        cpuLimitNanoCpus = cpuLimitNanoCpus,
+        desiredState = desiredState
+    )

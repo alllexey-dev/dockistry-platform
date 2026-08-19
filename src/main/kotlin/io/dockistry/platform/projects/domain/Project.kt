@@ -20,6 +20,7 @@ import jakarta.persistence.OneToOne
 import jakarta.persistence.PrePersist
 import jakarta.persistence.PreUpdate
 import jakarta.persistence.Table
+import jakarta.persistence.Version
 import java.time.Instant
 import java.util.UUID
 
@@ -46,9 +47,18 @@ class Project(
     @Column(nullable = false)
     val createdAt: Instant
 ) {
+    companion object {
+        const val MAX_SLUG_LENGTH = 30
+    }
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     lateinit var id: UUID
+
+    @Version
+    @Column(nullable = false)
+    var version: Long = 0
+        protected set
 
     @field:Column(unique = true, nullable = false)
     var name: String = ProjectNameNormalizer.normalizeAndValidate(name)
@@ -56,15 +66,12 @@ class Project(
             field = ProjectNameNormalizer.normalizeAndValidate(value)
         }
 
-    @field:Column(unique = true, nullable = false)
-    var slug: String = SlugValidator.validate(slug) {
-        InvalidProjectSlugException("Project slug '$it' is invalid")
+    @field:Column(unique = true, nullable = false, length = MAX_SLUG_LENGTH)
+    val slug: String = SlugValidator.validate(slug, MAX_SLUG_LENGTH) {
+        InvalidProjectSlugException(
+            "Project slug '$it' must be a slug up to $MAX_SLUG_LENGTH characters"
+        )
     }
-        set(value) {
-            field = SlugValidator.validate(value) {
-                InvalidProjectSlugException("Project slug '$it' is invalid")
-            }
-        }
 
     @OneToMany(mappedBy = "project", cascade = [CascadeType.ALL], fetch = FetchType.LAZY)
     val customRoles: MutableSet<Role> = mutableSetOf()

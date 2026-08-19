@@ -12,5 +12,6 @@ data class ProjectInfoDto(
     val description: String?,
     val ownerPrincipalInfo: PrincipalInfoDto,
     val status: ProjectStatus,
-    val createdAt: Instant
+    val createdAt: Instant,
+    val version: Long
 )

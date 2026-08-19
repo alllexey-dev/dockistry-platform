@@ -269,7 +269,7 @@ class SetupControllerIntegrationTests {
         }
 
         entityManager.persist(user)
-        user.principal.roleBindings.add(
+        entityManager.persist(
             RoleBinding(
                 subjectPrincipal = user.principal,
                 scope = globalScope,

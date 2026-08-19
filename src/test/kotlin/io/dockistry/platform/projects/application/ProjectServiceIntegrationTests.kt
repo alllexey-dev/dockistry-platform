@@ -23,7 +23,11 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionDefinition
+import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.time.Instant
 import java.util.UUID
@@ -46,8 +50,17 @@ class ProjectServiceIntegrationTests {
     @Autowired
     private lateinit var roleRepository: RoleRepository
 
+    @Autowired
+    private lateinit var transactionManager: PlatformTransactionManager
+
     @PersistenceContext
     private lateinit var entityManager: EntityManager
+
+    private val newTransactionTemplate: TransactionTemplate by lazy {
+        TransactionTemplate(transactionManager).apply {
+            propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
+        }
+    }
 
     @Test
     fun `create persists project and owner admin binding`() {
@@ -156,108 +169,101 @@ class ProjectServiceIntegrationTests {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update changes project fields when principal has read and update permission`() {
-        val fixtures = fixtures()
-        val project = fixtures.project(name = "Old Name", slug = "old-name")
-        val principal = fixtures.principal()
-        fixtures.grant(projectReader = principal, project = project, SystemPermissionNames.PROJECT_UPDATE)
-        fixtures.flush()
-
-        val updated = projectService.update(
-            projectId = project.id,
-            name = "  New\tName  ",
-            slug = "new-name",
-            description = "Updated description",
-            principal = principal
+        val context = committedUpdateContext(
+            SystemPermissionNames.PROJECT_READ,
+            SystemPermissionNames.PROJECT_UPDATE,
+            name = "Old Name",
+            slug = "old-name"
         )
 
-        assertEquals("New Name", updated.name)
-        assertEquals("new-name", updated.slug)
-        assertEquals("Updated description", updated.description)
+        try {
+            val updated = projectService.update(
+                projectId = context.projectId,
+                name = "  New\tName  ",
+                description = "Updated description",
+                expectedVersion = context.version,
+                principal = context.principal
+            )
+
+            assertEquals("New Name", updated.name)
+            assertEquals("old-name", updated.slug)
+            assertEquals("Updated description", updated.description)
+        } finally {
+            cleanupCommittedProject(context.projectId)
+        }
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update throws not found before checking permissions`() {
-        val principal = fixtures().principal()
+        val principal = committedPrincipal()
 
         assertFailsWith<ProjectNotFoundException> {
             projectService.update(
                 projectId = UUID.randomUUID(),
                 name = "Missing",
-                slug = "missing",
+                expectedVersion = 0,
                 principal = principal
             )
         }
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update throws not found when principal cannot read`() {
-        val fixtures = fixtures()
-        val project = fixtures.project()
-        val principal = fixtures.principal()
+        val context = committedUpdateContext()
 
-        assertFailsWith<ProjectNotFoundException> {
-            projectService.update(
-                projectId = project.id,
-                name = "Forbidden",
-                slug = "forbidden",
-                principal = principal
-            )
+        try {
+            assertFailsWith<ProjectNotFoundException> {
+                projectService.update(
+                    projectId = context.projectId,
+                    name = "Forbidden",
+                    expectedVersion = context.version,
+                    principal = context.principal
+                )
+            }
+        } finally {
+            cleanupCommittedProject(context.projectId)
         }
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update throws insufficient permission when principal can read but cannot update`() {
-        val fixtures = fixtures()
-        val project = fixtures.project()
-        val principal = fixtures.principal()
-        fixtures.grant(projectReader = principal, project = project)
-        fixtures.flush()
+        val context = committedUpdateContext(SystemPermissionNames.PROJECT_READ)
 
-        assertFailsWith<InsufficientPermissionException> {
-            projectService.update(
-                projectId = project.id,
-                name = "Forbidden",
-                slug = "forbidden",
-                principal = principal
-            )
+        try {
+            assertFailsWith<InsufficientPermissionException> {
+                projectService.update(
+                    projectId = context.projectId,
+                    name = "Forbidden",
+                    expectedVersion = context.version,
+                    principal = context.principal
+                )
+            }
+        } finally {
+            cleanupCommittedProject(context.projectId)
         }
     }
 
     @Test
-    fun `update converts invalid slug validation failure to invalid project slug exception`() {
-        val fixtures = fixtures()
-        val project = fixtures.project()
-        val principal = fixtures.principal()
-        fixtures.grant(projectReader = principal, project = project, SystemPermissionNames.PROJECT_UPDATE)
-        fixtures.flush()
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    fun `update converts duplicate name to project already exists exception`() {
+        val context = committedDuplicateUpdateContext()
 
-        assertFailsWith<InvalidProjectSlugException> {
-            projectService.update(
-                projectId = project.id,
-                name = "Invalid Slug",
-                slug = "Invalid Slug",
-                principal = principal
-            )
-        }
-    }
-
-    @Test
-    fun `update converts duplicate name or slug to project already exists exception`() {
-        val fixtures = fixtures()
-        val existing = fixtures.project(name = "Existing Project", slug = "existing-project")
-        val edited = fixtures.project(name = "Edited Project", slug = "edited-project")
-        val principal = fixtures.principal()
-        fixtures.grant(projectReader = principal, project = edited, SystemPermissionNames.PROJECT_UPDATE)
-        fixtures.flush()
-
-        assertFailsWith<ProjectAlreadyExistsException> {
-            projectService.update(
-                projectId = edited.id,
-                name = existing.name,
-                slug = "edited-project-new",
-                principal = principal
-            )
+        try {
+            assertFailsWith<ProjectAlreadyExistsException> {
+                projectService.update(
+                    projectId = context.projectId,
+                    name = context.existingName,
+                    expectedVersion = context.version,
+                    principal = context.principal
+                )
+            }
+        } finally {
+            context.projectIds.forEach(::cleanupCommittedProject)
         }
     }
 
@@ -308,23 +314,24 @@ class ProjectServiceIntegrationTests {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete removes project when principal has read and delete permission`() {
-        val fixtures = fixtures()
-        val project = fixtures.project()
-        val principal = fixtures.principal()
-        fixtures.grant(projectReader = principal, project = project, SystemPermissionNames.PROJECT_DELETE)
-        fixtures.flush()
+        val context = committedDeleteContext(SystemPermissionNames.PROJECT_DELETE)
 
-        val deleted = projectService.delete(project.id, principal)
-        entityManager.flush()
+        try {
+            val deleted = projectService.delete(context.projectId, context.principal)
 
-        assertEquals(project.id, deleted.id)
-        assertFalse(projectRepository.existsById(project.id))
+            assertEquals(context.projectId, deleted.id)
+            assertFalse(inNewTransaction { projectRepository.existsById(context.projectId) })
+        } finally {
+            cleanupCommittedProject(context.projectId)
+        }
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete throws not found before checking permissions`() {
-        val principal = fixtures().principal()
+        val principal = committedPrincipal()
 
         assertFailsWith<ProjectNotFoundException> {
             projectService.delete(UUID.randomUUID(), principal)
@@ -332,26 +339,30 @@ class ProjectServiceIntegrationTests {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete throws not found when principal cannot read`() {
-        val fixtures = fixtures()
-        val project = fixtures.project()
-        val principal = fixtures.principal()
+        val context = committedDeleteContext()
 
-        assertFailsWith<ProjectNotFoundException> {
-            projectService.delete(project.id, principal)
+        try {
+            assertFailsWith<ProjectNotFoundException> {
+                projectService.delete(context.projectId, context.principal)
+            }
+        } finally {
+            cleanupCommittedProject(context.projectId)
         }
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete throws insufficient permission when principal can read but cannot delete`() {
-        val fixtures = fixtures()
-        val project = fixtures.project()
-        val principal = fixtures.principal()
-        fixtures.grant(projectReader = principal, project = project)
-        fixtures.flush()
+        val context = committedDeleteContext(SystemPermissionNames.PROJECT_READ)
 
-        assertFailsWith<InsufficientPermissionException> {
-            projectService.delete(project.id, principal)
+        try {
+            assertFailsWith<InsufficientPermissionException> {
+                projectService.delete(context.projectId, context.principal)
+            }
+        } finally {
+            cleanupCommittedProject(context.projectId)
         }
     }
 
@@ -457,6 +468,117 @@ class ProjectServiceIntegrationTests {
         val permissionKeys = listOf(SystemPermissionNames.PROJECT_READ) + extraPermissionKeys
         return grantSystemPermission(projectReader, project.scope, *permissionKeys.toTypedArray())
     }
+
+    private fun committedPrincipal(): Principal = inNewTransaction {
+        fixtures().principal()
+    }
+
+    private fun committedUpdateContext(
+        vararg permissionKeys: String,
+        name: String = "Project ${UUID.randomUUID()}",
+        slug: String = "project-${UUID.randomUUID().toString().take(8)}"
+    ): ProjectUpdateContext = inNewTransaction {
+        val fixtures = fixtures()
+        val project = fixtures.project(name = name, slug = slug)
+        val principal = fixtures.principal()
+        if (permissionKeys.isNotEmpty()) {
+            fixtures.grantSystemPermission(
+                principal,
+                project.scope,
+                *permissionKeys
+            )
+        }
+        fixtures.flush()
+
+        ProjectUpdateContext(
+            projectId = project.id,
+            version = project.version,
+            principal = principal
+        )
+    }
+
+    private fun committedDuplicateUpdateContext(): DuplicateProjectUpdateContext =
+        inNewTransaction {
+            val fixtures = fixtures()
+            val existing = fixtures.project(
+                name = "Existing ${fixtures.unique()}",
+                slug = "existing-${fixtures.unique()}"
+            )
+            val edited = fixtures.project(
+                name = "Edited ${fixtures.unique()}",
+                slug = "edited-${fixtures.unique()}"
+            )
+            val principal = fixtures.principal()
+            fixtures.grant(
+                projectReader = principal,
+                project = edited,
+                SystemPermissionNames.PROJECT_UPDATE
+            )
+            fixtures.flush()
+
+            DuplicateProjectUpdateContext(
+                projectId = edited.id,
+                version = edited.version,
+                principal = principal,
+                existingName = existing.name,
+                projectIds = listOf(edited.id, existing.id)
+            )
+        }
+
+    private fun committedDeleteContext(
+        vararg permissionKeys: String
+    ): ProjectDeleteContext = inNewTransaction {
+        val fixtures = fixtures()
+        val project = fixtures.project()
+        val principal = fixtures.principal()
+        if (permissionKeys.isNotEmpty()) {
+            val grantedPermissionKeys =
+                (listOf(SystemPermissionNames.PROJECT_READ) + permissionKeys).distinct()
+            fixtures.grantSystemPermission(
+                principal,
+                project.scope,
+                *grantedPermissionKeys.toTypedArray()
+            )
+        }
+        fixtures.flush()
+
+        ProjectDeleteContext(project.id, principal)
+    }
+
+    private fun cleanupCommittedProject(projectId: UUID) {
+        inNewTransaction {
+            entityManager.createQuery(
+                "delete from ManagedService service where service.project.id = :projectId"
+            )
+                .setParameter("projectId", projectId)
+                .executeUpdate()
+            projectRepository.findById(projectId).ifPresent(projectRepository::delete)
+            projectRepository.flush()
+        }
+    }
+
+    private fun <T : Any> inNewTransaction(block: () -> T): T {
+        return checkNotNull(newTransactionTemplate.execute { block() })
+    }
+
+    private data class ProjectUpdateContext(
+        val projectId: UUID,
+        val version: Long,
+        val principal: Principal
+    )
+
+    private data class DuplicateProjectUpdateContext(
+        val projectId: UUID,
+        val version: Long,
+        val principal: Principal,
+        val existingName: String,
+        val projectIds: List<UUID>
+    )
+
+    private data class ProjectDeleteContext(
+        val projectId: UUID,
+        val principal: Principal
+    )
 
     private fun ownerAdminBindingCount(ownerPrincipalId: UUID, scopeId: UUID): Long {
         return entityManager

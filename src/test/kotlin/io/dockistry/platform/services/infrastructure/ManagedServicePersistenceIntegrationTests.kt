@@ -3,7 +3,11 @@ package io.dockistry.platform.services.infrastructure
 import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
 import io.dockistry.platform.services.domain.ManagedService
+import io.dockistry.platform.services.domain.ManagedServiceConfiguration
+import io.dockistry.platform.services.domain.ManagedServiceDeployment
+import io.dockistry.platform.services.domain.ManagedServiceDeploymentStatus
 import io.dockistry.platform.services.domain.ManagedServiceDesiredState
+import io.dockistry.platform.services.domain.ManagedServiceLifecycleStatus
 import io.dockistry.platform.services.domain.ServiceEndpoint
 import io.dockistry.platform.services.domain.ServiceEndpointMode
 import io.dockistry.platform.services.domain.ServiceEndpointProtocol
@@ -15,6 +19,7 @@ import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
 import org.hibernate.Hibernate
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest
 import org.springframework.context.annotation.Import
 import org.testcontainers.junit.jupiter.Testcontainers
@@ -28,6 +33,12 @@ import kotlin.test.assertTrue
 @Import(TestcontainersConfig::class)
 @Testcontainers
 class ManagedServicePersistenceIntegrationTests {
+
+    @Autowired
+    private lateinit var deploymentRepository: ManagedServiceDeploymentRepository
+
+    @Autowired
+    private lateinit var serviceRepository: ManagedServiceRepository
 
     @PersistenceContext
     private lateinit var entityManager: EntityManager
@@ -94,6 +105,7 @@ class ManagedServicePersistenceIntegrationTests {
         assertEquals(1_073_741_824, saved.memoryLimitBytes)
         assertEquals(2_000_000_000, saved.cpuLimitNanoCpus)
         assertEquals(ManagedServiceDesiredState.STOPPED, saved.desiredState)
+        assertEquals(null, saved.deletionContext)
         assertEquals(0, saved.version)
         assertEquals(CREATED_AT, saved.createdAt)
         assertEquals(UPDATED_AT, saved.updatedAt)
@@ -113,6 +125,31 @@ class ManagedServicePersistenceIntegrationTests {
             .singleResult as Array<*>
 
         assertEquals(listOf("jsonb", "jsonb", "jsonb", "jsonb", "jsonb"), jsonColumnTypes.toList())
+    }
+
+    @Test
+    fun `managed service deletion context survives persistence round trip`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val service = managedService(
+            project = fixtures.project(),
+            name = "deleting-service",
+            draft = managedServiceDraft()
+        )
+        service.beginDeletion(DELETION_REQUESTED_AT)
+        entityManager.persist(service)
+        entityManager.flush()
+        val serviceId = service.id
+        entityManager.clear()
+
+        val saved = entityManager.find(ManagedService::class.java, serviceId)
+
+        assertNotNull(saved)
+        assertEquals(ManagedServiceLifecycleStatus.DELETING, saved.lifecycleStatus)
+        assertEquals(DELETION_REQUESTED_AT, saved.updatedAt)
+        val deletionContext = assertNotNull(saved.deletionContext)
+        assertEquals(DELETION_REQUESTED_AT, deletionContext.requestedAt)
+        assertEquals(null, deletionContext.lastCleanupAttemptAt)
+        assertEquals(null, deletionContext.cleanupErrorMessage)
     }
 
     @Test
@@ -136,8 +173,167 @@ class ManagedServicePersistenceIntegrationTests {
         assertTrue(Hibernate.isInitialized(reference))
     }
 
+    @Test
+    fun `managed service deployment survives PostgreSQL JSONB round trip`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val project = fixtures.project()
+        val draft = managedServiceDraft(
+            imageRef = "nginx:1.29-alpine",
+            command = listOf("nginx"),
+            args = listOf("-g", "daemon off;"),
+            env = mapOf("APP_ENV" to "production"),
+            endpoints = listOf(
+                ServiceEndpoint(
+                    port = 80,
+                    protocol = ServiceEndpointProtocol.TCP,
+                    mode = ServiceEndpointMode.DIRECT,
+                    externalPort = 8080
+                )
+            ),
+            volumes = listOf(
+                ServiceVolumeMount(name = "nginx-data", mountPath = "/usr/share/nginx/html")
+            ),
+            restartPolicy = DockerRestartPolicyType.UNLESS_STOPPED,
+            memoryLimitBytes = 536_870_912,
+            cpuLimitNanoCpus = 1_000_000_000
+        )
+        val service = managedService(
+            project = project,
+            name = "nginx-web",
+            draft = draft,
+            createdAt = CREATED_AT,
+            updatedAt = UPDATED_AT
+        )
+        entityManager.persist(service)
+        entityManager.flush()
+
+        val deployment = ManagedServiceDeployment(
+            service = service,
+            configSnapshot = ManagedServiceConfiguration.validated(draft),
+            serviceVersion = service.version,
+            createdAt = CREATED_AT,
+            updatedAt = UPDATED_AT
+        )
+        entityManager.persist(deployment)
+        entityManager.flush()
+        val deploymentId = deployment.id
+        assertEquals(
+            1,
+            deploymentRepository.markFinishedIfInProcess(
+                deploymentId = deploymentId,
+                containerId = "container-123",
+                updatedAt = UPDATED_AT
+            )
+        )
+        entityManager.clear()
+
+        val saved = entityManager.find(ManagedServiceDeployment::class.java, deploymentId)
+
+        assertNotNull(saved)
+        assertEquals(service.id, saved.service.id)
+        assertEquals("container-123", saved.containerId)
+        assertEquals("nginx", saved.imageRepository)
+        assertEquals("1.29-alpine", saved.imageTag)
+        assertEquals(service.version, saved.serviceVersion)
+        assertEquals(ManagedServiceDeploymentStatus.FINISHED, saved.status)
+        assertEquals(null, saved.cleanupErrorMessage)
+        assertEquals(null, saved.lastCleanupAttemptAt)
+        assertEquals(CREATED_AT, saved.createdAt)
+        assertEquals(UPDATED_AT, saved.updatedAt)
+        assertEquals("nginx:1.29-alpine", saved.configSnapshot.imageRef.asString())
+        assertEquals(draft.command, saved.configSnapshot.command)
+        assertEquals(draft.args, saved.configSnapshot.args)
+        assertEquals(draft.env, saved.configSnapshot.env)
+        assertEquals(draft.endpoints, saved.configSnapshot.endpoints)
+        assertEquals(draft.volumes, saved.configSnapshot.volumes)
+        assertEquals(draft.restartPolicy, saved.configSnapshot.restartPolicy)
+        assertEquals(draft.memoryLimitBytes, saved.configSnapshot.memoryLimitBytes)
+        assertEquals(draft.cpuLimitNanoCpus, saved.configSnapshot.cpuLimitNanoCpus)
+    }
+
+    @Test
+    fun `stuck runtime operation is selected and reset with version CAS`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val service = managedService(
+            project = fixtures.project(),
+            name = "stuck-runtime-operation",
+            createdAt = CREATED_AT,
+            updatedAt = CREATED_AT
+        )
+        service.beginStart(CREATED_AT)
+        entityManager.persist(service)
+        entityManager.flush()
+        val serviceId = service.id
+        entityManager.clear()
+
+        val candidate = serviceRepository.findStuckRuntimeOperations(
+            updatedBefore = UPDATED_AT,
+            batchLimit = 10
+        ).single { it.id == serviceId }
+
+        assertEquals(0, candidate.version)
+        assertEquals(
+            1,
+            serviceRepository.setRuntimeOperationToActiveIfVersion(
+                serviceId = candidate.id,
+                expectedVersion = candidate.version,
+                updatedAt = UPDATED_AT
+            )
+        )
+        entityManager.clear()
+
+        val saved = entityManager.find(ManagedService::class.java, serviceId)
+        assertEquals(ManagedServiceLifecycleStatus.ACTIVE, saved.lifecycleStatus)
+        assertEquals(1, saved.version)
+        assertEquals(UPDATED_AT, saved.updatedAt)
+    }
+
+    @Test
+    fun `stuck runtime CAS does not overwrite a newer service version`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val service = managedService(
+            project = fixtures.project(),
+            name = "stale-runtime-operation",
+            createdAt = CREATED_AT,
+            updatedAt = CREATED_AT
+        )
+        service.beginStart(CREATED_AT)
+        entityManager.persist(service)
+        entityManager.flush()
+        val serviceId = service.id
+        entityManager.clear()
+
+        val candidate = serviceRepository.findStuckRuntimeOperations(
+            updatedBefore = UPDATED_AT,
+            batchLimit = 10
+        ).single { it.id == serviceId }
+        val concurrentlyUpdated = entityManager.find(ManagedService::class.java, serviceId)
+        concurrentlyUpdated.updateDesiredState(
+            ManagedServiceDesiredState.STOPPED,
+            UPDATED_AT
+        )
+        entityManager.flush()
+
+        assertEquals(
+            0,
+            serviceRepository.setRuntimeOperationToActiveIfVersion(
+                serviceId = candidate.id,
+                expectedVersion = candidate.version,
+                updatedAt = DELETION_REQUESTED_AT
+            )
+        )
+        entityManager.clear()
+
+        val saved = entityManager.find(ManagedService::class.java, serviceId)
+        assertEquals(ManagedServiceLifecycleStatus.STARTING, saved.lifecycleStatus)
+        assertEquals(ManagedServiceDesiredState.STOPPED, saved.desiredState)
+        assertEquals(1, saved.version)
+        assertEquals(UPDATED_AT, saved.updatedAt)
+    }
+
     companion object {
         private val CREATED_AT = Instant.parse("2026-01-01T00:00:00Z")
         private val UPDATED_AT = Instant.parse("2026-01-01T01:00:00Z")
+        private val DELETION_REQUESTED_AT = Instant.parse("2026-01-01T02:00:00Z")
     }
 }

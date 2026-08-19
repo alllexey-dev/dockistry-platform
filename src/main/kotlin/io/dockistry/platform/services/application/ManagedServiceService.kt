@@ -1,12 +1,18 @@
 package io.dockistry.platform.services.application
 
+import io.dockistry.platform.docker.domain.dto.ContainerDetails
+import io.dockistry.platform.docker.domain.dto.ContainerLogs
+import io.dockistry.platform.docker.domain.dto.ContainerStats
+import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.application.ProjectAccessGuard
+import io.dockistry.platform.projects.application.ProjectExistenceService
+import io.dockistry.platform.projects.domain.ProjectNotFoundException
 import io.dockistry.platform.services.application.dto.ManagedServiceCreateCommand
 import io.dockistry.platform.services.application.dto.ManagedServiceUpdateCommand
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceAlreadyExistsException
-import io.dockistry.platform.services.domain.ManagedServiceNotFoundException
+import io.dockistry.platform.services.domain.ManagedServiceLifecycleStatus
 import io.dockistry.platform.services.infrastructure.ManagedServiceRepository
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.orm.ObjectOptimisticLockingFailureException
@@ -19,18 +25,65 @@ class ManagedServiceService(
     private val projectAccessGuard: ProjectAccessGuard,
     private val createExecutor: ManagedServiceCreateExecutor,
     private val updateExecutor: ManagedServiceUpdateExecutor,
-    private val managedServiceRepository: ManagedServiceRepository
+    private val managedServiceRepository: ManagedServiceRepository,
+    private val managedServiceDeletionLifecycleService: ManagedServiceDeletionLifecycleService,
+    private val managedServiceDeletionExecutor: ManagedServiceDeletionExecutor,
+    private val projectExistenceService: ProjectExistenceService,
+    private val managedServiceAccessGuard: ManagedServiceAccessGuard,
+    private val managedServiceDeployExecutor: ManagedServiceDeployExecutor,
+    private val managedServiceRuntimeExecutor: ManagedServiceRuntimeExecutor,
+    private val managedServiceContainerReadService: ManagedServiceContainerReadService
 ) {
     @Transactional(readOnly = true)
     fun list(projectId: UUID, principal: Principal): List<ManagedService> {
         projectAccessGuard.requireReadable(projectId, principal)
-        return managedServiceRepository.findAllByProjectId(projectId)
+        return managedServiceRepository.findAllByProjectIdAndLifecycleStatusIn(
+            projectId = projectId,
+            lifecycleStatuses = listOf(
+                ManagedServiceLifecycleStatus.ACTIVE,
+                ManagedServiceLifecycleStatus.STARTING,
+                ManagedServiceLifecycleStatus.STOPPING,
+                ManagedServiceLifecycleStatus.PAUSING,
+                ManagedServiceLifecycleStatus.UNPAUSING
+            )
+        )
     }
 
     @Transactional(readOnly = true)
     fun get(projectId: UUID, serviceId: UUID, principal: Principal): ManagedService {
-        projectAccessGuard.requireReadable(projectId, principal)
-        return getExisting(projectId, serviceId)
+        return managedServiceAccessGuard.requireReadable(projectId, serviceId, principal)
+    }
+
+    fun inspectContainer(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ): ContainerDetails {
+        managedServiceAccessGuard.requireReadable(projectId, serviceId, principal)
+        return managedServiceContainerReadService.inspectContainer(projectId, serviceId)
+    }
+
+    fun getContainerStats(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ): ContainerStats {
+        managedServiceAccessGuard.requireReadable(projectId, serviceId, principal)
+        return managedServiceContainerReadService.getContainerStats(projectId, serviceId)
+    }
+
+    fun getContainerLogs(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal,
+        request: DockerContainerLogsRequest
+    ): ContainerLogs {
+        managedServiceAccessGuard.requireReadable(projectId, serviceId, principal)
+        return managedServiceContainerReadService.getLogs(
+            projectId = projectId,
+            serviceId = serviceId,
+            request = request
+        )
     }
 
     fun create(command: ManagedServiceCreateCommand): ManagedService {
@@ -39,6 +92,10 @@ class ManagedServiceService(
         } catch (exception: DataIntegrityViolationException) {
             if (createExecutor.nameExists(command.projectId, command.name)) {
                 throw ManagedServiceAlreadyExistsException(command.projectId, command.name)
+            }
+
+            if (!projectExistenceService.exists(command.projectId)) {
+                throw ProjectNotFoundException("Project with provided ID couldn't be found")
             }
 
             throw exception
@@ -53,27 +110,82 @@ class ManagedServiceService(
         }
     }
 
-    @Transactional
-    fun delete(projectId: UUID, serviceId: UUID, principal: Principal) {
-        val project = projectAccessGuard.requireServicesManageable(projectId, principal)
-        val deletedRows = managedServiceRepository.deleteByProjectIdAndId(
-            project.id,
-            serviceId
+    fun deploy(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ): String {
+        managedServiceAccessGuard.requireManageable(
+            projectId,
+            serviceId,
+            principal
         )
-
-        if (deletedRows == 0) {
-            throw notFound(project.id, serviceId)
-        }
+        return managedServiceDeployExecutor.deploy(serviceId)
     }
 
-    private fun getExisting(projectId: UUID, serviceId: UUID): ManagedService {
-        return managedServiceRepository.findByProjectIdAndId(projectId, serviceId)
-            ?: throw notFound(projectId, serviceId)
+    fun start(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ) {
+        managedServiceAccessGuard.requireManageable(
+            projectId,
+            serviceId,
+            principal
+        )
+        managedServiceRuntimeExecutor.start(serviceId)
     }
 
-    private fun notFound(projectId: UUID, serviceId: UUID): ManagedServiceNotFoundException {
-        return ManagedServiceNotFoundException(
-            "Managed service $serviceId couldn't be found in project $projectId"
+    fun stop(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ) {
+        managedServiceAccessGuard.requireManageable(
+            projectId,
+            serviceId,
+            principal
         )
+        managedServiceRuntimeExecutor.stop(serviceId)
+    }
+
+    fun pause(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ) {
+        managedServiceAccessGuard.requireManageable(
+            projectId,
+            serviceId,
+            principal
+        )
+        managedServiceRuntimeExecutor.pause(serviceId)
+    }
+
+    fun unpause(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ) {
+        managedServiceAccessGuard.requireManageable(
+            projectId,
+            serviceId,
+            principal
+        )
+        managedServiceRuntimeExecutor.unpause(serviceId)
+    }
+
+    fun delete(
+        projectId: UUID,
+        serviceId: UUID,
+        principal: Principal
+    ) {
+        managedServiceDeletionLifecycleService.begin(
+            projectId = projectId,
+            serviceId = serviceId,
+            principal = principal
+        )
+
+        managedServiceDeletionExecutor.execute(projectId, serviceId)
     }
 }

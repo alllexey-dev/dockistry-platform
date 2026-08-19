@@ -8,7 +8,6 @@ import io.dockistry.platform.iam.domain.InsufficientPermissionException
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 
 @Service
 class DockerImageService(
@@ -16,25 +15,21 @@ class DockerImageService(
     private val permissionCheckService: PermissionCheckService,
     private val dockerApiDtoMapper: DockerApiDtoMapper
 ) {
-    @Transactional(readOnly = true)
     fun listImages(principal: Principal): List<ImageSummary> {
         requireReadPermission(principal)
         return dockerApiDtoMapper.toImageSummaryDtos(containerService.listImages())
     }
 
-    @Transactional(readOnly = true)
     fun inspectImage(imageId: String, principal: Principal): ImageInfo {
         requireReadPermission(principal)
         return dockerApiDtoMapper.toImageInfoDto(containerService.inspectImage(imageId))
     }
 
-    @Transactional(readOnly = true)
     fun pullImage(imageRef: DockerImageRef, principal: Principal) {
         requireManagePermission(principal)
         containerService.pullImage(imageRef)
     }
 
-    @Transactional(readOnly = true)
     fun removeImage(imageId: String, force: Boolean, principal: Principal) {
         requireManagePermission(principal)
         containerService.removeImage(imageId, force)

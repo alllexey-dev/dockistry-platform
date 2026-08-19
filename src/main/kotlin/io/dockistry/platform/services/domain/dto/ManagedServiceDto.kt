@@ -2,6 +2,7 @@ package io.dockistry.platform.services.domain.dto
 
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
 import io.dockistry.platform.services.domain.ManagedServiceDesiredState
+import io.dockistry.platform.services.domain.ManagedServiceLifecycleStatus
 import io.dockistry.platform.services.domain.ServiceEndpoint
 import io.dockistry.platform.services.domain.ServiceVolumeMount
 import java.time.Instant
@@ -22,6 +23,7 @@ data class ManagedServiceDto(
     val memoryLimitBytes: Long?,
     val cpuLimitNanoCpus: Long?,
     val desiredState: ManagedServiceDesiredState,
+    val lifecycleStatus: ManagedServiceLifecycleStatus,
     val version: Long,
     val createdAt: Instant,
     val updatedAt: Instant

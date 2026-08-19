@@ -15,9 +15,7 @@ class Principal(
     lateinit var id: UUID
 
     @OneToMany(
-        mappedBy = "subjectPrincipal",
-        cascade = [CascadeType.ALL],
-        orphanRemoval = true,
+        mappedBy = "subjectPrincipal"
     )
     val roleBindings: MutableSet<RoleBinding> = mutableSetOf()
 }

@@ -61,9 +61,24 @@ class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
             is NotFoundException -> HttpStatus.NOT_FOUND
             is BadRequestException -> HttpStatus.BAD_REQUEST
             is ServiceUnavailableException -> HttpStatus.SERVICE_UNAVAILABLE
+            is InternalServerErrorException -> HttpStatus.INTERNAL_SERVER_ERROR
         }
 
-        handlerLogger.warn("Service error (status {}): {}", status, exception.message, exception)
+        if (exception is InternalServerErrorException) {
+            handlerLogger.error(
+                "Service error (status {}): {}",
+                status,
+                exception.message,
+                exception
+            )
+        } else {
+            handlerLogger.warn(
+                "Service error (status {}): {}",
+                status,
+                exception.message,
+                exception
+            )
+        }
 
         return ResponseEntity
             .status(status)
@@ -119,8 +134,8 @@ class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
         )
     }
 
-    @ExceptionHandler(RuntimeException::class)
-    fun handleGenericRuntimeException(exception: RuntimeException): ResponseEntity<ApiResponse<Nothing>> {
+    @ExceptionHandler(Exception::class)
+    fun handleGenericRuntimeException(exception: Exception): ResponseEntity<ApiResponse<Nothing>> {
         handlerLogger.error("Runtime error: {}", exception.message, exception)
 
         return ResponseEntity

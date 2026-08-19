@@ -5,6 +5,7 @@ import io.dockistry.platform.shared.domain.SlugValidator
 
 object ManagedServiceValidator {
     const val MAX_NAME_LENGTH = 40
+    const val MAX_VOLUME_NAME_LENGTH = 30
 
     private const val MIN_PORT = 1
     private const val MAX_PORT = 65_535
@@ -119,9 +120,13 @@ object ManagedServiceValidator {
 
     fun validateVolumes(volumes: List<ServiceVolumeMount>): List<ServiceVolumeMount> {
         volumes.forEach { volume ->
-            if (!volume.name.matches(volumeNameRegex)) {
+            if (
+                !volume.name.matches(volumeNameRegex) ||
+                volume.name.length > MAX_VOLUME_NAME_LENGTH
+            ) {
                 throw InvalidManagedServiceConfigException(
-                    "Managed service volume name '${volume.name}' is invalid"
+                    "Managed service volume name '${volume.name}' must follow Docker name rules " +
+                        "and contain at most $MAX_VOLUME_NAME_LENGTH characters"
                 )
             }
 

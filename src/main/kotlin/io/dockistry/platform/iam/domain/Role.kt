@@ -1,7 +1,6 @@
 package io.dockistry.platform.iam.domain
 
 import io.dockistry.platform.projects.domain.Project
-import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.FetchType
@@ -51,9 +50,7 @@ class Role(
     val permissions: MutableSet<Permission> = mutableSetOf()
 
     @OneToMany(
-        mappedBy = "role",
-        cascade = [CascadeType.ALL],
-        orphanRemoval = true
+        mappedBy = "role"
     )
     val roleBindings: MutableSet<RoleBinding> = mutableSetOf()
 

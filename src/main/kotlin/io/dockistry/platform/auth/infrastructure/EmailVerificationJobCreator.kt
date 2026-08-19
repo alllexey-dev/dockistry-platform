@@ -16,14 +16,6 @@ class EmailVerificationJobCreator(
     private val verificationEmailSendJobRepository: VerificationEmailSendJobRepository,
     private val objectMapper: ObjectMapper
 ) {
-    fun enqueueRegisterVerificationJob(userId: UUID): EmailSendJob {
-        return enqueueVerificationJob(userId, EmailVerificationChallengeReason.REGISTRATION)
-    }
-
-    fun enqueueResendVerificationJob(userId: UUID): EmailSendJob {
-        return enqueueVerificationJob(userId, EmailVerificationChallengeReason.RESEND)
-    }
-
     fun enqueueVerificationJob(
         userId: UUID,
         reason: EmailVerificationChallengeReason

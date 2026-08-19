@@ -11,3 +11,5 @@ open class ForbiddenException(message: String, code: String) : ServiceException(
 open class NotFoundException(message: String, code: String) : ServiceException(message, code)
 open class ConflictException(message: String, code: String) : ServiceException(message, code)
 open class ServiceUnavailableException(message: String, code: String) : ServiceException(message, code)
+open class InternalServerErrorException(message: String, code: String) :
+    ServiceException(message, code)

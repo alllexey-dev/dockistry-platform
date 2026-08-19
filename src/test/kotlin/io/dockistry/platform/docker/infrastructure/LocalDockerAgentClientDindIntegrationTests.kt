@@ -10,7 +10,6 @@ import com.github.dockerjava.api.model.MountType
 import com.github.dockerjava.api.model.PortBinding
 import com.github.dockerjava.api.model.Ports
 import com.github.dockerjava.api.model.RestartPolicy
-import com.github.dockerjava.api.model.Volume
 import io.dockistry.platform.docker.application.ports.DockerAgentClient
 import io.dockistry.platform.docker.domain.DockerContainerAlreadyPausedException
 import io.dockistry.platform.docker.domain.DockerContainerAlreadyStartedException
@@ -20,9 +19,9 @@ import io.dockistry.platform.docker.domain.DockerContainerNotPausedException
 import io.dockistry.platform.docker.domain.DockerContainerNotRunningException
 import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerAgentAvailability
-import io.dockistry.platform.docker.domain.model.DockerContainerFilter
 import io.dockistry.platform.docker.domain.model.DockerContainerState
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
+import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
 import io.dockistry.platform.docker.testsupport.DindDockerJavaClientTestConfig
 import org.junit.jupiter.api.AfterEach
@@ -103,6 +102,14 @@ class LocalDockerAgentClientDindIntegrationTests {
     }
 
     @Test
+    fun `find volume by name returns exact Docker volume`() {
+        val volumeName = createVolume("exists-volume")
+
+        assertEquals(volumeName, dockerAgentClient.findVolumeByName(volumeName)?.name)
+        assertNull(dockerAgentClient.findVolumeByName("$volumeName-missing"))
+    }
+
+    @Test
     fun `list containers returns matching project containers with ports mounts and states`() {
         val projectId = UUID.randomUUID()
         val volumeName = createVolume("list-volume")
@@ -110,7 +117,7 @@ class LocalDockerAgentClientDindIntegrationTests {
         val alpineName = containerName("alpine-list")
         val busyboxName = containerName("busybox-list")
 
-        val alpine = createContainer(
+        createContainer(
             image = ALPINE_IMAGE,
             name = alpineName,
             labels = managedLabels(projectId) + ("role" to "api"),
@@ -484,15 +491,12 @@ class LocalDockerAgentClientDindIntegrationTests {
         createdVolumes.clear()
     }
 
-    private fun projectFilter(projectId: UUID): DockerContainerFilter {
-        return DockerContainerFilter(labels = managedLabels(projectId))
+    private fun projectFilter(projectId: UUID): DockerLabelsFilter {
+        return DockerLabelsFilter(labels = managedLabels(projectId))
     }
 
     private fun managedLabels(projectId: UUID): Map<String, String> {
-        return mapOf(
-            DockerLabels.MANAGED to "true",
-            DockerLabels.PROJECT_ID to projectId.toString()
-        )
+        return DockerLabels.forProject(projectId)
     }
 
     private fun keepAliveCommand(): List<String> {

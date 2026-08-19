@@ -102,7 +102,11 @@ class ManagedServiceValidatorTests {
     fun `docker compatible managed volume names are accepted`() {
         val volumes = listOf(
             ServiceVolumeMount(name = "a1", mountPath = "/data"),
-            ServiceVolumeMount(name = "Cache_01.back-up", mountPath = "/cache")
+            ServiceVolumeMount(name = "Cache_01.back-up", mountPath = "/cache"),
+            ServiceVolumeMount(
+                name = "v".repeat(ManagedServiceValidator.MAX_VOLUME_NAME_LENGTH),
+                mountPath = "/max-length"
+            )
         )
 
         assertEquals(volumes, ManagedServiceValidator.validateVolumes(volumes))
@@ -114,6 +118,12 @@ class ManagedServiceValidatorTests {
             listOf(ServiceVolumeMount(name = "a", mountPath = "/data")),
             listOf(ServiceVolumeMount(name = "_data", mountPath = "/data")),
             listOf(ServiceVolumeMount(name = "data/name", mountPath = "/data")),
+            listOf(
+                ServiceVolumeMount(
+                    name = "v".repeat(ManagedServiceValidator.MAX_VOLUME_NAME_LENGTH + 1),
+                    mountPath = "/data"
+                )
+            ),
             listOf(ServiceVolumeMount(name = "data", mountPath = "relative")),
             listOf(
                 ServiceVolumeMount(name = "data", mountPath = "/data"),

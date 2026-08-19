@@ -1,6 +1,5 @@
 package io.dockistry.platform.iam.domain
 
-import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
@@ -24,9 +23,7 @@ class Scope(
     lateinit var id: UUID
 
     @OneToMany(
-        mappedBy = "scope",
-        cascade = [CascadeType.ALL],
-        orphanRemoval = true
+        mappedBy = "scope"
     )
     val roleBindings: MutableSet<RoleBinding> = mutableSetOf()
 }

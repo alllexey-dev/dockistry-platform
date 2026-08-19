@@ -22,7 +22,7 @@ reverse proxy, деплоя, мониторинга и бэкапов.
   удаление и список проектов;
 - Managed Services API для хранения project-scoped container configuration как
   durable source of truth;
-- Docker agent API: status, project-scoped container operations/logs/stats и
+- Docker agent API: status, global generic-container operations/logs/stats и
   global image list/inspect/pull/remove operations;
 - единый формат API-ответов и ошибок через `ApiResponse`;
 - PostgreSQL schema management через Flyway migrations.
@@ -193,6 +193,9 @@ CI:
 - Не используй field injection в main-коде.
 - В тестах `lateinit var` с `@Autowired` уже используется и допустим.
 - Предпочитай small private helper methods, если они улучшают читаемость.
+- Не используй Kotlin `check`, `require`, `checkNotNull` и `requireNotNull` для
+  domain/application ошибок. Бросай подходящий typed service exception; для
+  невозможного внутреннего инварианта используй `InternalDataIntegrityException`.
 - Не добавляй комментарии к очевидному коду. Добавляй короткий комментарий
   только для сложной бизнес-причины, concurrency edge case или неочевидного
   framework behavior.
@@ -233,6 +236,10 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - `InternalDataIntegrityException` используй только для невозможных внутренних
   инвариантов: например, когда ID/username только что был найден, но entity уже
   не находится.
+- Для внутренних ошибок, которым нужен безопасный user-facing message и стабильный
+  error code, используй typed `InternalServerErrorException`. В отличие от
+  `InternalDataIntegrityException`, он намеренно возвращает клиенту свой message/code
+  с HTTP 500 и логируется на уровне ERROR.
 - Не добавляй `@ExceptionHandler(MethodArgumentNotValidException::class)` в
   `GlobalExceptionHandler`: класс наследуется от `ResponseEntityExceptionHandler`,
   поэтому нужно override-ить framework methods, как уже сделано для
@@ -306,6 +313,8 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   получать project через `ProjectAccessGuard`: missing project и no-read access
   возвращаются как `project_not_found`, а read-but-no-action возвращается как
   `insufficient_permission_for_operation`.
+- Project slug задается при создании и immutable. Project update меняет только
+  `name` и `description`, используя `expectedVersion`.
 - System role/permission names держи в `SystemRoleNames` и
   `SystemPermissionNames`.
 - Bootstrap базовых ролей/прав и единственного `GLOBAL` scope происходит в
@@ -315,6 +324,9 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Docker image operations сейчас проверяются только через `GLOBAL` permissions:
   `docker.images.read` для list/inspect и `docker.images.manage` для
   pull/remove. Обе permission входят в `SystemRoleNames.PROJECT_ADMIN`.
+- Generic container operations проверяют `docker.generic-containers.manage`
+  только на `GLOBAL` scope. Permission входит в `SystemRoleNames.PROJECT_ADMIN`,
+  но не в `SystemRoleNames.PROJECT_OPERATOR`.
 - Managed Service read operations используют `project.read`, а mutating
   operations используют `projects.services.manage`. Эта permission входит в
   `SystemRoleNames.PROJECT_ADMIN` и `SystemRoleNames.PROJECT_OPERATOR`.
@@ -343,21 +355,46 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 
 ### Docker API
 
-- Project container endpoints требуют `project.read` и должны проверять
-  принадлежность контейнера проекту через managed labels:
-  `io.dockistry.managed=true` и `io.dockistry.project-id=<projectId>`.
+- Generic container endpoints находятся под `/api/docker/containers` и
+  представляют host-level API, не привязанный к project scope.
+- Все generic container read и mutation flows требуют `GLOBAL` permission
+  `docker.generic-containers.manage`.
+- Generic container API не должен читать или изменять контейнер с любым label
+  из namespace `io.dockistry.*`: list скрывает такие контейнеры, а прямой
+  доступ по id возвращает typed 403 с error code
+  `dockistry_managed_container_access_forbidden`. Проверяй весь namespace
+  через `DockerLabels.containsDockistryLabel`, а не только известную
+  комбинацию managed/project/service labels.
+- Контейнеры с любым `io.dockistry.*` label принадлежат соответствующим
+  Dockistry-managed flows. Не подключай generic lifecycle operations к
+  Managed Service operation gate и не используй generic API как обход
+  Managed Service lifecycle.
 - Контейнеры, созданные из Managed Service, должны дополнительно получать label
   `io.dockistry.service-id=<serviceId>` через `DockerLabels.SERVICE_ID`.
-- Для операций по container id сначала проверяй read-access к проекту через
-  `ProjectAccessGuard`, затем `inspectContainer`; missing container и контейнер
-  из другого проекта должны возвращать `docker_container_not_found`.
-- Container lifecycle endpoints требуют `project.containers.manage`, который
-  входит в system roles `PROJECT_ADMIN` и `PROJECT_OPERATOR`.
-- Проверку managed labels и `project.containers.manage` держи в
-  `ProjectContainerAccessGuard`, не в `ProjectContainerService`.
-- Project-level container services and guards должны использовать общий
-  `ContainerService`; прямое обращение к `DockerAgentClient` держи внутри
-  `ContainerService` и infrastructure adapter.
+- `ContainerReadService` — общий low-level read-only bean для container list,
+  inspect, stats и logs. Он принимает только Docker-level параметры, вызывает
+  `ContainerService` и маппит результат в API DTO; permission/ownership/lifecycle
+  policy в него не добавляй.
+- Generic container read flows должны использовать `ContainerReadService`.
+  Managed Service read flows тоже переиспользуют этот bean, выполняя свои
+  access checks до вызова.
+- `ManagedServiceContainerReadService` находит container по точной комбинации
+  project/service labels и делегирует inspect, stats и logs в
+  `ContainerReadService`. Runtime state контейнера при поиске не фильтруй:
+  invariant Managed Service — не более одного container в любом state.
+- Для Managed Service нет отдельного container list endpoint. Отсутствие
+  container возвращает `managed_service_not_deployed`, а больше одного
+  container для service является internal data integrity violation.
+- Managed Service container reads требуют `project.read`; permission check и
+  проверка существования service выполняются в `ManagedServiceService` до
+  делегирования в `ManagedServiceContainerReadService`.
+- Managed Service container read endpoints:
+  `GET /api/projects/{projectId}/services/{serviceId}/container`,
+  `GET /api/projects/{projectId}/services/{serviceId}/container/stats` и
+  `GET /api/projects/{projectId}/services/{serviceId}/container/logs`.
+- Generic container service должен использовать общий `ContainerService`;
+  прямое обращение к `DockerAgentClient` держи внутри `ContainerService` и
+  infrastructure adapter.
 - Docker image endpoints находятся под `/api/docker/images`: `GET` list,
   `GET /{imageId}` inspect, `POST /pull` pull и `DELETE /{imageId}` remove.
 - `DockerImageService` проверяет `GLOBAL` permissions и идет через общий
@@ -372,10 +409,10 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `ConflictException`) маппь в typed Docker domain exceptions, а не в
   `docker_agent_unavailable`.
 - Container lifecycle endpoints:
-  `POST /api/projects/{projectId}/containers/{containerId}/start|stop|restart|pause|unpause`,
-  `DELETE /api/projects/{projectId}/containers/{containerId}`.
+  `POST /api/docker/containers/{containerId}/start|stop|restart|pause|unpause`,
+  `DELETE /api/docker/containers/{containerId}`.
 - Container logs endpoint:
-  `GET /api/projects/{projectId}/containers/{containerId}/logs`.
+  `GET /api/docker/containers/{containerId}/logs`.
 - Logs query params: `tail` (default `200`, max `1000`), `since`, `until`,
   `timestamps`, `streams`.
 - `since`/`until` принимаются как ISO-8601 timestamps и маппятся на Docker
@@ -420,9 +457,74 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   если оно уже совпадает с запрошенным, иначе возвращает
   `409 managed_service_version_conflict`. Реальная optimistic-lock race повторно
   проверяется в новой транзакции после rollback проигравшей записи.
+- ManagedService lifecycle использует статусы `ACTIVE`, `STARTING`, `STOPPING`,
+  `PAUSING`, `UNPAUSING` и `DELETING`. Deployment begin, update и его conflict
+  resolution, runtime lifecycle transitions и начало удаления сериализуются через
+  `ManagedServiceLifecycleGuard`:
+  guard работает внутри уже открытой транзакции (`Propagation.MANDATORY`) и предоставляет
+  две явные политики mutex acquisition — fail-fast через `SELECT ... FOR UPDATE NOWAIT`
+  и bounded wait через transaction-local PostgreSQL `lock_timeout` с обычным
+  `SELECT ... FOR UPDATE`. Короткие production lifecycle transitions используют bounded
+  wait с default timeout из companion object guard; timeout и несовместимый durable
+  lifecycle status возвращают typed conflict. Fail-fast API сохраняется для use cases,
+  которым требуется немедленный отказ.
+- Start/stop/pause/unpause не держат DB-транзакцию во время Docker I/O. Короткий
+  `ManagedServiceRuntimeLifecycleService` transition сначала фиксирует соответственно
+  `STARTING`/`STOPPING`/`PAUSING`/`UNPAUSING`, затем runtime executor выполняет Docker
+  operation, а отдельный fenced transition по lifecycle status и entity version
+  возвращает сервис в `ACTIVE`. Start/stop сразу сохраняют пользовательский
+  `desiredState`; pause/unpause его не меняют. При runtime failure lifecycle
+  возвращается в `ACTIVE`; при ошибке финализации transient status остается для
+  будущего repair.
+- Runtime executor и repair transient lifecycle сериализуются через
+  `ManagedServiceOperationGate` на session-level PostgreSQL advisory lock. Это
+  сознательно не является полноценным fencing: если PostgreSQL session потеряна, пока
+  executor продолжает Docker operation, lock может исчезнуть раньше executor. Такой
+  узкий failure path принят как допустимый; более сильный runtime fencing сейчас не
+  планируется.
+- Удаление ManagedService является многофазным flow: короткая транзакция под row lock
+  проверяет отсутствие active deployment, сохраняет deletion context и фиксирует
+  `ACTIVE -> DELETING`. Затем общий `ManagedServiceDeletionExecutor` под
+  `ManagedServiceOperationGate` по service ID читает persisted deletion plan, всегда
+  удаляет Docker container и volumes вне DB-транзакции и физически удаляет только строку
+  в `DELETING`. Gate удерживается до завершения DB deletion, чтобы отложенный retry не
+  удалил одноименный volume нового service. API delete и reaper используют один executor.
+  При ошибке cleanup сервис остается в `DELETING` для будущего retry/reaper; list
+  показывает `ACTIVE` и все runtime transient statuses, а get разрешает runtime
+  transient statuses и для `DELETING` возвращает typed deletion-in-progress conflict.
+  `ManagedServiceDto.lifecycleStatus` делает runtime operation видимой клиенту.
+- Reaper возвращает застрявшие `STARTING`, `STOPPING`, `PAUSING` и `UNPAUSING`
+  services в `ACTIVE`; reconciler (появится позднее) восстанавливает runtime
+  согласно desired state, который pause/unpause не меняют.
+- Deployment lifecycle использует переходы `IN_PROCESS -> FINISHED`,
+  `IN_PROCESS -> FAILED` и `IN_PROCESS -> CANCELING -> CANCELED`. Status,
+  `containerId`, deployment `errorMessage` и cleanup diagnostics меняются только
+  use-case-specific repository CAS, а не через managed entity setters. Cleanup failure
+  оставляет deployment в `CANCELING`, записывает `cleanupErrorMessage` и
+  `lastCleanupAttemptAt`; успешный retry очищает cleanup error и завершает cancellation.
+- Активными считаются deployment в `IN_PROCESS` и `CANCELING`; partial unique index
+  по `service_id` не позволяет начать новый deploy до завершения cancellation cleanup.
+  `CANCELED` можно выставлять только после успешной очистки Docker resources.
+- Project network и managed volume перед использованием ищутся по точному Docker name,
+  после чего их ownership проверяется по project/service labels. Одноименный foreign или
+  unlabeled resource нельзя переиспользовать: deploy возвращает typed ownership conflict,
+  требующий вмешательства администратора.
+- Managed volume получает имя
+  `dockistry_<project_slug>_<service_name>_<volume_name>`; immutable project slug и
+  immutable service name делают имя стабильным в течение жизни service.
+- Project network получает имя `dockistry_<project_slug>`, а managed container —
+  `dockistry_<project_slug>_<service_name>`.
+- Несколько project networks с одинаковым exact name считаются Docker name ambiguity,
+  а не ownership conflict. Если Docker сообщил об успешном создании network/volume, но
+  ресурс нельзя сразу перечитать по имени, deploy возвращает typed internal verification
+  error с рекомендацией обратиться к администратору.
+- Новые managed volumes получают `DockerLabels.forDeployment`; cancellation cleanup
+  удаляет только containers и volumes текущего deployment по этим labels. Network является
+  project-level resource и в deployment cleanup не входит.
 - ManagedService endpoints:
   `GET/POST /api/projects/{projectId}/services` и
-  `GET/PATCH/DELETE /api/projects/{projectId}/services/{serviceId}`.
+  `GET/PATCH/DELETE /api/projects/{projectId}/services/{serviceId}`, включая
+  `POST .../{serviceId}/start|stop|pause|unpause`.
 - Protected service-id operations сначала проверяют readable project через
   `ProjectAccessGuard`; missing service внутри readable project возвращается как
   `managed_service_not_found`, а недостаток manage permission — как
