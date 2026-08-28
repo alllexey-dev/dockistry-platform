@@ -3,6 +3,7 @@ package io.dockistry.platform.projects.domain
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.Role
 import io.dockistry.platform.iam.domain.Scope
+import io.dockistry.platform.shared.domain.ResourceNameNormalizer
 import io.dockistry.platform.shared.domain.SlugValidator
 import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
@@ -61,9 +62,9 @@ class Project(
         protected set
 
     @field:Column(unique = true, nullable = false)
-    var name: String = ProjectNameNormalizer.normalizeAndValidate(name)
+    var name: String = normalizeName(name)
         set(value) {
-            field = ProjectNameNormalizer.normalizeAndValidate(value)
+            field = normalizeName(value)
         }
 
     @field:Column(unique = true, nullable = false, length = MAX_SLUG_LENGTH)
@@ -79,6 +80,9 @@ class Project(
     @PrePersist
     @PreUpdate
     fun normalizeBeforeSave() {
-        name = ProjectNameNormalizer.normalizeAndValidate(name)
+        name = normalizeName(name)
     }
+
+    private fun normalizeName(value: String): String =
+        ResourceNameNormalizer.normalizeAndValidate(value, ::InvalidProjectNameException)
 }
