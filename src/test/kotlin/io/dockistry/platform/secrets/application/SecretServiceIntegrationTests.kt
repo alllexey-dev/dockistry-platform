@@ -2,7 +2,9 @@ package io.dockistry.platform.secrets.application
 
 import io.dockistry.platform.TestClockConfig
 import io.dockistry.platform.TestcontainersConfig
+import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.secrets.application.ports.SecretEncryptor
+import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import jakarta.persistence.EntityManager
@@ -25,6 +27,9 @@ class SecretServiceIntegrationTests {
 
     @Autowired
     private lateinit var secretRepository: SecretRepository
+
+    @Autowired
+    private lateinit var projectSecretDelegationRepository: ProjectSecretDelegationRepository
 
     @Autowired
     private lateinit var secretEncryptor: SecretEncryptor
@@ -65,5 +70,43 @@ class SecretServiceIntegrationTests {
         assertEquals(values, decryptedValues)
         assertEquals(0L, persisted.version)
         assertEquals(1, secretRepository.count())
+    }
+
+    @Test
+    fun `delegate persists delegation with requested project and secret`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val owner = fixtures.principal()
+        val project = fixtures.project(ownerPrincipal = owner)
+
+        fixtures.grantSystemPermission(
+            owner,
+            project.scope,
+            SystemPermissionNames.PROJECT_READ,
+            SystemPermissionNames.PROJECT_UPDATE
+        )
+        val secretId = secretService.create(
+            name = "postgres-credentials",
+            description = null,
+            values = mapOf("password" to "very-secret-value"),
+            ownerPrincipal = owner
+        )
+
+        entityManager.flush()
+        entityManager.clear()
+
+        val delegationId = secretService.delegate(
+            secretId = secretId,
+            projectId = project.id,
+            ownerPrincipal = owner
+        )
+
+        entityManager.flush()
+        entityManager.clear()
+
+        val delegation = projectSecretDelegationRepository.findById(delegationId).orElseThrow()
+
+        assertEquals(delegationId, delegation.id)
+        assertEquals(project.id, delegation.project.id)
+        assertEquals(secretId, delegation.secret.id)
     }
 }
