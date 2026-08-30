@@ -2,11 +2,12 @@ package io.dockistry.platform.projects.application
 
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.domain.Project
+import io.dockistry.platform.projects.domain.InvalidProjectNameException
 import io.dockistry.platform.projects.domain.ProjectAlreadyExistsException
-import io.dockistry.platform.projects.domain.ProjectNameNormalizer
 import io.dockistry.platform.projects.domain.ProjectNotFoundException
 import io.dockistry.platform.projects.domain.ProjectVersionConflictException
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
+import io.dockistry.platform.shared.domain.ResourceNameNormalizer
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
@@ -29,7 +30,10 @@ class ProjectUpdateExecutor(
     ): Project {
         projectAccessGuard.requireUpdatable(projectId, principal)
 
-        val normalizedName = ProjectNameNormalizer.normalizeAndValidate(name)
+        val normalizedName = ResourceNameNormalizer.normalizeAndValidate(
+            name,
+            ::InvalidProjectNameException
+        )
 
         val updatedRows = try {
             projectRepository.updateWithExpectedVersion(
@@ -59,7 +63,10 @@ class ProjectUpdateExecutor(
         name: String,
         description: String?
     ): Project {
-        val normalizedName = ProjectNameNormalizer.normalizeAndValidate(name)
+        val normalizedName = ResourceNameNormalizer.normalizeAndValidate(
+            name,
+            ::InvalidProjectNameException
+        )
         val project = projectRepository.findProjectById(projectId)
             ?: throw ProjectNotFoundException("Project with provided ID couldn't be found")
 
