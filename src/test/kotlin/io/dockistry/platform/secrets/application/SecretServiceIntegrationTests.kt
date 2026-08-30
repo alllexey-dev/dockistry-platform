@@ -3,6 +3,7 @@ package io.dockistry.platform.secrets.application
 import io.dockistry.platform.TestClockConfig
 import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.iam.domain.SystemPermissionNames
+import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
 import io.dockistry.platform.secrets.application.ports.SecretEncryptor
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
@@ -13,9 +14,12 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 @SpringBootTest
 @Import(TestcontainersConfig::class, TestClockConfig::class)
@@ -33,6 +37,9 @@ class SecretServiceIntegrationTests {
 
     @Autowired
     private lateinit var secretEncryptor: SecretEncryptor
+
+    @Autowired
+    private lateinit var transactionTemplate: TransactionTemplate
 
     @PersistenceContext
     private lateinit var entityManager: EntityManager
@@ -73,17 +80,66 @@ class SecretServiceIntegrationTests {
     }
 
     @Test
-    fun `delegate persists delegation with requested project and secret`() {
-        val fixtures = IamProjectFixtures(entityManager)
-        val owner = fixtures.principal()
-        val project = fixtures.project(ownerPrincipal = owner)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    fun `create with the same payload is idempotent`() {
+        val owner = createOwner()
+        val values = mapOf("password" to "very-secret-value")
 
-        fixtures.grantSystemPermission(
-            owner,
-            project.scope,
-            SystemPermissionNames.PROJECT_READ,
-            SystemPermissionNames.PROJECT_UPDATE
+        val firstId = secretService.create(
+            name = "postgres-credentials",
+            description = "PostgreSQL credentials",
+            values = values,
+            ownerPrincipal = owner
         )
+        val secondId = secretService.create(
+            name = "postgres-credentials",
+            description = "PostgreSQL credentials",
+            values = values,
+            ownerPrincipal = owner
+        )
+
+        assertEquals(firstId, secondId)
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    fun `create with the same name and different payload returns conflict`() {
+        val owner = createOwner()
+
+        secretService.create(
+            name = "postgres-credentials",
+            description = "PostgreSQL credentials",
+            values = mapOf("password" to "old-value"),
+            ownerPrincipal = owner
+        )
+
+        assertFailsWith<SecretAlreadyExistsException> {
+            secretService.create(
+                name = "postgres-credentials",
+                description = "PostgreSQL credentials",
+                values = mapOf("password" to "new-value"),
+                ownerPrincipal = owner
+            )
+        }
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    fun `delegate persists delegation with requested project and secret`() {
+        val (owner, project) = transactionTemplate.execute {
+            val fixtures = IamProjectFixtures(entityManager)
+            val owner = fixtures.principal()
+            val project = fixtures.project(ownerPrincipal = owner)
+
+            fixtures.grantSystemPermission(
+                owner,
+                project.scope,
+                SystemPermissionNames.PROJECT_READ,
+                SystemPermissionNames.PROJECT_UPDATE
+            )
+            entityManager.flush()
+            owner to project
+        }
         val secretId = secretService.create(
             name = "postgres-credentials",
             description = null,
@@ -91,22 +147,26 @@ class SecretServiceIntegrationTests {
             ownerPrincipal = owner
         )
 
-        entityManager.flush()
-        entityManager.clear()
-
         val delegationId = secretService.delegate(
             secretId = secretId,
             projectId = project.id,
             ownerPrincipal = owner
         )
+        val repeatedDelegationId = secretService.delegate(
+            secretId = secretId,
+            projectId = project.id,
+            ownerPrincipal = owner
+        )
 
-        entityManager.flush()
-        entityManager.clear()
-
+        assertEquals(delegationId, repeatedDelegationId)
         val delegation = projectSecretDelegationRepository.findById(delegationId).orElseThrow()
 
         assertEquals(delegationId, delegation.id)
         assertEquals(project.id, delegation.project.id)
         assertEquals(secretId, delegation.secret.id)
+    }
+
+    private fun createOwner() = transactionTemplate.execute {
+        IamProjectFixtures(entityManager).principal()
     }
 }

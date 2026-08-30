@@ -8,6 +8,17 @@ import org.springframework.data.repository.query.Param
 import java.util.UUID
 interface SecretRepository : JpaRepository<Secret, String> {
     @Query("""
+        SELECT secret
+        FROM Secret secret
+        WHERE secret.ownerPrincipal = :ownerPrincipal
+          AND secret.name = :name
+    """)
+    fun getByOwnerAndName(
+        @Param("ownerPrincipal") ownerPrincipal: Principal,
+        @Param("name") name: String
+    ): Secret?
+
+    @Query("""
         SELECT secret.ownerPrincipal.id
         FROM Secret secret
         WHERE secret.id = :secretId
