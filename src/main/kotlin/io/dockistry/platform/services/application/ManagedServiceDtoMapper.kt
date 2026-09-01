@@ -13,31 +13,30 @@ import java.util.UUID
 
 @Component
 class ManagedServiceDtoMapper {
-    fun toDto(service: ManagedService): ManagedServiceDto {
-        return ManagedServiceDto(
-            id = service.id,
-            projectId = service.project.id,
-            name = service.name,
-            imageRef = service.imageRef.asString(),
-            command = service.command,
-            args = service.args,
-            env = service.env,
-            endpoints = service.endpoints,
-            volumes = service.volumes,
-            restartPolicy = service.restartPolicy,
-            restartMaxRetries = service.restartMaxRetries,
-            memoryLimitBytes = service.memoryLimitBytes,
-            cpuLimitNanoCpus = service.cpuLimitNanoCpus,
-            desiredState = service.desiredState,
-            lifecycleStatus = service.lifecycleStatus,
-            version = service.version,
-            createdAt = service.createdAt,
-            updatedAt = service.updatedAt
-        )
-    }
+    fun toDto(service: ManagedService) = ManagedServiceDto(
+        id = service.id,
+        projectId = service.project.id,
+        name = service.name,
+        imageRef = service.imageRef.asString(),
+        command = service.command,
+        args = service.args,
+        env = service.env,
+        secretReferences = service.secretReferences,
+        endpoints = service.endpoints,
+        volumes = service.volumes,
+        restartPolicy = service.restartPolicy,
+        restartMaxRetries = service.restartMaxRetries,
+        memoryLimitBytes = service.memoryLimitBytes,
+        cpuLimitNanoCpus = service.cpuLimitNanoCpus,
+        desiredState = service.desiredState,
+        lifecycleStatus = service.lifecycleStatus,
+        version = service.version,
+        createdAt = service.createdAt,
+        updatedAt = service.updatedAt
+    )
 
     fun toDtos(services: List<ManagedService>): List<ManagedServiceDto> {
-        return services.map { toDto(it) }
+        return services.map(::toDto)
     }
 
     fun toCreateCommand(
@@ -74,6 +73,7 @@ class ManagedServiceDtoMapper {
             command = command,
             args = args,
             env = env,
+            secretReferences = secretReferences,
             endpoints = endpoints,
             volumes = volumes,
             restartPolicy = restartPolicy,
@@ -89,6 +89,7 @@ class ManagedServiceDtoMapper {
             command = command,
             args = args,
             env = env,
+            secretReferences = secretReferences,
             endpoints = endpoints,
             volumes = volumes,
             restartPolicy = restartPolicy,
@@ -105,6 +106,7 @@ fun ManagedService.toConfigurationDraft() =
         command = command,
         args = args,
         env = env,
+        secretReferences = secretReferences,
         endpoints = endpoints,
         volumes = volumes,
         restartPolicy = restartPolicy,

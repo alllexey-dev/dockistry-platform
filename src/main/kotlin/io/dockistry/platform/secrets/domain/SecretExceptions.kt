@@ -15,3 +15,15 @@ class SecretNotFoundException(
 class SecretAlreadyExistsException(
     message: String
 ) : ConflictException(message, "secret_already_exists")
+
+class InvalidSecretReferenceException(
+    message: String
+) : BadRequestException(message, "invalid_secret_reference")
+
+class SecretKeyNotFoundException(
+    message: String
+) : NotFoundException(message, "secret_key_not_found")
+
+class InvalidSecretVersionException(
+    message: String
+) : BadRequestException(message, "invalid_secret_version")

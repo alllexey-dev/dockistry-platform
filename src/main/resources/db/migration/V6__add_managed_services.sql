@@ -8,6 +8,7 @@ CREATE TABLE services
     command              JSONB,
     args                 JSONB,
     env                  JSONB                       NOT NULL,
+    secret_references    JSONB                       NOT NULL,
     endpoints            JSONB                       NOT NULL,
     volumes              JSONB                       NOT NULL,
     restart_policy       VARCHAR(255)                NOT NULL,

@@ -1,6 +1,7 @@
 package io.dockistry.platform.services.application
 
 import io.dockistry.platform.projects.application.ProjectAccessGuard
+import io.dockistry.platform.secrets.application.ManagedServiceSecretAttachmentService
 import io.dockistry.platform.services.application.dto.ManagedServiceUpdateCommand
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceVersionConflictException
@@ -15,6 +16,7 @@ class ManagedServiceUpdateExecutor(
     private val projectAccessGuard: ProjectAccessGuard,
     private val commandValidator: ManagedServiceCommandValidator,
     private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard,
+    private val managedServiceSecretAttachmentService: ManagedServiceSecretAttachmentService,
     private val managedServiceRepository: ManagedServiceRepository
 ) {
     @Transactional
@@ -41,6 +43,7 @@ class ManagedServiceUpdateExecutor(
             return service
         }
 
+        managedServiceSecretAttachmentService.replace(service, configuration.secretReferences)
         service.updateConfiguration(configuration, clock.instant())
         return managedServiceRepository.saveAndFlush(service)
     }

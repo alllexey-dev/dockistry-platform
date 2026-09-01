@@ -9,6 +9,7 @@ fun ManagedService.matches(configuration: ManagedServiceConfiguration): Boolean 
         command == configuration.command &&
         args == configuration.args &&
         env == configuration.env &&
+        secretReferences == configuration.secretReferences &&
         endpoints == configuration.endpoints &&
         volumes == configuration.volumes &&
         restartPolicy == configuration.restartPolicy &&

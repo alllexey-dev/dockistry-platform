@@ -41,13 +41,12 @@ CREATE TABLE managed_service_secret_attachments
     id         UUID        NOT NULL,
     service_id UUID        NOT NULL,
     secret_id  VARCHAR(16) NOT NULL,
-    secret_key VARCHAR(255) NOT NULL,
     CONSTRAINT pk_managed_service_secret_attachments PRIMARY KEY (id),
-    CONSTRAINT uc_service_secret_attachment UNIQUE (service_id, secret_id, secret_key),
+    CONSTRAINT uc_service_secret_attachment UNIQUE (service_id, secret_id),
     CONSTRAINT fk_service_secret_attachments_on_service
         FOREIGN KEY (service_id) REFERENCES services (id) ON DELETE CASCADE,
     CONSTRAINT fk_service_secret_attachments_on_secret
-        FOREIGN KEY (secret_id) REFERENCES secrets (id)
+        FOREIGN KEY (secret_id) REFERENCES secrets (id) ON DELETE RESTRICT
 );
 
 CREATE INDEX managed_service_secret_attachments_secret_id_idx

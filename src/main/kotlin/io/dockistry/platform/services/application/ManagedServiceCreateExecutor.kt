@@ -1,6 +1,7 @@
 package io.dockistry.platform.services.application
 
 import io.dockistry.platform.projects.application.ProjectAccessGuard
+import io.dockistry.platform.secrets.application.ManagedServiceSecretAttachmentService
 import io.dockistry.platform.services.application.dto.ManagedServiceCreateCommand
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceAlreadyExistsException
@@ -15,6 +16,7 @@ class ManagedServiceCreateExecutor(
     private val clock: Clock,
     private val projectAccessGuard: ProjectAccessGuard,
     private val commandValidator: ManagedServiceCommandValidator,
+    private val managedServiceSecretAttachmentService: ManagedServiceSecretAttachmentService,
     private val managedServiceRepository: ManagedServiceRepository
 ) {
     @Transactional
@@ -38,7 +40,9 @@ class ManagedServiceCreateExecutor(
             updatedAt = now
         )
 
-        return managedServiceRepository.saveAndFlush(service)
+        managedServiceRepository.saveAndFlush(service)
+        managedServiceSecretAttachmentService.replace(service, configuration.secretReferences)
+        return service
     }
 
     @Transactional(readOnly = true)
