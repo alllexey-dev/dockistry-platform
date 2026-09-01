@@ -21,25 +21,30 @@ class ManagedServiceSecretAttachmentService(
         attachmentRepository.deleteByService(service)
         attachmentRepository.flush()
 
-        references.groupBy { it.secretId }.forEach { (secretId, secretReferences) ->
-            SecretValidator.validateId(secretId)
-            val secret = secretRepository.findById(secretId).orElseThrow {
-                SecretNotFoundException("Secret with provided ID couldn't be found")
-            }
+        references
+            .distinctBy { Triple(it.secretId, it.key, it.secretVersion) }
+            .forEach { reference ->
+                SecretValidator.validateId(reference.secretId)
+                val secret = secretRepository.findById(reference.secretId).orElseThrow {
+                    SecretNotFoundException("Secret with provided ID couldn't be found")
+                }
 
-            // The attachment is only a dependency index. Configuration remains the
-            // source of truth for the referenced key and environment variable.
-            attachmentRepository.saveAndFlush(
-                ManagedServiceSecretAttachment(service = service, secret = secret)
-            )
-
-            secretReferences.forEach { reference ->
                 if (reference.key !in secret.encryptedValues.keys) {
                     throw SecretKeyNotFoundException(
                         "Secret key '${reference.key}' couldn't be found"
                     )
                 }
+
+                // The attachment is only a dependency index. Configuration remains
+                // the source of truth for the environment variable.
+                attachmentRepository.saveAndFlush(
+                    ManagedServiceSecretAttachment(
+                        service = service,
+                        secret = secret,
+                        secretKey = reference.key,
+                        secretVersion = reference.secretVersion
+                    )
+                )
             }
-        }
     }
 }

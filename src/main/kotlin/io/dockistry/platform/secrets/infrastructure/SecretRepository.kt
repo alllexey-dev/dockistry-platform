@@ -8,8 +8,9 @@ import org.springframework.data.repository.query.Param
 import java.util.UUID
 interface SecretRepository : JpaRepository<Secret, String> {
     @Query("""
-        SELECT secret
+        SELECT DISTINCT secret
         FROM Secret secret
+        LEFT JOIN FETCH secret.versions
         WHERE secret.ownerPrincipal = :ownerPrincipal
           AND secret.name = :name
     """)
@@ -26,8 +27,9 @@ interface SecretRepository : JpaRepository<Secret, String> {
     fun getOwnerIdById(@Param("secretId") secretId: String): UUID?
 
     @Query("""
-        SELECT secret
+        SELECT DISTINCT secret
         FROM Secret secret
+        LEFT JOIN FETCH secret.versions
         WHERE secret.ownerPrincipal = :ownerPrincipal
         ORDER BY secret.name
     """)

@@ -18,8 +18,8 @@ import java.util.UUID
     name = "managed_service_secret_attachments",
     uniqueConstraints = [
         UniqueConstraint(
-            name = "uc_service_secret_attachment",
-            columnNames = ["service_id", "secret_id"]
+            name = "uc_service_secret_attachment_reference",
+            columnNames = ["service_id", "secret_id", "secret_key", "secret_version"]
         )
     ]
 )
@@ -32,9 +32,13 @@ class ManagedServiceSecretAttachment(
     @JoinColumn(name = "secret_id", nullable = false)
     val secret: Secret,
 
+    @Column(name = "secret_key", nullable = false, length = 255)
+    val secretKey: String,
+
+    @Column(name = "secret_version", length = 16)
+    val secretVersion: String? = null
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     lateinit var id: UUID
-
 }

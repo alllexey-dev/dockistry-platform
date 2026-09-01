@@ -2,17 +2,18 @@ package io.dockistry.platform.secrets.domain
 
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.shared.domain.ResourceNameNormalizer
+import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.FetchType
 import jakarta.persistence.Id
 import jakarta.persistence.JoinColumn
 import jakarta.persistence.ManyToOne
+import jakarta.persistence.OneToMany
 import jakarta.persistence.Table
+import jakarta.persistence.Transient
 import jakarta.persistence.UniqueConstraint
 import jakarta.persistence.Version
-import org.hibernate.annotations.JdbcTypeCode
-import org.hibernate.type.SqlTypes
 import java.time.Instant
 
 @Entity
@@ -33,7 +34,6 @@ class Secret(
     @JoinColumn(name = "owner_principal_id", nullable = false)
     val ownerPrincipal: Principal,
 
-    encryptedValues: Map<String, String>,
     createdAt: Instant,
     updatedAt: Instant
 ) {
@@ -49,11 +49,18 @@ class Secret(
     var description: String? = description
         protected set
 
-    /** Secret keys are plaintext; every map value is an encrypted payload. */
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "encrypted_values", nullable = false, columnDefinition = "jsonb")
-    var encryptedValues: Map<String, String> = encryptedValues.toMap()
-        protected set
+    @OneToMany(
+        mappedBy = "secret",
+        cascade = [CascadeType.ALL],
+        orphanRemoval = true,
+        fetch = FetchType.LAZY
+    )
+    val versions: MutableList<SecretVersion> = mutableListOf()
+
+    /** Compatibility view for callers being migrated to version-aware reads. */
+    @get:Transient
+    val encryptedValues: Map<String, String>
+        get() = latestVersion()?.encryptedValues ?: emptyMap()
 
     @Version
     @Column(name = "version", nullable = false)
@@ -66,6 +73,13 @@ class Secret(
     @Column(name = "updated_at", nullable = false)
     var updatedAt: Instant = updatedAt
         protected set
+
+    fun addVersion(version: SecretVersion) {
+        versions += version
+    }
+
+    fun latestVersion(): SecretVersion? =
+        versions.maxWithOrNull(compareBy<SecretVersion> { it.createdAt }.thenBy { it.id })
 
     private fun normalizeName(value: String): String =
         ResourceNameNormalizer.normalizeAndValidate(value, ::InvalidSecretNameException)

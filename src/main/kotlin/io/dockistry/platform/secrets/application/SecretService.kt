@@ -5,6 +5,7 @@ import io.dockistry.platform.projects.application.ProjectAccessGuard
 import io.dockistry.platform.secrets.application.ports.SecretEncryptor
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
+import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
 import io.dockistry.platform.secrets.domain.dto.SecretDto
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
@@ -37,9 +38,15 @@ class SecretService(
             name = name,
             description = description,
             ownerPrincipal = ownerPrincipal,
-            encryptedValues = encryptPayload(values),
             createdAt = now,
             updatedAt = now
+        )
+        secret.addVersion(
+            SecretVersion(
+                secret = secret,
+                encryptedValues = encryptPayload(values),
+                createdAt = now
+            )
         )
 
         return try {
