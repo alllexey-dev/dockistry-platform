@@ -91,7 +91,6 @@ CREATE TABLE service_secret_warnings
     secret_version VARCHAR(16),
     warning_type   VARCHAR(32)                 NOT NULL,
     description    TEXT                        NOT NULL,
-    is_active      BOOLEAN                     NOT NULL,
     created_at     TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     resolved_at    TIMESTAMP WITHOUT TIME ZONE,
     CONSTRAINT pk_service_secret_warnings PRIMARY KEY (id),
@@ -104,7 +103,7 @@ CREATE TABLE service_secret_warnings
 CREATE UNIQUE INDEX ux_service_secret_warnings_active_target
     ON service_secret_warnings
         (service_id, warning_type, secret_id, secret_key, secret_version)
-    WHERE is_active = true;
+    WHERE resolved_at IS NULL;
 
 CREATE INDEX service_secret_warnings_service_id_idx
     ON service_secret_warnings (service_id);

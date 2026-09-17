@@ -6,7 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository
 import java.util.UUID
 
 interface ServiceSecretWarningRepository : JpaRepository<ServiceSecretWarning, UUID> {
-    fun findByServiceAndIsActiveTrueOrderByCreatedAtAsc(
+    fun findByServiceAndResolvedAtIsNullOrderByCreatedAtAsc(
         service: ManagedService
     ): List<ServiceSecretWarning>
 }
