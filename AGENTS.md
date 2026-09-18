@@ -187,7 +187,7 @@ CI:
   `ProjectService.kt`, `JwtAuthenticationFilter.kt`,
   `EmailVerificationFlowService.kt`.
 - Для DTO используй `data class`.
-- Для stateless utility допустим `object`, как `ProjectNameNormalizer` или
+- Для stateless utility допустим `object`, как `ResourceNameNormalizer` или
   `VerificationCodeGenerator`.
 - Constructor injection обязателен для Spring beans.
 - Не используй field injection в main-коде.
@@ -590,10 +590,11 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   documented behavior.
 - Если `AGENTS.md` и `README.md` не нужно менять, осознанно проверь это
   перед финальным ответом.
-- Раздел `## 6. Текущий статус / Что делаем сейчас` может временно содержать
-  текущую задачу пользователя для локального контекста сессии. Такие записи не
-  коммить: дефолтное состояние раздела в репозитории — только placeholder
-  `[Здесь я буду описывать текущий фокус разработки перед новой сессией.]`.
+- Раздел #6 в данном файле может содержать локальный durable product contract
+  текущей задачи и не должен превращаться в session notes, implementation status
+  или roadmap. Изменения самого раздела #6 не коммить: его committed state —
+  placeholder `## 6. Durable product contract текущей задачи`. При изменении
+  согласованных инвариантов синхронизируй локальный раздел и публичное issue.
 - Перед commit полезно проверять `git diff --check`.
 - Если есть staged subset и грязный worktree, используй
   `scripts/check-staged-independent.sh -- ./gradlew test`, чтобы убедиться, что
@@ -637,6 +638,6 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Если проверку не удалось запустить из-за окружения, Docker, Gradle lock или
   sandbox permissions, явно скажи об этом и укажи точную причину.
 
-## 6. Текущий статус / Что делаем сейчас (Current State & Roadmap)
+## 6. Durable product contract текущей задачи
 
 [Здесь я буду описывать текущий фокус разработки перед новой сессией.]
