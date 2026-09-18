@@ -68,6 +68,18 @@ class SystemRolesBootstrapService(
             key = SystemPermissionNames.DOCKER_IMAGES_MANAGE,
             description = "Allows pulling and removing Docker images through the Docker agent in the granted scope."
         )
+        val secretsDelegatePermission = permission(
+            key = SystemPermissionNames.SECRETS_DELEGATE,
+            description = "Allows delegating access to project secrets in the granted scope."
+        )
+        val secretsUsePermission = permission(
+            key = SystemPermissionNames.SECRETS_USE,
+            description = "Allows using project secrets in the granted scope."
+        )
+        val secretsForceRevokePermission = permission(
+            key = SystemPermissionNames.SECRETS_FORCE_REVOKE,
+            description = "Allows forcibly revoking access to project secrets in the granted scope."
+        )
 
         val projectAdmin = role(
             name = SystemRoleNames.PROJECT_ADMIN,
@@ -92,7 +104,10 @@ class SystemRolesBootstrapService(
             projectServicesManagePermission,
             dockerGenericContainersManagePermission,
             dockerImagesReadPermission,
-            dockerImagesManagePermission
+            dockerImagesManagePermission,
+            secretsDelegatePermission,
+            secretsUsePermission,
+            secretsForceRevokePermission
         )
         val operatorPermissions = setOf(
             projectReadPermission,

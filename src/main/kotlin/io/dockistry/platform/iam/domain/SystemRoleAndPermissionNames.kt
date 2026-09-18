@@ -17,4 +17,7 @@ object SystemPermissionNames {
     const val DOCKER_GENERIC_CONTAINERS_MANAGE = "docker.generic-containers.manage"
     const val DOCKER_IMAGES_READ = "docker.images.read"
     const val DOCKER_IMAGES_MANAGE = "docker.images.manage"
+    const val SECRETS_DELEGATE = "project.secrets.delegate"
+    const val SECRETS_USE = "project.secrets.use"
+    const val SECRETS_FORCE_REVOKE = "project.secrets.force-revoke"
 }

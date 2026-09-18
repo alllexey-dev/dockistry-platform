@@ -46,7 +46,10 @@ class SystemRolesBootstrapServiceIntegrationTests {
                 SystemPermissionNames.PROJECT_SERVICES_MANAGE,
                 SystemPermissionNames.DOCKER_GENERIC_CONTAINERS_MANAGE,
                 SystemPermissionNames.DOCKER_IMAGES_READ,
-                SystemPermissionNames.DOCKER_IMAGES_MANAGE
+                SystemPermissionNames.DOCKER_IMAGES_MANAGE,
+                SystemPermissionNames.SECRETS_DELEGATE,
+                SystemPermissionNames.SECRETS_USE,
+                SystemPermissionNames.SECRETS_FORCE_REVOKE
             ),
             admin.permissions.map { it.key }.toSet()
         )
@@ -73,7 +76,10 @@ class SystemRolesBootstrapServiceIntegrationTests {
             SystemPermissionNames.PROJECT_SERVICES_MANAGE,
             SystemPermissionNames.DOCKER_GENERIC_CONTAINERS_MANAGE,
             SystemPermissionNames.DOCKER_IMAGES_READ,
-            SystemPermissionNames.DOCKER_IMAGES_MANAGE
+            SystemPermissionNames.DOCKER_IMAGES_MANAGE,
+            SystemPermissionNames.SECRETS_DELEGATE,
+            SystemPermissionNames.SECRETS_USE,
+            SystemPermissionNames.SECRETS_FORCE_REVOKE
         ).forEach { key ->
             assertNotNull(permissionRepository.findByKey(key))
         }
@@ -111,7 +117,10 @@ class SystemRolesBootstrapServiceIntegrationTests {
                 SystemPermissionNames.PROJECT_SERVICES_MANAGE,
                 SystemPermissionNames.DOCKER_GENERIC_CONTAINERS_MANAGE,
                 SystemPermissionNames.DOCKER_IMAGES_READ,
-                SystemPermissionNames.DOCKER_IMAGES_MANAGE
+                SystemPermissionNames.DOCKER_IMAGES_MANAGE,
+                SystemPermissionNames.SECRETS_DELEGATE,
+                SystemPermissionNames.SECRETS_USE,
+                SystemPermissionNames.SECRETS_FORCE_REVOKE
             ),
             role(SystemRoleNames.PROJECT_ADMIN).permissions.map { it.key }.toSet()
         )
