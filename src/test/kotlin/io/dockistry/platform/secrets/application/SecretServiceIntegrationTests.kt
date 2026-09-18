@@ -5,6 +5,7 @@ import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
 import io.dockistry.platform.secrets.application.ports.SecretEncryptor
+import io.dockistry.platform.secrets.domain.EmptySecretValuesException
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
 import io.dockistry.platform.testsupport.IamProjectFixtures
@@ -164,6 +165,23 @@ class SecretServiceIntegrationTests {
         assertEquals(delegationId, delegation.id)
         assertEquals(project.id, delegation.project.id)
         assertEquals(secretId, delegation.secret.id)
+    }
+
+    @Test
+    fun `create secret with empty payload throws exception`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val owner = fixtures.principal()
+
+        entityManager.flush()
+
+        assertFailsWith<EmptySecretValuesException> {
+            secretService.create(
+                name = "empty-values-secret",
+                description = null,
+                values = mapOf(),
+                ownerPrincipal = owner
+            )
+        }
     }
 
     private fun createOwner() = transactionTemplate.execute {

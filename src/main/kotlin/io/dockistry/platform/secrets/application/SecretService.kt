@@ -3,6 +3,7 @@ package io.dockistry.platform.secrets.application
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.application.ProjectAccessGuard
 import io.dockistry.platform.secrets.application.ports.SecretEncryptor
+import io.dockistry.platform.secrets.domain.EmptySecretValuesException
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.domain.SecretVersion
@@ -33,6 +34,10 @@ class SecretService(
         values: Map<String, String>,
         ownerPrincipal: Principal
     ): String {
+        if (values.isEmpty()) {
+            throw EmptySecretValuesException()
+        }
+
         val now = clock.instant()
         val secret = Secret(
             name = name,

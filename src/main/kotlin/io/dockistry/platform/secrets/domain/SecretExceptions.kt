@@ -27,3 +27,7 @@ class SecretKeyNotFoundException(
 class InvalidSecretVersionException(
     message: String
 ) : BadRequestException(message, "invalid_secret_version")
+
+class EmptySecretValuesException(
+    message: String = "New secret version isn't allowed to have empty values"
+) : BadRequestException(message, "empty_secret_values")
