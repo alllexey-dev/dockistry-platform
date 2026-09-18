@@ -76,7 +76,7 @@ class SecretService(
         return try {
             transactionTemplate.execute {
                 secretAccessGuard.requireOwner(secretId, ownerPrincipal)
-                val project = projectAccessGuard.requireUpdatable(projectId, ownerPrincipal)
+                val project = projectAccessGuard.requireSecretsDelegable(projectId, ownerPrincipal)
                 val secret = secretRepository.findById(secretId).orElseThrow()
                 val now = clock.instant()
 

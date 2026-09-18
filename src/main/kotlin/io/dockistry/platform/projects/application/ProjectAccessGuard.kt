@@ -84,6 +84,18 @@ class ProjectAccessGuard(
         return project
     }
 
+    fun requireSecretsDelegable(projectId: UUID, principal: Principal): Project {
+        val project = requireReadable(projectId, principal)
+
+        if (!projectAccessService.hasSecretsDelegatePermission(project.scope, principal)) {
+            throw InsufficientPermissionException(
+                "This principal is not allowed to delegate secrets to the specified project"
+            )
+        }
+
+        return project
+    }
+
     private fun notFound(): ProjectNotFoundException =
         ProjectNotFoundException("Project with provided ID couldn't be found")
 }

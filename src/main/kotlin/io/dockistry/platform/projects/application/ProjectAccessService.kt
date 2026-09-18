@@ -64,4 +64,12 @@ class ProjectAccessService(
             scope.id
         )
     }
+
+    fun hasSecretsDelegatePermission(scope: Scope, principal: Principal): Boolean {
+        return permissionCheckService.hasPermission(
+            SystemPermissionNames.SECRETS_DELEGATE,
+            principal.id,
+            scope.id
+        )
+    }
 }

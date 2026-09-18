@@ -2,7 +2,10 @@ package io.dockistry.platform.secrets.application
 
 import io.dockistry.platform.TestClockConfig
 import io.dockistry.platform.TestcontainersConfig
+import io.dockistry.platform.iam.domain.InsufficientPermissionException
+import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.SystemPermissionNames
+import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
 import io.dockistry.platform.secrets.application.ports.SecretEncryptor
 import io.dockistry.platform.secrets.domain.EmptySecretValuesException
@@ -136,7 +139,7 @@ class SecretServiceIntegrationTests {
                 owner,
                 project.scope,
                 SystemPermissionNames.PROJECT_READ,
-                SystemPermissionNames.PROJECT_UPDATE
+                SystemPermissionNames.SECRETS_DELEGATE
             )
             entityManager.flush()
             owner to project
@@ -183,6 +186,82 @@ class SecretServiceIntegrationTests {
             )
         }
     }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    fun `delegate requires project secrets delegate permission and rejects without it`() {
+        val (owner, delegator, project, ownerSecret, delegatorSecret) = transactionTemplate.execute {
+            val fixtures = IamProjectFixtures(entityManager)
+            val owner = fixtures.principal()
+            val project = fixtures.project(ownerPrincipal = owner)
+            val delegator = fixtures.principal()
+
+            fixtures.grantSystemPermission(
+                owner,
+                project.scope,
+                SystemPermissionNames.PROJECT_READ,
+                SystemPermissionNames.PROJECT_UPDATE,
+                SystemPermissionNames.SECRETS_USE,
+                SystemPermissionNames.SECRETS_FORCE_REVOKE,
+            )
+            fixtures.grantSystemPermission(
+                delegator,
+                project.scope,
+                SystemPermissionNames.PROJECT_READ,
+                SystemPermissionNames.SECRETS_DELEGATE,
+            )
+
+            val ownerSecret = secretService.create(
+                "owner-secret",
+                null,
+                mapOf("value" to "owner-secret-value"),
+                owner
+            )
+
+            val delegatorSecret = secretService.create(
+                "delegator-secret",
+                null,
+                mapOf("value" to "delegator-secret-value"),
+                delegator
+            )
+
+            entityManager.flush()
+            TestData(
+                owner,
+                delegator,
+                project,
+                ownerSecret,
+                delegatorSecret
+            )
+        }
+
+        assertFailsWith<InsufficientPermissionException> {
+            secretService.delegate(
+                secretId = ownerSecret,
+                projectId = project.id,
+                ownerPrincipal = owner
+            )
+        }
+
+        val delegatorDelegation = projectSecretDelegationRepository.findById(
+            secretService.delegate(
+                secretId = delegatorSecret,
+                projectId = project.id,
+                ownerPrincipal = delegator
+            )
+        ).orElseThrow()
+
+        assertEquals(project.id, delegatorDelegation.project.id)
+        assertEquals(delegatorSecret, delegatorDelegation.secret.id)
+    }
+
+    private data class TestData(
+        val owner: Principal,
+        val member: Principal,
+        val project: Project,
+        val ownerSecretId: String,
+        val memberSecretId: String
+    )
 
     private fun createOwner() = transactionTemplate.execute {
         IamProjectFixtures(entityManager).principal()
