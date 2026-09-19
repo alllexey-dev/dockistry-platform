@@ -10,6 +10,5 @@ data class SecretWarningDto(
     val secretId: String,
     val secretKey: String,
     val secretVersion: String?,
-    val description: String,
     val createdAt: Instant
 )
