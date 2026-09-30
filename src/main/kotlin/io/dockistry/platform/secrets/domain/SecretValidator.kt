@@ -8,7 +8,7 @@ object SecretValidator {
 
     fun validateKey(value: String): String {
         if (!value.matches(keyRegex)) {
-            throw InvalidSecretReferenceException(
+            throw InvalidSecretReferenceFormatException(
                 "Secret key must contain only Latin letters, digits, underscores, dots or hyphens"
             )
         }
@@ -17,7 +17,7 @@ object SecretValidator {
 
     fun validateEnvName(value: String): String {
         if (!value.matches(envNameRegex)) {
-            throw InvalidSecretReferenceException(
+            throw InvalidSecretReferenceFormatException(
                 "Secret environment name must contain only Latin letters, digits or underscores"
             )
         }

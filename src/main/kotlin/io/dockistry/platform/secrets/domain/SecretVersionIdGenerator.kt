@@ -24,7 +24,7 @@ object SecretVersionIdGenerator {
 
     fun validate(value: String): String {
         if (!isValid(value)) {
-            throw InvalidSecretVersionException("Secret version has an invalid format")
+            throw InvalidSecretReferenceFormatException("Secret version has an invalid format")
         }
         return value
     }

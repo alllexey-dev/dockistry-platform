@@ -6,6 +6,7 @@ import io.dockistry.platform.docker.domain.dto.ContainerLogs
 import io.dockistry.platform.docker.domain.dto.ContainerStats
 import io.dockistry.platform.iam.application.CurrentUserProvider
 import io.dockistry.platform.services.application.ManagedServiceDtoMapper
+import io.dockistry.platform.services.application.ManagedServiceQueryService
 import io.dockistry.platform.services.application.ManagedServiceService
 import io.dockistry.platform.services.domain.dto.ManagedServiceCreateRequest
 import io.dockistry.platform.services.domain.dto.ManagedServiceDeployResponse
@@ -32,6 +33,7 @@ import java.util.UUID
 class ManagedServiceController(
     private val currentUserProvider: CurrentUserProvider,
     private val managedServiceService: ManagedServiceService,
+    private val managedServiceQueryService: ManagedServiceQueryService,
     private val managedServiceDtoMapper: ManagedServiceDtoMapper,
     private val containerLogsRequestMapper: ContainerLogsRequestMapper
 ) {
@@ -40,7 +42,7 @@ class ManagedServiceController(
         val user = currentUserProvider.getUser()
         return ApiResponse(
             managedServiceDtoMapper.toDtos(
-                managedServiceService.list(projectId, user.principal)
+                managedServiceQueryService.list(projectId, user.principal)
             )
         )
     }
@@ -59,7 +61,14 @@ class ManagedServiceController(
         )
         val service = managedServiceService.create(command)
 
-        return ApiResponse(managedServiceDtoMapper.toDto(service))
+        return ApiResponse(
+            managedServiceDtoMapper.toDto(
+                managedServiceQueryService.withKnownReferences(
+                    service,
+                    command.configuration.secretReferences
+                )
+            )
+        )
     }
 
     @GetMapping("/{serviceId}")
@@ -70,7 +79,11 @@ class ManagedServiceController(
         val user = currentUserProvider.getUser()
         return ApiResponse(
             managedServiceDtoMapper.toDto(
-                managedServiceService.get(projectId, serviceId, user.principal)
+                managedServiceQueryService.get(
+                    projectId,
+                    serviceId,
+                    user.principal
+                )
             )
         )
     }
@@ -149,7 +162,14 @@ class ManagedServiceController(
         )
         val service = managedServiceService.update(command)
 
-        return ApiResponse(managedServiceDtoMapper.toDto(service))
+        return ApiResponse(
+            managedServiceDtoMapper.toDto(
+                managedServiceQueryService.withKnownReferences(
+                    service,
+                    command.configuration.secretReferences
+                )
+            )
+        )
     }
 
     @PostMapping("/{serviceId}/deploy")

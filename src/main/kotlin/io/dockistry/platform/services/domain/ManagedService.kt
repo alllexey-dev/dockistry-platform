@@ -86,11 +86,6 @@ class ManagedService(
         protected set
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "secret_references", nullable = false, columnDefinition = "jsonb")
-    var secretReferences: List<ManagedServiceSecretReference> = configuration.secretReferences
-        protected set
-
-    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "endpoints", nullable = false, columnDefinition = "jsonb")
     var endpoints: List<ServiceEndpoint> = configuration.endpoints
         protected set
@@ -152,7 +147,6 @@ class ManagedService(
         command = configuration.command
         args = configuration.args
         env = configuration.env
-        secretReferences = configuration.secretReferences
         endpoints = configuration.endpoints
         volumes = configuration.volumes
         restartPolicy = configuration.restartPolicy

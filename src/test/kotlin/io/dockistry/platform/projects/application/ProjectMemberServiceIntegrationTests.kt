@@ -128,7 +128,7 @@ class ProjectMemberServiceIntegrationTests {
         val roles = projectMemberService.listAvailableRoles(manager, project.id)
 
         val roleNames = roles.map { it.roleName }.toSet()
-        assertTrue(roleNames.containsAll(SystemRoleNames.allProjectRoleNames()))
+        assertTrue(roleNames.containsAll(SystemRoleNames.entries.map { it.key }))
         assertTrue(customRole.name in roleNames)
         assertFalse(otherProjectRole.name in roleNames)
         assertFalse(noReadRole.name in roleNames)
@@ -356,9 +356,6 @@ class ProjectMemberServiceIntegrationTests {
             SystemPermissionNames.PROJECT_MEMBERS_MANAGE.key
         )
     }
-
-    private fun SystemRoleNames.allProjectRoleNames(): Set<String> =
-        setOf(PROJECT_ADMIN, PROJECT_OPERATOR, PROJECT_VIEWER)
 
     private fun roleBindingCount(
         project: Project,

@@ -15,7 +15,7 @@ object SecretIdGenerator {
 
     fun validate(value: String): String {
         if (!isValid(value)) {
-            throw InvalidSecretReferenceException("Secret ID '$value' has an invalid format")
+            throw InvalidSecretReferenceFormatException("Secret ID '$value' has an invalid format")
         }
         return value
     }

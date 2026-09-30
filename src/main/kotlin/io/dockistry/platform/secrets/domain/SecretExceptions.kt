@@ -20,13 +20,9 @@ class InvalidSecretReferenceException(
     message: String
 ) : BadRequestException(message, "invalid_secret_reference")
 
-class SecretKeyNotFoundException(
+class InvalidSecretReferenceFormatException(
     message: String
-) : NotFoundException(message, "secret_key_not_found")
-
-class InvalidSecretVersionException(
-    message: String
-) : BadRequestException(message, "invalid_secret_version")
+) : BadRequestException(message, "invalid_secret_reference_format")
 
 class EmptySecretValuesException(
     message: String = "New secret version isn't allowed to have empty values"

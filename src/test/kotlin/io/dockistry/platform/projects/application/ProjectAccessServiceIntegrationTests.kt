@@ -1,6 +1,9 @@
 package io.dockistry.platform.projects.application
 
 import io.dockistry.platform.TestcontainersConfig
+import io.dockistry.platform.iam.application.PermissionCheckService
+import io.dockistry.platform.iam.domain.Principal
+import io.dockistry.platform.iam.domain.Scope
 import io.dockistry.platform.iam.domain.ScopeType
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.testsupport.IamProjectFixtures
@@ -22,6 +25,9 @@ import kotlin.test.assertTrue
 class ProjectAccessServiceIntegrationTests {
     @Autowired
     private lateinit var projectAccessService: ProjectAccessService
+
+    @Autowired
+    private lateinit var permissionCheckService: PermissionCheckService
 
     @PersistenceContext
     private lateinit var entityManager: EntityManager
@@ -126,4 +132,203 @@ class ProjectAccessServiceIntegrationTests {
         assertFalse(projectAccessService.hasDeletePermission(project.scope, noDelete))
     }
 
+    @Test
+    fun `has member management permission checks members manage permission only`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val project = fixtures.project()
+        val manager = fixtures.principal()
+        val noManagement = fixtures.principal()
+        fixtures.grantSystemPermission(
+            manager,
+            project.scope,
+            SystemPermissionNames.PROJECT_MEMBERS_MANAGE.key
+        )
+        grantAllOtherPermissions(
+            fixtures,
+            noManagement,
+            project.scope,
+            SystemPermissionNames.PROJECT_MEMBERS_MANAGE.key
+        )
+        fixtures.flush()
+
+        assertTrue(
+            projectAccessService.hasMemberManagementPermission(
+                project.scope,
+                manager
+            )
+        )
+        assertFalse(
+            projectAccessService.hasMemberManagementPermission(
+                project.scope,
+                noManagement
+            )
+        )
+    }
+
+    @Test
+    fun `has project services manage permission checks services manage permission only`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val project = fixtures.project()
+        val manager = fixtures.principal()
+        val noManagement = fixtures.principal()
+        fixtures.grantSystemPermission(
+            manager,
+            project.scope,
+            SystemPermissionNames.PROJECT_SERVICES_MANAGE.key
+        )
+        grantAllOtherPermissions(
+            fixtures,
+            noManagement,
+            project.scope,
+            SystemPermissionNames.PROJECT_SERVICES_MANAGE.key
+        )
+        fixtures.flush()
+
+        assertTrue(
+            projectAccessService.hasProjectServicesManagePermission(
+                project.scope,
+                manager
+            )
+        )
+        assertFalse(
+            projectAccessService.hasProjectServicesManagePermission(
+                project.scope,
+                noManagement
+            )
+        )
+    }
+
+    @Test
+    fun `has secrets delegate permission checks secrets delegate permission only`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val project = fixtures.project()
+        val delegator = fixtures.principal()
+        val noDelegation = fixtures.principal()
+        fixtures.grantSystemPermission(
+            delegator,
+            project.scope,
+            SystemPermissionNames.SECRETS_DELEGATE.key
+        )
+        grantAllOtherPermissions(
+            fixtures,
+            noDelegation,
+            project.scope,
+            SystemPermissionNames.SECRETS_DELEGATE.key
+        )
+        fixtures.flush()
+
+        assertTrue(
+            projectAccessService.hasSecretsDelegatePermission(
+                project.scope,
+                delegator
+            )
+        )
+        assertFalse(
+            projectAccessService.hasSecretsDelegatePermission(
+                project.scope,
+                noDelegation
+            )
+        )
+    }
+
+    @Test
+    fun `has secrets use permission checks secrets use permission only`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val project = fixtures.project()
+        val user = fixtures.principal()
+        val noUse = fixtures.principal()
+        fixtures.grantSystemPermission(
+            user,
+            project.scope,
+            SystemPermissionNames.SECRETS_USE.key
+        )
+        grantAllOtherPermissions(
+            fixtures,
+            noUse,
+            project.scope,
+            SystemPermissionNames.SECRETS_USE.key
+        )
+        fixtures.flush()
+
+        assertTrue(projectAccessService.hasSecretsUsePermission(project.scope, user))
+        assertFalse(projectAccessService.hasSecretsUsePermission(project.scope, noUse))
+    }
+
+    @Test
+    fun `has secrets force revoke permission checks force revoke permission only`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val project = fixtures.project()
+        val revoker = fixtures.principal()
+        val noRevocation = fixtures.principal()
+        fixtures.grantSystemPermission(
+            revoker,
+            project.scope,
+            SystemPermissionNames.SECRETS_FORCE_REVOKE.key
+        )
+        grantAllOtherPermissions(
+            fixtures,
+            noRevocation,
+            project.scope,
+            SystemPermissionNames.SECRETS_FORCE_REVOKE.key
+        )
+        fixtures.flush()
+
+        assertTrue(
+            permissionCheckService.hasPermission(
+                SystemPermissionNames.SECRETS_FORCE_REVOKE.key,
+                revoker.id,
+                project.scope.id
+            )
+        )
+        assertFalse(
+            permissionCheckService.hasPermission(
+                SystemPermissionNames.SECRETS_FORCE_REVOKE.key,
+                noRevocation.id,
+                project.scope.id
+            )
+        )
+    }
+
+    @Test
+    fun `has generic containers manage permission checks manage permission only`() {
+        assertOnlyGlobalPermission(SystemPermissionNames.DOCKER_GENERIC_CONTAINERS_MANAGE.key)
+    }
+
+    @Test
+    fun `has docker images read permission checks read permission only`() {
+        assertOnlyGlobalPermission(SystemPermissionNames.DOCKER_IMAGES_READ.key)
+    }
+
+    @Test
+    fun `has docker images manage permission checks manage permission only`() {
+        assertOnlyGlobalPermission(SystemPermissionNames.DOCKER_IMAGES_MANAGE.key)
+    }
+
+    private fun assertOnlyGlobalPermission(requiredPermission: String) {
+        val fixtures = IamProjectFixtures(entityManager)
+        val globalScope = fixtures.globalScope()
+        val allowed = fixtures.principal()
+        val missingRequired = fixtures.principal()
+        fixtures.grantSystemPermission(allowed, globalScope, requiredPermission)
+        grantAllOtherPermissions(fixtures, missingRequired, globalScope, requiredPermission)
+        fixtures.flush()
+
+        assertTrue(permissionCheckService.hasGlobalPermission(requiredPermission, allowed.id))
+        assertFalse(
+            permissionCheckService.hasGlobalPermission(requiredPermission, missingRequired.id)
+        )
+    }
+
+    private fun grantAllOtherPermissions(
+        fixtures: IamProjectFixtures,
+        principal: Principal,
+        scope: Scope,
+        requiredPermission: String
+    ) {
+        fixtures.grantSystemPermission(
+            principal,
+            scope,
+            *(SystemPermissionNames.entries.map { it.key }.toSet() - requiredPermission).toTypedArray()
+        )
+    }
 }

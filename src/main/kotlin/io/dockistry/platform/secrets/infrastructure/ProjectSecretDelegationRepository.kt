@@ -16,4 +16,20 @@ interface ProjectSecretDelegationRepository : JpaRepository<ProjectSecretDelegat
         projectId: UUID,
         secretId: String
     ): ProjectSecretDelegation?
+
+    @Query(
+        """
+        SELECT delegation.*
+        FROM project_secret_delegations delegation
+        WHERE delegation.project_id = :projectId
+          AND delegation.secret_id IN (:secretIds)
+        ORDER BY delegation.secret_id
+        FOR NO KEY UPDATE
+    """, nativeQuery = true
+    )
+    fun findByProjectAndSecretForNoKeyUpdateBatch(
+        projectId: UUID,
+        secretIds: List<String>
+    ): List<ProjectSecretDelegation>
+
 }

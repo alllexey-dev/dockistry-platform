@@ -72,4 +72,12 @@ class ProjectAccessService(
             scope.id
         )
     }
+
+    fun hasSecretsUsePermission(scope: Scope, principal: Principal): Boolean {
+        return permissionCheckService.hasPermission(
+            key = SystemPermissionNames.SECRETS_USE.key,
+            principalId = principal.id,
+            scopeId = scope.id
+        )
+    }
 }

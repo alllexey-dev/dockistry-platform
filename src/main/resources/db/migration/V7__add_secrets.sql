@@ -25,7 +25,7 @@ CREATE TABLE secret_versions
     created_at       TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     CONSTRAINT pk_secret_versions PRIMARY KEY (id),
     CONSTRAINT ck_secret_versions_id_format CHECK (id ~ '^ver-[A-Za-z0-9]{12}$'),
-    -- Provides the candidate key required by the composite attachment FK below.
+    -- Provides the candidate key required by the composite reference FK below.
     -- The version ID remains globally unique through the primary key.
     CONSTRAINT uc_secret_versions_secret_id_id UNIQUE (secret_id, id),
     CONSTRAINT fk_secret_versions_on_secret
@@ -53,34 +53,35 @@ CREATE TABLE project_secret_delegations
 CREATE INDEX project_secret_delegations_project_id_idx
     ON project_secret_delegations (project_id);
 
-CREATE TABLE managed_service_secret_attachments
+CREATE TABLE managed_service_secret_references
 (
     id             UUID        NOT NULL,
     service_id     UUID        NOT NULL,
     secret_id      VARCHAR(16) NOT NULL,
     secret_key     VARCHAR(255) NOT NULL,
     secret_version VARCHAR(16),
-    CONSTRAINT pk_managed_service_secret_attachments PRIMARY KEY (id),
-    CONSTRAINT uc_service_secret_attachment_reference
-        UNIQUE (service_id, secret_id, secret_key, secret_version),
-    CONSTRAINT fk_service_secret_attachments_on_service
+    env_name        VARCHAR(255) NOT NULL,
+    CONSTRAINT pk_managed_service_secret_references PRIMARY KEY (id),
+    CONSTRAINT uc_service_secret_reference_env_name
+        UNIQUE (service_id, env_name),
+    CONSTRAINT fk_service_secret_references_on_service
         FOREIGN KEY (service_id) REFERENCES services (id) ON DELETE CASCADE,
-    -- Preserves logical Secret integrity for every attachment, including latest
+    -- Preserves logical Secret integrity for every reference, including latest
     -- references whose NULL version skips the composite FK under MATCH SIMPLE.
-    CONSTRAINT fk_service_secret_attachments_on_secret
+    CONSTRAINT fk_service_secret_references_on_secret
         FOREIGN KEY (secret_id) REFERENCES secrets (id) ON DELETE CASCADE,
     -- For pinned references, also guarantees that the selected version belongs
     -- to the declared Secret rather than merely proving that both IDs exist.
-    CONSTRAINT fk_service_secret_attachments_on_secret_version
+    CONSTRAINT fk_service_secret_references_on_secret_version
         FOREIGN KEY (secret_id, secret_version)
             REFERENCES secret_versions (secret_id, id) ON DELETE CASCADE
 );
 
-CREATE INDEX managed_service_secret_attachments_secret_id_idx
-    ON managed_service_secret_attachments (secret_id);
+CREATE INDEX managed_service_secret_references_secret_id_idx
+    ON managed_service_secret_references (secret_id);
 
-CREATE INDEX managed_service_secret_attachments_service_id_idx
-    ON managed_service_secret_attachments (service_id);
+CREATE INDEX managed_service_secret_references_service_id_idx
+    ON managed_service_secret_references (service_id);
 
 CREATE TABLE service_secret_warnings
 (

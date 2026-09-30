@@ -15,15 +15,15 @@ import java.util.UUID
 
 @Entity
 @Table(
-    name = "managed_service_secret_attachments",
+    name = "managed_service_secret_references",
     uniqueConstraints = [
         UniqueConstraint(
-            name = "uc_service_secret_attachment_reference",
-            columnNames = ["service_id", "secret_id", "secret_key", "secret_version"]
+            name = "uc_service_secret_reference_env_name",
+            columnNames = ["service_id", "env_name"]
         )
     ]
 )
-class ManagedServiceSecretAttachment(
+class ManagedServiceSecretReferenceEntity(
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "service_id", nullable = false)
     val service: ManagedService,
@@ -36,7 +36,10 @@ class ManagedServiceSecretAttachment(
     val secretKey: String,
 
     @Column(name = "secret_version", length = 16)
-    val secretVersion: String? = null
+    val secretVersion: String? = null,
+
+    @Column(name = "env_name", nullable = false, length = 255)
+    val envName: String
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
