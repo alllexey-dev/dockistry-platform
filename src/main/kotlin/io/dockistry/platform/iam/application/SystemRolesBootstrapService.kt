@@ -9,8 +9,6 @@ import io.dockistry.platform.iam.domain.SystemRoleNames
 import io.dockistry.platform.iam.infrastructure.PermissionRepository
 import io.dockistry.platform.iam.infrastructure.RoleRepository
 import io.dockistry.platform.iam.infrastructure.ScopeRepository
-import org.springframework.boot.ApplicationArguments
-import org.springframework.boot.ApplicationRunner
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 
@@ -19,120 +17,44 @@ class SystemRolesBootstrapService(
     private val permissionRepository: PermissionRepository,
     private val roleRepository: RoleRepository,
     private val scopeRepository: ScopeRepository
-) : ApplicationRunner {
+) {
 
     @Transactional
-    override fun run(args: ApplicationArguments) {
+    fun bootstrap() {
         ensureSystemRolesAndPermissions()
         ensureGlobalScope()
     }
 
     private fun ensureSystemRolesAndPermissions() {
-        val projectCreatePermission = permission(
-            key = SystemPermissionNames.PROJECT_CREATE,
-            description = "Allows creating projects or project contents depending on the scope where this permission is granted."
-        )
-        val projectReadPermission = permission(
-            key = SystemPermissionNames.PROJECT_READ,
-            description = "Allows viewing project metadata and project-level resources in the granted scope."
-        )
-        val projectUpdatePermission = permission(
-            key = SystemPermissionNames.PROJECT_UPDATE,
-            description = "Allows changing project settings, metadata, and operational configuration in the granted scope."
-        )
-        val projectDeletePermission = permission(
-            key = SystemPermissionNames.PROJECT_DELETE,
-            description = "Allows deleting projects and their contents in the granted scope."
-        )
-        val projectArchivePermission = permission(
-            key = SystemPermissionNames.PROJECT_ARCHIVE,
-            description = "Allows archiving project(s) depending on the granted scope."
-        )
-        val projectMembersManagePermission = permission(
-            key = SystemPermissionNames.PROJECT_MEMBERS_MANAGE,
-            description = "Allows adding and removing project member role bindings in the granted scope."
-        )
-        val projectServicesManagePermission = permission(
-            key = SystemPermissionNames.PROJECT_SERVICES_MANAGE,
-            description = "Allows creating, updating, and deleting managed services in the granted project scope."
-        )
-        val dockerGenericContainersManagePermission = permission(
-            key = SystemPermissionNames.DOCKER_GENERIC_CONTAINERS_MANAGE,
-            description = "Allows viewing and managing non-Dockistry containers on the Docker host."
-        )
-        val dockerImagesReadPermission = permission(
-            key = SystemPermissionNames.DOCKER_IMAGES_READ,
-            description = "Allows viewing Docker image metadata through the Docker agent in the granted scope."
-        )
-        val dockerImagesManagePermission = permission(
-            key = SystemPermissionNames.DOCKER_IMAGES_MANAGE,
-            description = "Allows pulling and removing Docker images through the Docker agent in the granted scope."
-        )
-        val secretsDelegatePermission = permission(
-            key = SystemPermissionNames.SECRETS_DELEGATE,
-            description = "Allows delegating access to project secrets in the granted scope."
-        )
-        val secretsUsePermission = permission(
-            key = SystemPermissionNames.SECRETS_USE,
-            description = "Allows using project secrets in the granted scope."
-        )
-        val secretsForceRevokePermission = permission(
-            key = SystemPermissionNames.SECRETS_FORCE_REVOKE,
-            description = "Allows forcibly revoking access to project secrets in the granted scope."
-        )
-
-        val projectAdmin = role(
-            name = SystemRoleNames.PROJECT_ADMIN,
-            description = "System role for full project management, including creation, reading, updates, and deletion or archival. Effective access is limited by the scope used in the role binding."
-        )
-        val projectOperator = role(
-            name = SystemRoleNames.PROJECT_OPERATOR,
-            description = "System role for day-to-day project operation: viewing project data and changing project configuration. Effective access is limited by the scope used in the role binding."
-        )
-        val projectViewer = role(
-            name = SystemRoleNames.PROJECT_VIEWER,
-            description = "System role for read-only access to project data. Effective access is limited by the scope used in the role binding."
-        )
-
-        val adminPermissions = setOf(
-            projectCreatePermission,
-            projectReadPermission,
-            projectUpdatePermission,
-            projectDeletePermission,
-            projectArchivePermission,
-            projectMembersManagePermission,
-            projectServicesManagePermission,
-            dockerGenericContainersManagePermission,
-            dockerImagesReadPermission,
-            dockerImagesManagePermission,
-            secretsDelegatePermission,
-            secretsUsePermission,
-            secretsForceRevokePermission
-        )
-        val operatorPermissions = setOf(
-            projectReadPermission,
-            projectUpdatePermission,
-            projectServicesManagePermission
-        )
-        val viewerPermissions = setOf(projectReadPermission)
-
-        if (projectAdmin.permissions != adminPermissions) {
-            projectAdmin.permissions.clear()
-            projectAdmin.permissions.addAll(adminPermissions)
+        SystemPermissionNames.entries.forEach { permissionName ->
+            permission(
+                key = permissionName.key,
+                description = permissionName.description
+            )
         }
 
-        if (projectOperator.permissions != operatorPermissions) {
-            projectOperator.permissions.clear()
-            projectOperator.permissions.addAll(operatorPermissions)
-        }
+        SystemRoleNames.entries.forEach { roleName ->
+            val role = role(
+                name = roleName.key,
+                description = roleName.description
+            )
 
-        if (projectViewer.permissions != viewerPermissions) {
-            projectViewer.permissions.clear()
-            projectViewer.permissions.addAll(viewerPermissions)
+            val permissions = roleName.permissionNames.map { name ->
+                permission(
+                    key = name.key,
+                    description = name.description
+                )
+            }.toSet()
+
+            if (role.permissions.map { it.key }
+                    .toSet() != roleName.permissionNames.map { it.key }.toSet()) {
+                role.permissions.retainAll(permissions)
+                role.permissions.addAll(permissions)
+            }
         }
     }
 
-    fun ensureGlobalScope() {
+    private fun ensureGlobalScope() {
         if (!scopeRepository.findByScopeType(ScopeType.GLOBAL).isEmpty()) {
             return
         }

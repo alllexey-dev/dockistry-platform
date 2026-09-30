@@ -92,7 +92,7 @@ class GenericContainerService(
     private fun requireManagePermission(principal: Principal) {
         if (
             !permissionCheckService.hasGlobalPermission(
-                SystemPermissionNames.DOCKER_GENERIC_CONTAINERS_MANAGE,
+                SystemPermissionNames.DOCKER_GENERIC_CONTAINERS_MANAGE.key,
                 principal.id
             )
         ) {

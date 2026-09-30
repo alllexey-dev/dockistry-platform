@@ -4,22 +4,20 @@ import io.dockistry.platform.setup.application.InitialAdminService
 import io.dockistry.platform.setup.domain.InitialAdminAlreadyExistsException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.springframework.boot.ApplicationArguments
-import org.springframework.boot.ApplicationRunner
 import org.springframework.stereotype.Component
 
 @Component
 class InitialAdminBootstrapService(
     private val adminService: InitialAdminService,
     private val setupConfig: InitialAdminSetupConfig
-) : ApplicationRunner {
+) {
 
     companion object {
         val logger: Logger =
             LoggerFactory.getLogger(InitialAdminBootstrapService::class.java)
     }
 
-    override fun run(args: ApplicationArguments) {
+    fun bootstrap() {
         if (isSetupConfigBlank()) {
             logger.info("Some of initial admin credentials are empty, exiting.")
             return

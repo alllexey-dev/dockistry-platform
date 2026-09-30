@@ -223,7 +223,7 @@ class ProjectReadServiceIntegrationTests {
         return grantSystemPermission(
             principal,
             project.scope,
-            SystemPermissionNames.PROJECT_READ
+            SystemPermissionNames.PROJECT_READ.key
         )
     }
 

@@ -138,8 +138,8 @@ class SecretServiceIntegrationTests {
             fixtures.grantSystemPermission(
                 owner,
                 project.scope,
-                SystemPermissionNames.PROJECT_READ,
-                SystemPermissionNames.SECRETS_DELEGATE
+                SystemPermissionNames.PROJECT_READ.key,
+                SystemPermissionNames.SECRETS_DELEGATE.key
             )
             entityManager.flush()
             owner to project
@@ -199,16 +199,16 @@ class SecretServiceIntegrationTests {
             fixtures.grantSystemPermission(
                 owner,
                 project.scope,
-                SystemPermissionNames.PROJECT_READ,
-                SystemPermissionNames.PROJECT_UPDATE,
-                SystemPermissionNames.SECRETS_USE,
-                SystemPermissionNames.SECRETS_FORCE_REVOKE,
+                SystemPermissionNames.PROJECT_READ.key,
+                SystemPermissionNames.PROJECT_UPDATE.key,
+                SystemPermissionNames.SECRETS_USE.key,
+                SystemPermissionNames.SECRETS_FORCE_REVOKE.key,
             )
             fixtures.grantSystemPermission(
                 delegator,
                 project.scope,
-                SystemPermissionNames.PROJECT_READ,
-                SystemPermissionNames.SECRETS_DELEGATE,
+                SystemPermissionNames.PROJECT_READ.key,
+                SystemPermissionNames.SECRETS_DELEGATE.key,
             )
 
             val ownerSecret = secretService.create(

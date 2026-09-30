@@ -412,8 +412,8 @@ class ManagedServiceConcurrencyIntegrationTests(
         fixtures.grantSystemPermission(
             principal,
             project.scope,
-            SystemPermissionNames.PROJECT_READ,
-            SystemPermissionNames.PROJECT_SERVICES_MANAGE
+            SystemPermissionNames.PROJECT_READ.key,
+            SystemPermissionNames.PROJECT_SERVICES_MANAGE.key
         )
         fixtures.flush()
 

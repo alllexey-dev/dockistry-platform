@@ -257,7 +257,7 @@ class SetupControllerIntegrationTests {
     private fun persistExistingInitialAdmin(username: String, email: String) {
         val globalScope = scopeRepository.findByScopeType(ScopeType.GLOBAL).single()
         val adminRole = assertNotNull(
-            roleRepository.findByNameAndIsSystemTrue(SystemRoleNames.PROJECT_ADMIN)
+            roleRepository.findByNameAndIsSystemTrue(SystemRoleNames.PROJECT_ADMIN.key)
         )
         val user = User(
             username = username,

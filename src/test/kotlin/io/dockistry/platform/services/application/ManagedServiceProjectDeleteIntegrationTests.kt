@@ -113,8 +113,8 @@ class ManagedServiceProjectDeleteIntegrationTests(
         fixtures.grantSystemPermission(
             principal = owner,
             scope = project.scope,
-            SystemPermissionNames.PROJECT_READ,
-            SystemPermissionNames.PROJECT_SERVICES_MANAGE
+            SystemPermissionNames.PROJECT_READ.key,
+            SystemPermissionNames.PROJECT_SERVICES_MANAGE.key
         )
 
         ProjectContext(

@@ -137,7 +137,7 @@ class ProjectControllerIntegrationTests {
         fixtures.grantSystemPermission(
             user.user.principal,
             fixtures.globalScope(),
-            SystemPermissionNames.PROJECT_CREATE
+            SystemPermissionNames.PROJECT_CREATE.key
         )
         fixtures.flush()
 
@@ -170,7 +170,7 @@ class ProjectControllerIntegrationTests {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update returns updated project info dto when user can update project`() {
         val context = committedUpdateContext(
-            SystemPermissionNames.PROJECT_UPDATE,
+            SystemPermissionNames.PROJECT_UPDATE.key,
             description = "Old description"
         )
 
@@ -214,7 +214,7 @@ class ProjectControllerIntegrationTests {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update rejects negative expected version`() {
-        val context = committedUpdateContext(SystemPermissionNames.PROJECT_UPDATE)
+        val context = committedUpdateContext(SystemPermissionNames.PROJECT_UPDATE.key)
 
         try {
             mockMvc.patch("/api/projects/${context.project.id}") {
@@ -249,7 +249,7 @@ class ProjectControllerIntegrationTests {
         fixtures.grantProjectPermissions(
             user.user.principal,
             project,
-            SystemPermissionNames.PROJECT_ARCHIVE
+            SystemPermissionNames.PROJECT_ARCHIVE.key
         )
         fixtures.flush()
 
@@ -273,7 +273,7 @@ class ProjectControllerIntegrationTests {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete removes project and returns ok response when user can delete project`() {
-        val context = committedDeleteContext(SystemPermissionNames.PROJECT_DELETE)
+        val context = committedDeleteContext(SystemPermissionNames.PROJECT_DELETE.key)
 
         try {
             mockMvc.delete("/api/projects/${context.projectId}") {
@@ -354,7 +354,7 @@ class ProjectControllerIntegrationTests {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update returns forbidden when user cannot update project`() {
-        val context = committedUpdateContext(SystemPermissionNames.PROJECT_READ)
+        val context = committedUpdateContext(SystemPermissionNames.PROJECT_READ.key)
 
         try {
             mockMvc.patch("/api/projects/${context.project.id}") {
@@ -432,7 +432,7 @@ class ProjectControllerIntegrationTests {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete returns forbidden when user cannot delete project`() {
-        val context = committedDeleteContext(SystemPermissionNames.PROJECT_READ)
+        val context = committedDeleteContext(SystemPermissionNames.PROJECT_READ.key)
 
         try {
             mockMvc.delete("/api/projects/${context.projectId}") {
@@ -452,8 +452,8 @@ class ProjectControllerIntegrationTests {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete returns conflict when project has managed services`() {
         val context = committedDeleteContext(
-            SystemPermissionNames.PROJECT_READ,
-            SystemPermissionNames.PROJECT_DELETE,
+            SystemPermissionNames.PROJECT_READ.key,
+            SystemPermissionNames.PROJECT_DELETE.key,
             withManagedService = true
         )
 
@@ -529,7 +529,7 @@ class ProjectControllerIntegrationTests {
         fixtures.grantSystemPermission(
             user.user.principal,
             fixtures.globalScope(),
-            SystemPermissionNames.PROJECT_CREATE
+            SystemPermissionNames.PROJECT_CREATE.key
         )
         fixtures.flush()
 
@@ -549,7 +549,7 @@ class ProjectControllerIntegrationTests {
         fixtures.grantSystemPermission(
             user.user.principal,
             fixtures.globalScope(),
-            SystemPermissionNames.PROJECT_CREATE
+            SystemPermissionNames.PROJECT_CREATE.key
         )
         fixtures.flush()
 
@@ -569,7 +569,7 @@ class ProjectControllerIntegrationTests {
         fixtures.grantSystemPermission(
             user.user.principal,
             fixtures.globalScope(),
-            SystemPermissionNames.PROJECT_CREATE
+            SystemPermissionNames.PROJECT_CREATE.key
         )
         fixtures.project(name = "Existing Project", slug = "existing-project")
         fixtures.flush()
@@ -642,7 +642,7 @@ class ProjectControllerIntegrationTests {
                 user.user.principal,
                 project,
                 *permissionKeys.filterNot {
-                    it == SystemPermissionNames.PROJECT_READ
+                    it == SystemPermissionNames.PROJECT_READ.key
                 }.toTypedArray()
             )
         }
@@ -670,7 +670,7 @@ class ProjectControllerIntegrationTests {
                 user.user.principal,
                 project,
                 *permissionKeys.filterNot {
-                    it == SystemPermissionNames.PROJECT_READ
+                    it == SystemPermissionNames.PROJECT_READ.key
                 }.toTypedArray()
             )
         }
@@ -702,7 +702,7 @@ class ProjectControllerIntegrationTests {
         grantSystemPermission(
             principal,
             project.scope,
-            SystemPermissionNames.PROJECT_READ
+            SystemPermissionNames.PROJECT_READ.key
         )
     }
 
@@ -714,7 +714,7 @@ class ProjectControllerIntegrationTests {
         grantSystemPermission(
             principal,
             project.scope,
-            *(listOf(SystemPermissionNames.PROJECT_READ) + permissionKeys).toTypedArray()
+            *(listOf(SystemPermissionNames.PROJECT_READ.key) + permissionKeys).toTypedArray()
         )
     }
 

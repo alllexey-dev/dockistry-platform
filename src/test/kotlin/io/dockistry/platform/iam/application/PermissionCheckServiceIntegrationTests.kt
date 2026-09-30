@@ -33,21 +33,21 @@ class PermissionCheckServiceIntegrationTests {
     fun `has global permission returns true only for matching permission on global scope`() {
         val fixtures = IamProjectFixtures(entityManager)
         val principal = fixtures.principal()
-        fixtures.grantSystemPermission(principal, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(principal, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE.key)
         fixtures.flush()
 
-        assertTrue(permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_CREATE, principal.id))
-        assertFalse(permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_READ, principal.id))
+        assertTrue(permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_CREATE.key, principal.id))
+        assertFalse(permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_READ.key, principal.id))
     }
 
     @Test
     fun `has global permission ignores project scoped binding`() {
         val fixtures = IamProjectFixtures(entityManager)
         val principal = fixtures.principal()
-        fixtures.grantSystemPermission(principal, fixtures.scope(ScopeType.PROJECT), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(principal, fixtures.scope(ScopeType.PROJECT), SystemPermissionNames.PROJECT_CREATE.key)
         fixtures.flush()
 
-        assertFalse(permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_CREATE, principal.id))
+        assertFalse(permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_CREATE.key, principal.id))
     }
 
     @Test
@@ -55,11 +55,11 @@ class PermissionCheckServiceIntegrationTests {
         val fixtures = IamProjectFixtures(entityManager)
         val principal = fixtures.principal()
         val projectScope = fixtures.scope(ScopeType.PROJECT)
-        fixtures.grantSystemPermission(principal, projectScope, SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(principal, projectScope, SystemPermissionNames.PROJECT_READ.key)
         fixtures.flush()
 
         assertTrue(permissionCheckService.hasPermission(
-            SystemPermissionNames.PROJECT_READ,
+            SystemPermissionNames.PROJECT_READ.key,
             principal.id,
             projectScope.id
         ))
@@ -70,11 +70,11 @@ class PermissionCheckServiceIntegrationTests {
         val fixtures = IamProjectFixtures(entityManager)
         val principal = fixtures.principal()
         val projectScope = fixtures.scope(ScopeType.PROJECT)
-        fixtures.grantSystemPermission(principal, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(principal, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ.key)
         fixtures.flush()
 
         assertTrue(permissionCheckService.hasPermission(
-            SystemPermissionNames.PROJECT_READ,
+            SystemPermissionNames.PROJECT_READ.key,
             principal.id,
             projectScope.id
         ))
@@ -86,16 +86,16 @@ class PermissionCheckServiceIntegrationTests {
         val principal = fixtures.principal()
         val grantedScope = fixtures.scope(ScopeType.PROJECT)
         val otherScope = fixtures.scope(ScopeType.PROJECT)
-        fixtures.grantSystemPermission(principal, grantedScope, SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(principal, grantedScope, SystemPermissionNames.PROJECT_READ.key)
         fixtures.flush()
 
         assertFalse(permissionCheckService.hasPermission(
-            SystemPermissionNames.PROJECT_READ,
+            SystemPermissionNames.PROJECT_READ.key,
             principal.id,
             otherScope.id
         ))
         assertFalse(permissionCheckService.hasPermission(
-            SystemPermissionNames.PROJECT_UPDATE,
+            SystemPermissionNames.PROJECT_UPDATE.key,
             principal.id,
             grantedScope.id
         ))
@@ -104,7 +104,7 @@ class PermissionCheckServiceIntegrationTests {
     @Test
     fun `permission checks throw internal data integrity exception when principal is missing`() {
         assertFailsWith<InternalDataIntegrityException> {
-            permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_READ, UUID.randomUUID())
+            permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_READ.key, UUID.randomUUID())
         }
     }
 }

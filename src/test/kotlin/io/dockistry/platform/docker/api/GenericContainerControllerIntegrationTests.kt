@@ -234,7 +234,7 @@ class GenericContainerControllerIntegrationTests {
         fixtures.grantSystemPermission(
             user.principal,
             fixtures.globalScope(),
-            SystemPermissionNames.DOCKER_GENERIC_CONTAINERS_MANAGE
+            SystemPermissionNames.DOCKER_GENERIC_CONTAINERS_MANAGE.key
         )
         fixtures.flush()
         return user

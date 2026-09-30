@@ -12,14 +12,14 @@ class ProjectAccessService(
 ) {
     fun hasCreatePermission(principal: Principal): Boolean {
         return permissionCheckService.hasGlobalPermission(
-            SystemPermissionNames.PROJECT_CREATE,
+            SystemPermissionNames.PROJECT_CREATE.key,
             principal.id
         )
     }
 
     fun hasReadPermission(scope: Scope, principal: Principal): Boolean {
         return permissionCheckService.hasPermission(
-            SystemPermissionNames.PROJECT_READ,
+            SystemPermissionNames.PROJECT_READ.key,
             principal.id,
             scope.id
         )
@@ -27,7 +27,7 @@ class ProjectAccessService(
 
     fun hasUpdatePermission(scope: Scope, principal: Principal): Boolean {
         return permissionCheckService.hasPermission(
-            SystemPermissionNames.PROJECT_UPDATE,
+            SystemPermissionNames.PROJECT_UPDATE.key,
             principal.id,
             scope.id
         )
@@ -35,7 +35,7 @@ class ProjectAccessService(
 
     fun hasArchivePermission(scope: Scope, principal: Principal): Boolean {
         return permissionCheckService.hasPermission(
-            SystemPermissionNames.PROJECT_ARCHIVE,
+            SystemPermissionNames.PROJECT_ARCHIVE.key,
             principal.id,
             scope.id
         )
@@ -43,7 +43,7 @@ class ProjectAccessService(
 
     fun hasDeletePermission(scope: Scope, principal: Principal): Boolean {
         return permissionCheckService.hasPermission(
-            SystemPermissionNames.PROJECT_DELETE,
+            SystemPermissionNames.PROJECT_DELETE.key,
             principal.id,
             scope.id
         )
@@ -51,7 +51,7 @@ class ProjectAccessService(
 
     fun hasMemberManagementPermission(scope: Scope, principal: Principal): Boolean {
         return permissionCheckService.hasPermission(
-            SystemPermissionNames.PROJECT_MEMBERS_MANAGE,
+            SystemPermissionNames.PROJECT_MEMBERS_MANAGE.key,
             principal.id,
             scope.id
         )
@@ -59,7 +59,7 @@ class ProjectAccessService(
 
     fun hasProjectServicesManagePermission(scope: Scope, principal: Principal): Boolean {
         return permissionCheckService.hasPermission(
-            SystemPermissionNames.PROJECT_SERVICES_MANAGE,
+            SystemPermissionNames.PROJECT_SERVICES_MANAGE.key,
             principal.id,
             scope.id
         )
@@ -67,7 +67,7 @@ class ProjectAccessService(
 
     fun hasSecretsDelegatePermission(scope: Scope, principal: Principal): Boolean {
         return permissionCheckService.hasPermission(
-            SystemPermissionNames.SECRETS_DELEGATE,
+            SystemPermissionNames.SECRETS_DELEGATE.key,
             principal.id,
             scope.id
         )

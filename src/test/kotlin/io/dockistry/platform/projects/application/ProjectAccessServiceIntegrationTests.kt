@@ -31,11 +31,11 @@ class ProjectAccessServiceIntegrationTests {
         val fixtures = IamProjectFixtures(entityManager)
         val globalCreator = fixtures.principal()
         val projectScopedCreator = fixtures.principal()
-        fixtures.grantSystemPermission(globalCreator, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(globalCreator, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE.key)
         fixtures.grantSystemPermission(
             projectScopedCreator,
             fixtures.scope(ScopeType.PROJECT),
-            SystemPermissionNames.PROJECT_CREATE
+            SystemPermissionNames.PROJECT_CREATE.key
         )
         fixtures.flush()
 
@@ -50,8 +50,8 @@ class ProjectAccessServiceIntegrationTests {
         val projectReader = fixtures.principal()
         val globalReader = fixtures.principal()
         val noAccess = fixtures.principal()
-        fixtures.grantSystemPermission(projectReader, project.scope, SystemPermissionNames.PROJECT_READ)
-        fixtures.grantSystemPermission(globalReader, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(projectReader, project.scope, SystemPermissionNames.PROJECT_READ.key)
+        fixtures.grantSystemPermission(globalReader, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ.key)
         fixtures.flush()
 
         assertTrue(projectAccessService.hasReadPermission(project.scope, projectReader))
@@ -66,7 +66,7 @@ class ProjectAccessServiceIntegrationTests {
         val group = fixtures.group()
         val user = fixtures.user()
         user.groups += group
-        fixtures.grantSystemPermission(group.principal, project.scope, SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(group.principal, project.scope, SystemPermissionNames.PROJECT_READ.key)
         fixtures.flush()
 
         assertTrue(projectAccessService.hasReadPermission(project.scope, user.principal))
@@ -81,9 +81,9 @@ class ProjectAccessServiceIntegrationTests {
         fixtures.grantSystemPermission(
             updater,
             project.scope,
-            SystemPermissionNames.PROJECT_UPDATE
+            SystemPermissionNames.PROJECT_UPDATE.key
         )
-        fixtures.grantSystemPermission(noUpdate, project.scope, SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(noUpdate, project.scope, SystemPermissionNames.PROJECT_READ.key)
         fixtures.flush()
 
         assertTrue(projectAccessService.hasUpdatePermission(project.scope, updater))
@@ -99,9 +99,9 @@ class ProjectAccessServiceIntegrationTests {
         fixtures.grantSystemPermission(
             archiver,
             project.scope,
-            SystemPermissionNames.PROJECT_ARCHIVE
+            SystemPermissionNames.PROJECT_ARCHIVE.key
         )
-        fixtures.grantSystemPermission(noArchive, project.scope, SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(noArchive, project.scope, SystemPermissionNames.PROJECT_READ.key)
         fixtures.flush()
 
         assertTrue(projectAccessService.hasArchivePermission(project.scope, archiver))
@@ -117,9 +117,9 @@ class ProjectAccessServiceIntegrationTests {
         fixtures.grantSystemPermission(
             deleter,
             project.scope,
-            SystemPermissionNames.PROJECT_DELETE
+            SystemPermissionNames.PROJECT_DELETE.key
         )
-        fixtures.grantSystemPermission(noDelete, project.scope, SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(noDelete, project.scope, SystemPermissionNames.PROJECT_READ.key)
         fixtures.flush()
 
         assertTrue(projectAccessService.hasDeletePermission(project.scope, deleter))

@@ -74,7 +74,7 @@ class ProjectService(
             scope = scope
         )
 
-        val systemAdminRole = roleRepository.findByNameAndIsSystemTrue(SystemRoleNames.PROJECT_ADMIN)
+        val systemAdminRole = roleRepository.findByNameAndIsSystemTrue(SystemRoleNames.PROJECT_ADMIN.key)
             ?: throw InternalDataIntegrityException("Basic system role project_admin couldn't be found")
 
         val savedProject = try {
@@ -193,14 +193,14 @@ class ProjectService(
     fun list(
         principal: Principal
     ): List<Project> {
-        if (permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_READ, principal.id)) {
+        if (permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_READ.key, principal.id)) {
             return projectRepository.findAll()
         }
 
         return projectRepository.findAllByScopeIdIn(
             scopeQueryRepository.effectiveScopeIds(
                 principal.id,
-                SystemPermissionNames.PROJECT_READ,
+                SystemPermissionNames.PROJECT_READ.key,
                 ScopeType.PROJECT
             )
         )

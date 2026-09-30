@@ -361,8 +361,8 @@ class ManagedServiceControllerIntegrationTests {
         fixtures.grantSystemPermission(
             group.principal,
             project.scope,
-            SystemPermissionNames.PROJECT_READ,
-            SystemPermissionNames.PROJECT_SERVICES_MANAGE
+            SystemPermissionNames.PROJECT_READ.key,
+            SystemPermissionNames.PROJECT_SERVICES_MANAGE.key
         )
         fixtures.flush()
 
@@ -628,7 +628,7 @@ class ManagedServiceControllerIntegrationTests {
         grantSystemPermission(
             principal,
             project.scope,
-            SystemPermissionNames.PROJECT_READ
+            SystemPermissionNames.PROJECT_READ.key
         )
     }
 
@@ -636,8 +636,8 @@ class ManagedServiceControllerIntegrationTests {
         grantSystemPermission(
             principal,
             project.scope,
-            SystemPermissionNames.PROJECT_READ,
-            SystemPermissionNames.PROJECT_SERVICES_MANAGE
+            SystemPermissionNames.PROJECT_READ.key,
+            SystemPermissionNames.PROJECT_SERVICES_MANAGE.key
         )
     }
 
