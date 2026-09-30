@@ -9,23 +9,28 @@ object ResourceNameNormalizer {
         name: String,
         invalidName: (String) -> RuntimeException
     ): String {
-        val normalized = Normalizer.normalize(name, Normalizer.Form.NFC)
-        val compacted = compactWhitespace(normalized)
+        val normalized = normalize(name)
 
-        if (compacted.isBlank()) {
+        if (normalized.isBlank()) {
             throw invalidName("Resource name must not be blank")
         }
 
-        if (compacted.length > MAX_LENGTH) {
+        if (normalized.length > MAX_LENGTH) {
             throw invalidName("Resource name must be at most $MAX_LENGTH characters")
         }
 
-        if (compacted.firstForbiddenCodePoint() != null) {
+        if (normalized.firstForbiddenCodePoint() != null) {
             throw invalidName(
                 "Resource name contains unsupported invisible or control characters"
             )
         }
 
+        return normalized
+    }
+
+    fun normalize(name: String): String {
+        val normalized = Normalizer.normalize(name, Normalizer.Form.NFC)
+        val compacted = compactWhitespace(normalized)
         return compacted
     }
 

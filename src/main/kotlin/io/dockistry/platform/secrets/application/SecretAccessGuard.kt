@@ -1,6 +1,7 @@
 package io.dockistry.platform.secrets.application
 
 import io.dockistry.platform.iam.domain.Principal
+import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.domain.SecretNotFoundException
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
 import org.springframework.stereotype.Service
@@ -12,12 +13,12 @@ class SecretAccessGuard(
     fun requireOwner(
         secretId: String,
         principal: Principal,
-    ) {
-        val ownerId =
-            secretRepository.getOwnerIdById(secretId)
-                ?: throw notFound()
+    ): Secret {
+        val secret = secretRepository.findById(secretId).orElseThrow { notFound() }
 
-        if (ownerId != principal.id) throw notFound()
+        if (secret.ownerPrincipal.id != principal.id) throw notFound()
+
+        return secret
     }
 
     private fun notFound() =

@@ -9,8 +9,11 @@ import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
 import io.dockistry.platform.secrets.application.ports.SecretEncryptor
 import io.dockistry.platform.secrets.domain.EmptySecretValuesException
+import io.dockistry.platform.secrets.domain.SecretNotFoundException
+import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
+import io.dockistry.platform.secrets.infrastructure.SecretVersionRepository
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
@@ -24,12 +27,16 @@ import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 @SpringBootTest
 @Import(TestcontainersConfig::class, TestClockConfig::class)
 @Testcontainers
 @Transactional
 class SecretServiceIntegrationTests {
+    @Autowired
+    private lateinit var secretVersionRepository: SecretVersionRepository
+
     @Autowired
     private lateinit var secretService: SecretService
 
@@ -52,6 +59,7 @@ class SecretServiceIntegrationTests {
     fun `create persists secret and reads the same data after database round trip`() {
         val owner = IamProjectFixtures(entityManager).principal()
         entityManager.flush()
+        val secretCountBeforeCreate = secretRepository.count()
 
         val values = mapOf(
             "database" to "app",
@@ -68,19 +76,22 @@ class SecretServiceIntegrationTests {
         entityManager.clear()
 
         val persisted = secretService.list(owner).single()
+        val storedValues = secretVersionRepository.findLatestBySecretId(secretId).encryptedValues
 
         assertEquals(secretId, persisted.id)
         assertEquals("postgres-credentials", persisted.name)
         assertEquals("PostgreSQL credentials", persisted.description)
-        assertEquals(values.keys, persisted.keys)
+        assertEquals(
+            values.keys,
+            storedValues.keys
+        )
 
-        val storedSecret = secretRepository.findById(secretId).orElseThrow()
-        val decryptedValues = storedSecret.encryptedValues.mapValues { (_, encryptedValue) ->
+        val decryptedValues = storedValues.mapValues { (_, encryptedValue) ->
             secretEncryptor.decrypt(encryptedValue)
         }
         assertEquals(values, decryptedValues)
         assertEquals(0L, persisted.version)
-        assertEquals(1, secretRepository.count())
+        assertEquals(secretCountBeforeCreate + 1, secretRepository.count())
     }
 
     @Test
@@ -125,6 +136,24 @@ class SecretServiceIntegrationTests {
                 ownerPrincipal = owner
             )
         }
+    }
+
+    @Test
+    fun `owner scoped list excludes secrets belonging to another principal`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val firstOwner = fixtures.principal()
+        val secondOwner = fixtures.principal()
+        entityManager.flush()
+
+        val firstId = secretService.create(
+            "shared-name", null, mapOf("value" to "first"), firstOwner
+        )
+        val secondId = secretService.create(
+            "shared-name", null, mapOf("value" to "second"), secondOwner
+        )
+
+        assertEquals(listOf(firstId), secretService.list(firstOwner).map { it.id })
+        assertEquals(listOf(secondId), secretService.list(secondOwner).map { it.id })
     }
 
     @Test
@@ -253,6 +282,18 @@ class SecretServiceIntegrationTests {
 
         assertEquals(project.id, delegatorDelegation.project.id)
         assertEquals(delegatorSecret, delegatorDelegation.secret.id)
+
+        val error = assertFailsWith<SecretNotFoundException> {
+            secretService.delegate(
+                secretId = ownerSecret,
+                projectId = project.id,
+                ownerPrincipal = delegator
+            )
+        }
+        assertEquals("secret_not_found", error.code)
+        assertNull(projectSecretDelegationRepository.getByProjectAndSecret(
+            project.id, ownerSecret
+        ))
     }
 
     private data class TestData(

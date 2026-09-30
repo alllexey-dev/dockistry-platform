@@ -13,17 +13,10 @@ interface SecretRepository : JpaRepository<Secret, String> {
         WHERE secret.ownerPrincipal = :ownerPrincipal
           AND secret.name = :name
     """)
-    fun getByOwnerAndName(
+    fun findByOwnerAndName(
         ownerPrincipal: Principal,
         name: String
     ): Secret?
-
-    @Query("""
-        SELECT secret.ownerPrincipal.id
-        FROM Secret secret
-        WHERE secret.id = :secretId
-    """)
-    fun getOwnerIdById(secretId: String): UUID?
 
     @Query("""
         SELECT DISTINCT secret

@@ -11,6 +11,7 @@ import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
 import io.dockistry.platform.secrets.domain.dto.SecretDto
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
+import io.dockistry.platform.shared.domain.ResourceNameNormalizer
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -38,6 +39,8 @@ class SecretService(
             throw EmptySecretValuesException()
         }
 
+        val payload = encryptPayload(values)
+
         val now = clock.instant()
         val secret = Secret(
             name = name,
@@ -46,19 +49,21 @@ class SecretService(
             createdAt = now,
             updatedAt = now
         )
-        secret.addVersion(
-            SecretVersion(
-                secret = secret,
-                encryptedValues = encryptPayload(values),
-                createdAt = now
-            )
+        val version = SecretVersion(
+            secret = secret,
+            encryptedValues = payload,
+            createdAt = now
         )
+        secret.addVersion(version)
 
         return try {
             secretRepository.saveAndFlush(secret).id
         } catch (exception: DataIntegrityViolationException) {
-            val existing = secretRepository.getByOwnerAndName(ownerPrincipal, secret.name)
-            if (existing != null && isSameSecret(existing, secret)) {
+            val existing = secretRepository.findByOwnerAndName(ownerPrincipal, secret.name)
+            if (existing != null &&
+                isSameLogicalSecret(existing, secret) &&
+                existing.versions.singleOrNull()?.encryptedValues == payload
+            ) {
                 existing.id
             } else {
                 throw SecretAlreadyExistsException(
@@ -103,12 +108,13 @@ class SecretService(
     fun list(ownerPrincipal: Principal): List<SecretDto> =
         secretRepository.listByOwnerPrincipal(ownerPrincipal).map(::toDto)
 
-    private fun isSameSecret(existing: Secret, requested: Secret): Boolean =
-        existing.name == requested.name &&
+    private fun isSameLogicalSecret(existing: Secret, requested: Secret): Boolean =
+        existing.name == ResourceNameNormalizer.normalize(requested.name) &&
             existing.description == requested.description &&
-            existing.ownerPrincipal.id == requested.ownerPrincipal.id &&
-            existing.encryptedValues == requested.encryptedValues &&
-            existing.version == requested.version
+            existing.ownerPrincipal.id == requested.ownerPrincipal.id
+
+    private fun isSameSecretVersion(existing: SecretVersion, requested: SecretVersion) =
+        existing.secret.id == requested.secret.id && existing.encryptedValues == requested.encryptedValues
 
     private fun toDto(secret: Secret): SecretDto = SecretDto(
         id = secret.id,
@@ -117,7 +123,7 @@ class SecretService(
         version = secret.version,
         createdAt = secret.createdAt,
         updatedAt = secret.updatedAt,
-        keys = secret.encryptedValues.keys
+        versionsIds = secret.versions.map { it.id }
     )
 
     private fun encryptPayload(values: Map<String, String>): Map<String, String> =

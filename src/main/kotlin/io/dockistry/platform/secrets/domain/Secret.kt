@@ -10,6 +10,7 @@ import jakarta.persistence.Id
 import jakarta.persistence.JoinColumn
 import jakarta.persistence.ManyToOne
 import jakarta.persistence.OneToMany
+import jakarta.persistence.OrderBy
 import jakarta.persistence.Table
 import jakarta.persistence.Transient
 import jakarta.persistence.UniqueConstraint
@@ -55,12 +56,8 @@ class Secret(
         orphanRemoval = true,
         fetch = FetchType.LAZY
     )
+    @OrderBy("createdAt ASC")
     val versions: MutableList<SecretVersion> = mutableListOf()
-
-    /** Compatibility view for callers being migrated to version-aware reads. */
-    @get:Transient
-    val encryptedValues: Map<String, String>
-        get() = latestVersion()?.encryptedValues ?: emptyMap()
 
     @Version
     @Column(name = "version", nullable = false)
@@ -77,9 +74,6 @@ class Secret(
     fun addVersion(version: SecretVersion) {
         versions += version
     }
-
-    fun latestVersion(): SecretVersion? =
-        versions.maxWithOrNull(compareBy<SecretVersion> { it.createdAt }.thenBy { it.id })
 
     private fun normalizeName(value: String): String =
         ResourceNameNormalizer.normalizeAndValidate(value, ::InvalidSecretNameException)

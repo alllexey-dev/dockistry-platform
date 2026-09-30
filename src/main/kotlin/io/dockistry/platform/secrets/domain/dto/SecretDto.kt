@@ -9,5 +9,5 @@ data class SecretDto(
     val version: Long,
     val createdAt: Instant,
     val updatedAt: Instant,
-    val keys: Set<String>
+    val versionsIds: List<String>
 )
