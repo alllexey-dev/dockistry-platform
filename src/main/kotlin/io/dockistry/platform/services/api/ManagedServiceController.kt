@@ -175,13 +175,15 @@ class ManagedServiceController(
     @PostMapping("/{serviceId}/deploy")
     fun deploy(
         @PathVariable projectId: UUID,
-        @PathVariable serviceId: UUID
+        @PathVariable serviceId: UUID,
+        @RequestParam ignoreWarnings: Boolean = false
     ): ApiResponse<ManagedServiceDeployResponse> {
         val user = currentUserProvider.getUser()
         val containerId = managedServiceService.deploy(
             projectId,
             serviceId,
-            user.principal
+            user.principal,
+            ignoreWarnings
         )
         return ApiResponse(ManagedServiceDeployResponse(containerId))
     }

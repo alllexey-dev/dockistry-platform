@@ -32,7 +32,8 @@ class ManagedServiceService(
     private val managedServiceAccessGuard: ManagedServiceAccessGuard,
     private val managedServiceDeployExecutor: ManagedServiceDeployExecutor,
     private val managedServiceRuntimeExecutor: ManagedServiceRuntimeExecutor,
-    private val managedServiceContainerReadService: ManagedServiceContainerReadService
+    private val managedServiceContainerReadService: ManagedServiceContainerReadService,
+    private val managedServiceSecretUsageGuard: ManagedServiceSecretUsageGuard
 ) {
     @Transactional(readOnly = true)
     fun list(projectId: UUID, principal: Principal): List<ManagedService> {
@@ -113,14 +114,15 @@ class ManagedServiceService(
     fun deploy(
         projectId: UUID,
         serviceId: UUID,
-        principal: Principal
+        principal: Principal,
+        ignoreWarnings: Boolean
     ): String {
         managedServiceAccessGuard.requireManageable(
             projectId,
             serviceId,
             principal
         )
-        return managedServiceDeployExecutor.deploy(serviceId)
+        return managedServiceDeployExecutor.deploy(serviceId, principal, ignoreWarnings)
     }
 
     fun start(

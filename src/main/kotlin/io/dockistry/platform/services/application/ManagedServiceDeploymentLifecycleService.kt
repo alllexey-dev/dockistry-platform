@@ -1,5 +1,7 @@
 package io.dockistry.platform.services.application
 
+import io.dockistry.platform.iam.domain.Principal
+import io.dockistry.platform.secrets.application.ManagedServiceSecretReferenceService
 import io.dockistry.platform.services.application.dto.ManagedServiceDeploymentPlan
 import io.dockistry.platform.services.domain.DeploymentNotFoundException
 import io.dockistry.platform.services.domain.ManagedService
@@ -19,15 +21,37 @@ import java.util.UUID
 class ManagedServiceDeploymentLifecycleService(
     private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard,
     private val deploymentRepository: ManagedServiceDeploymentRepository,
-    private val clock: Clock
+    private val clock: Clock,
+    private val referenceService: ManagedServiceSecretReferenceService,
+    private val secretUsageGuard: ManagedServiceSecretUsageGuard
 ) {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    fun begin(serviceId: UUID): ManagedServiceDeploymentPlan {
+    fun begin(
+        serviceId: UUID,
+        principal: Principal,
+        ignoreWarnings: Boolean
+    ): ManagedServiceDeploymentPlan {
         val service = managedServiceLifecycleGuard
             .requireActiveForMutationWithWait(serviceId)
 
+        val references = referenceService.getReferences(service.id)
+        secretUsageGuard.requireSecretsUsable(
+            project = service.project,
+            principal = principal,
+            resultingReferences = references,
+        )
+
+        referenceService.lockSecretsAndCheckDelegation(
+            service = service,
+            references = references
+        )
+
+        val payload = referenceService.validateAndFetchPayload(references)
+
         val snapshot = ManagedServiceConfiguration.validated(
-            service.toConfigurationDraft()
+            service.toConfigurationDraft(
+                secretReferences = references
+            )
         )
         val deployment = saveDeployment(service, snapshot)
 
@@ -39,7 +63,8 @@ class ManagedServiceDeploymentLifecycleService(
             projectId = service.project.id,
             projectSlug = service.project.slug,
             serviceName = service.name,
-            snapshot = snapshot
+            snapshot = snapshot,
+            secretPayloads = payload
         )
     }
 

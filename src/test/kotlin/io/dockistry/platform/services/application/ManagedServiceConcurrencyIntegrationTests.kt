@@ -196,7 +196,11 @@ class ManagedServiceConcurrencyIntegrationTests(
     @Test
     fun `start is blocked while deployment is active`() {
         val context = createServiceContext()
-        deploymentLifecycleService.begin(context.serviceId)
+        deploymentLifecycleService.begin(
+            context.serviceId,
+            context.principal,
+            ignoreWarnings = false
+        )
 
         assertFailsWith<ManagedServiceOperationInProgressException> {
             runtimeLifecycleService.beginStart(context.serviceId)
@@ -206,7 +210,11 @@ class ManagedServiceConcurrencyIntegrationTests(
     @Test
     fun `stop captures active deployment in operation context`() {
         val context = createServiceContext()
-        val deployment = deploymentLifecycleService.begin(context.serviceId)
+        val deployment = deploymentLifecycleService.begin(
+            context.serviceId,
+            context.principal,
+            ignoreWarnings = false
+        )
 
         val operation = runtimeLifecycleService.beginStop(context.serviceId)
 
@@ -216,12 +224,20 @@ class ManagedServiceConcurrencyIntegrationTests(
     @Test
     fun `stop does not cancel deployment that became active after begin stop captured another deployment`() {
         val context = createServiceContext()
-        val replacementDeployment = deploymentLifecycleService.begin(context.serviceId)
+        val replacementDeployment = deploymentLifecycleService.begin(
+            context.serviceId,
+            context.principal,
+            ignoreWarnings = false
+        )
         deploymentLifecycleService.fail(
             deploymentId = replacementDeployment.deploymentId,
             errorMessage = "Prepared replacement deployment"
         )
-        val capturedDeployment = deploymentLifecycleService.begin(context.serviceId)
+        val capturedDeployment = deploymentLifecycleService.begin(
+            context.serviceId,
+            context.principal,
+            ignoreWarnings = false
+        )
         assertNotEquals(
             replacementDeployment.deploymentId,
             capturedDeployment.deploymentId

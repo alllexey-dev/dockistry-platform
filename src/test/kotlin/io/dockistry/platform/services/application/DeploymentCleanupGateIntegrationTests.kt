@@ -21,6 +21,7 @@ import io.dockistry.platform.docker.domain.model.DockerImageSummary
 import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
 import io.dockistry.platform.docker.domain.model.DockerNetworkRef
 import io.dockistry.platform.docker.domain.model.DockerVolumeRef
+import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.domain.ProjectExecutionCapacityExhaustedException
 import io.dockistry.platform.projects.domain.ProjectOperationConcurrencyCheckFailureException
 import io.dockistry.platform.services.application.ports.ExecutionGate
@@ -138,7 +139,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         val pool = Executors.newSingleThreadExecutor()
         val deployment = pool.submit<Result<Unit>> {
             runCatching {
-                deployExecutor.deploy(context.serviceId)
+                deployExecutor.deploy(
+                    context.serviceId,
+                    context.principal,
+                    ignoreWarnings = false
+                )
                 Unit
             }
         }
@@ -208,7 +213,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         val pool = Executors.newSingleThreadExecutor()
         val deployment = pool.submit<Result<Unit>> {
             runCatching {
-                deployExecutor.deploy(context.serviceId)
+                deployExecutor.deploy(
+                    context.serviceId,
+                    context.principal,
+                    ignoreWarnings = false
+                )
                 Unit
             }
         }
@@ -275,7 +284,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         val pool = Executors.newSingleThreadExecutor()
         val deployment = pool.submit<Result<Unit>> {
             runCatching {
-                deployExecutor.deploy(context.serviceId)
+                deployExecutor.deploy(
+                    context.serviceId,
+                    context.principal,
+                    ignoreWarnings = false
+                )
                 Unit
             }
         }
@@ -345,7 +358,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
         val pool = Executors.newSingleThreadExecutor()
         val deployment = pool.submit<Unit> {
-            deployExecutor.deploy(context.serviceId)
+            deployExecutor.deploy(
+                context.serviceId,
+                context.principal,
+                ignoreWarnings = false
+            )
         }
 
         try {
@@ -383,7 +400,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
         val pool = Executors.newSingleThreadExecutor()
         val deployment = pool.submit<Unit> {
-            deployExecutor.deploy(context.serviceId)
+            deployExecutor.deploy(
+                context.serviceId,
+                context.principal,
+                ignoreWarnings = false
+            )
         }
 
         try {
@@ -432,7 +453,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
         val pool = Executors.newSingleThreadExecutor()
         val deployment = pool.submit<Unit> {
-            deployExecutor.deploy(context.serviceId)
+            deployExecutor.deploy(
+                context.serviceId,
+                context.principal,
+                ignoreWarnings = false
+            )
         }
 
         try {
@@ -485,7 +510,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
         val pool = Executors.newSingleThreadExecutor()
         val deployment = pool.submit<Unit> {
-            deployExecutor.deploy(context.serviceId)
+            deployExecutor.deploy(
+                context.serviceId,
+                context.principal,
+                ignoreWarnings = false
+            )
         }
 
         try {
@@ -650,7 +679,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             await(holdersEntered, "Execution gate pool wasn't exhausted")
 
             val failure = assertFailsWith<DeploymentExecutionCapacityExhaustedException> {
-                deployExecutor.deploy(context.serviceId)
+                deployExecutor.deploy(
+                    context.serviceId,
+                    context.principal,
+                    ignoreWarnings = false
+                )
             }
 
             assertIs<ProjectExecutionCapacityExhaustedException>(
@@ -673,7 +706,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         val holderRelease = CountDownLatch(1)
         val pool = Executors.newFixedThreadPool(2)
         val deployment = pool.submit<String> {
-            deployExecutor.deploy(context.serviceId)
+            deployExecutor.deploy(
+                context.serviceId,
+                context.principal,
+                ignoreWarnings = false
+            )
         }
 
         try {
@@ -720,7 +757,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                     count = 2,
                     failureFactory = ::simulatedExecutionGateLockFailure
                 ) {
-                    deployExecutor.deploy(context.serviceId)
+                    deployExecutor.deploy(
+                        context.serviceId,
+                        context.principal,
+                        ignoreWarnings = false
+                    )
                 }
             }
 
@@ -740,7 +781,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                     count = 1,
                     failureFactory = ::simulatedExecutionGateLockFailure
                 ) {
-                    deployExecutor.deploy(context.serviceId)
+                    deployExecutor.deploy(
+                        context.serviceId,
+                        context.principal,
+                        ignoreWarnings = false
+                    )
                 }
             }
 
@@ -816,7 +861,8 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
         ServiceContext(
             projectId = project.id,
-            serviceId = service.id
+            serviceId = service.id,
+            principal = project.ownerPrincipal
         )
     }
 
@@ -910,7 +956,8 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
     private data class ServiceContext(
         val projectId: UUID,
-        val serviceId: UUID
+        val serviceId: UUID,
+        val principal: Principal
     )
 
     class SimulatedDeployExecutorDeath(
