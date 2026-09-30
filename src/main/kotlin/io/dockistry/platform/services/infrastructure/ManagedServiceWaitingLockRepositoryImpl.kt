@@ -59,7 +59,7 @@ class ManagedServiceWaitingLockRepositoryImpl(
             SELECT *
             FROM services
             WHERE $whereClause
-            FOR UPDATE
+            FOR NO KEY UPDATE
             """.trimIndent(),
             ManagedService::class.java
         )

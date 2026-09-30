@@ -462,9 +462,13 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   resolution, runtime lifecycle transitions и начало удаления сериализуются через
   `ManagedServiceLifecycleGuard`:
   guard работает внутри уже открытой транзакции (`Propagation.MANDATORY`) и предоставляет
-  две явные политики mutex acquisition — fail-fast через `SELECT ... FOR UPDATE NOWAIT`
+  две явные политики mutex acquisition — fail-fast через
+  `SELECT ... FOR NO KEY UPDATE NOWAIT`
   и bounded wait через transaction-local PostgreSQL `lock_timeout` с обычным
-  `SELECT ... FOR UPDATE`. Короткие production lifecycle transitions используют bounded
+  `SELECT ... FOR NO KEY UPDATE`. Этот lock сохраняет взаимное исключение lifecycle
+  writers, но совместим с FK `KEY SHARE` при создании Secret warnings и не создаёт
+  цикл ожидания service/delegation между deploy или update и revoke.
+  Короткие production lifecycle transitions используют bounded
   wait с default timeout из companion object guard; timeout и несовместимый durable
   lifecycle status возвращают typed conflict. Fail-fast API сохраняется для use cases,
   которым требуется немедленный отказ.

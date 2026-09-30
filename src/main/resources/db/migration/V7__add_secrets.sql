@@ -91,18 +91,20 @@ CREATE TABLE service_secret_warnings
     secret_key     VARCHAR(255)                NOT NULL,
     secret_version VARCHAR(16),
     warning_type   VARCHAR(32)                 NOT NULL,
+    env_name       VARCHAR(255),
     created_at     TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     resolved_at    TIMESTAMP WITHOUT TIME ZONE,
     CONSTRAINT pk_service_secret_warnings PRIMARY KEY (id),
     CONSTRAINT ck_service_secret_warnings_type
-        CHECK (warning_type IN ('OUTDATED', 'DELETED')),
+        CHECK (warning_type IN ('OUTDATED', 'DELETED', 'DELEGATION_REVOKED')),
     CONSTRAINT fk_service_secret_warnings_on_service
         FOREIGN KEY (service_id) REFERENCES services (id) ON DELETE CASCADE
 );
 
 CREATE UNIQUE INDEX ux_service_secret_warnings_active_target
     ON service_secret_warnings
-        (service_id, warning_type, secret_id, secret_key, secret_version)
+        (service_id, warning_type, secret_id, secret_key, secret_version, env_name)
+    NULLS NOT DISTINCT
     WHERE resolved_at IS NULL;
 
 CREATE INDEX service_secret_warnings_service_id_idx

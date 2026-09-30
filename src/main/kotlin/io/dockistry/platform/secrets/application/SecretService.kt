@@ -8,9 +8,13 @@ import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
+import io.dockistry.platform.secrets.domain.SecretWarningType
+import io.dockistry.platform.secrets.domain.ServiceSecretWarning
 import io.dockistry.platform.secrets.domain.dto.SecretDto
+import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
+import io.dockistry.platform.secrets.infrastructure.ServiceSecretWarningRepository
 import io.dockistry.platform.shared.domain.ResourceNameNormalizer
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
@@ -27,7 +31,9 @@ class SecretService(
     private val projectAccessGuard: ProjectAccessGuard,
     private val secretAccessGuard: SecretAccessGuard,
     private val transactionTemplate: TransactionTemplate,
-    private val clock: Clock
+    private val clock: Clock,
+    private val referenceRepository: ManagedServiceSecretReferenceRepository,
+    private val serviceSecretWarningRepository: ServiceSecretWarningRepository
 ) {
     fun create(
         name: String,
@@ -102,6 +108,83 @@ class SecretService(
                     ?: throw exception
             }
         }
+    }
+
+    @Transactional
+    fun revoke(secretId: String, projectId: UUID, principal: Principal) {
+        secretAccessGuard.requireOwner(secretId, principal)
+
+        projectSecretDelegationRepository.findByProjectAndSecretForNoKeyUpdateBatch(
+            projectId = projectId,
+            secretIds = listOf(secretId)
+        ).singleOrNull() ?: return
+
+        val now = clock.instant()
+
+        referenceRepository.findByProjectAndSecret(
+            projectId = projectId,
+            secretId = secretId
+        ).forEach { referenceEntity ->
+            serviceSecretWarningRepository.saveIdempotent(
+                ServiceSecretWarning(
+                    service = referenceEntity.service,
+                    secretId = secretId,
+                    secretKey = referenceEntity.secretKey,
+                    secretVersion = referenceEntity.secretVersion,
+                    warningType = SecretWarningType.DELEGATION_REVOKED,
+                    envName = referenceEntity.envName,
+                    createdAt = now,
+                    resolvedAt = null
+                )
+            )
+        }
+
+        projectSecretDelegationRepository.deleteByProjectAndSecret(
+            projectId = projectId,
+            secretId = secretId
+        )
+    }
+
+    @Transactional
+    fun rotate(
+        secretId: String,
+        newPayload: Map<String, String>,
+        principal: Principal
+    ): String {
+        val secret = secretAccessGuard.requireOwner(
+            secretId = secretId,
+            principal = principal
+        )
+
+        val projectIdsWithDelegation =
+            projectSecretDelegationRepository.findBySecretId(secretId)
+                .map { it.project.id }.toSet()
+
+        val secretReferences = referenceRepository.findBySecretId(secretId)
+            .filter { it.service.project.id in projectIdsWithDelegation }
+
+        secretReferences.forEach { referenceEntity ->
+            serviceSecretWarningRepository.saveIdempotent(
+                ServiceSecretWarning(
+                    service = referenceEntity.service,
+                    secretId = secretId,
+                    secretKey = referenceEntity.secretKey,
+                    secretVersion = referenceEntity.secretVersion,
+                    warningType = SecretWarningType.OUTDATED,
+                    envName = referenceEntity.envName,
+                    createdAt = clock.instant()
+                )
+            )
+        }
+
+        val newVersion = SecretVersion(
+            secret = secret,
+            encryptedValues = newPayload,
+            createdAt = clock.instant()
+        )
+        secret.addVersion(newVersion)
+
+        return newVersion.id
     }
 
     @Transactional(readOnly = true)

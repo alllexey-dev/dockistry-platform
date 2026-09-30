@@ -35,6 +35,9 @@ class ServiceSecretWarning(
     @Column(name = "warning_type", nullable = false, length = 32)
     val warningType: SecretWarningType,
 
+    @Column(name = "env_name", length = 16)
+    val envName: String,
+
     @Column(name = "created_at", nullable = false)
     val createdAt: Instant,
 

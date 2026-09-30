@@ -50,7 +50,7 @@ interface ManagedServiceRepository :
             SELECT *
             FROM services
             WHERE id = :serviceId
-            FOR UPDATE NOWAIT
+            FOR NO KEY UPDATE NOWAIT
         """,
         nativeQuery = true
     )
@@ -64,7 +64,7 @@ interface ManagedServiceRepository :
             FROM services
             WHERE project_id = :projectId
               AND id = :serviceId
-            FOR UPDATE NOWAIT
+            FOR NO KEY UPDATE NOWAIT
         """,
         nativeQuery = true
     )
