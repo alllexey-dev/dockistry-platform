@@ -4,7 +4,6 @@ import io.dockistry.platform.projects.domain.Project
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
-import org.springframework.data.repository.query.Param
 import java.util.UUID
 
 interface ProjectRepository : JpaRepository<Project, UUID> {
@@ -20,10 +19,10 @@ interface ProjectRepository : JpaRepository<Project, UUID> {
           AND project.version = :expectedVersion
     """)
     fun updateWithExpectedVersion(
-        @Param("projectId") projectId: UUID,
-        @Param("name") name: String,
-        @Param("description") description: String?,
-        @Param("expectedVersion") expectedVersion: Long
+        projectId: UUID,
+        name: String,
+        description: String?,
+        expectedVersion: Long
     ): Int
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
@@ -32,7 +31,7 @@ interface ProjectRepository : JpaRepository<Project, UUID> {
         WHERE project.id = :projectId
     """)
     fun deleteIgnoringVersion(
-        @Param("projectId") projectId: UUID
+        projectId: UUID
     ): Int
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
@@ -44,7 +43,7 @@ interface ProjectRepository : JpaRepository<Project, UUID> {
           AND project.status <> ProjectStatus.ARCHIVED
     """)
     fun archive(
-        @Param("projectId") projectId: UUID
+        projectId: UUID
     ): Int
 
     @Query("""
@@ -56,7 +55,7 @@ interface ProjectRepository : JpaRepository<Project, UUID> {
         WHERE project.id = :projectId
     """)
     fun isArchived(
-        @Param("projectId") projectId: UUID
+        projectId: UUID
     ): Boolean?
 
     @Query("""
@@ -64,5 +63,5 @@ interface ProjectRepository : JpaRepository<Project, UUID> {
             FROM Project p
             WHERE p.scope.id in :scopeIds
     """)
-    fun findAllByScopeIdIn(@Param("scopeIds") scopeIds: Set<UUID>): List<Project>
+    fun findAllByScopeIdIn(scopeIds: Set<UUID>): List<Project>
 }

@@ -2,7 +2,6 @@ package io.dockistry.platform.secrets.infrastructure
 
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import org.springframework.data.jpa.repository.Query
-import org.springframework.data.repository.query.Param
 import org.springframework.data.jpa.repository.JpaRepository
 import java.util.UUID
 
@@ -14,7 +13,7 @@ interface ProjectSecretDelegationRepository : JpaRepository<ProjectSecretDelegat
           AND delegation.secret.id = :secretId
     """)
     fun getByProjectAndSecret(
-        @Param("projectId") projectId: UUID,
-        @Param("secretId") secretId: String
+        projectId: UUID,
+        secretId: String
     ): ProjectSecretDelegation?
 }

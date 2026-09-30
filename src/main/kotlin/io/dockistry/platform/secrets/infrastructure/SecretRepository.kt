@@ -4,7 +4,6 @@ import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.secrets.domain.Secret
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
-import org.springframework.data.repository.query.Param
 import java.util.UUID
 interface SecretRepository : JpaRepository<Secret, String> {
     @Query("""
@@ -15,8 +14,8 @@ interface SecretRepository : JpaRepository<Secret, String> {
           AND secret.name = :name
     """)
     fun getByOwnerAndName(
-        @Param("ownerPrincipal") ownerPrincipal: Principal,
-        @Param("name") name: String
+        ownerPrincipal: Principal,
+        name: String
     ): Secret?
 
     @Query("""
@@ -24,7 +23,7 @@ interface SecretRepository : JpaRepository<Secret, String> {
         FROM Secret secret
         WHERE secret.id = :secretId
     """)
-    fun getOwnerIdById(@Param("secretId") secretId: String): UUID?
+    fun getOwnerIdById(secretId: String): UUID?
 
     @Query("""
         SELECT DISTINCT secret
@@ -33,5 +32,5 @@ interface SecretRepository : JpaRepository<Secret, String> {
         WHERE secret.ownerPrincipal = :ownerPrincipal
         ORDER BY secret.name
     """)
-    fun listByOwnerPrincipal(@Param("ownerPrincipal") ownerPrincipal: Principal): List<Secret>
+    fun listByOwnerPrincipal(ownerPrincipal: Principal): List<Secret>
 }
