@@ -26,6 +26,7 @@ class ManagedServiceDtoMapper {
             args = service.args,
             env = service.env,
             secretReferences = details.secretReferences,
+            warnings = details.warnings,
             endpoints = service.endpoints,
             volumes = service.volumes,
             restartPolicy = service.restartPolicy,

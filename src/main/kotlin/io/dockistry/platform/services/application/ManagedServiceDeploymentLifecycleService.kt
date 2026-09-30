@@ -2,6 +2,8 @@ package io.dockistry.platform.services.application
 
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.secrets.application.ManagedServiceSecretReferenceService
+import io.dockistry.platform.secrets.application.SecretWarningService
+import io.dockistry.platform.secrets.domain.SecretWarningsConfirmationRequiredException
 import io.dockistry.platform.services.application.dto.ManagedServiceDeploymentPlan
 import io.dockistry.platform.services.domain.DeploymentNotFoundException
 import io.dockistry.platform.services.domain.ManagedService
@@ -23,7 +25,8 @@ class ManagedServiceDeploymentLifecycleService(
     private val deploymentRepository: ManagedServiceDeploymentRepository,
     private val clock: Clock,
     private val referenceService: ManagedServiceSecretReferenceService,
-    private val secretUsageGuard: ManagedServiceSecretUsageGuard
+    private val secretUsageGuard: ManagedServiceSecretUsageGuard,
+    private val secretWarningService: SecretWarningService
 ) {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun begin(
@@ -48,12 +51,27 @@ class ManagedServiceDeploymentLifecycleService(
 
         val payload = referenceService.validateAndFetchPayload(references)
 
+        val warnings = secretWarningService.getActiveDeletedWarnings(serviceId)
+        if (!warnings.isEmpty()) {
+            if (!ignoreWarnings) {
+                throw SecretWarningsConfirmationRequiredException(
+                    "Confirmation required for deploy service with following secrets DELETED warnings:" +
+                            warnings.joinToString(separator = ", ") { it.envName })
+            }
+
+            secretWarningService.resolveActiveDeletedWarnings(
+                warningIds = warnings.map { it.id }
+            )
+        }
+
         val snapshot = ManagedServiceConfiguration.validated(
             service.toConfigurationDraft(
                 secretReferences = references
             )
         )
         val deployment = saveDeployment(service, snapshot)
+
+        secretWarningService.resolveOnSuccessfulDeployBegin(serviceId)
 
         service.updateDesiredState(ManagedServiceDesiredState.RUNNING, clock.instant())
 

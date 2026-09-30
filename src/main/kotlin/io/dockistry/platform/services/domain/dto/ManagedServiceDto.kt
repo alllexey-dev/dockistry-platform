@@ -1,6 +1,7 @@
 package io.dockistry.platform.services.domain.dto
 
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
+import io.dockistry.platform.secrets.domain.dto.SecretWarningDto
 import io.dockistry.platform.services.domain.ManagedServiceDesiredState
 import io.dockistry.platform.services.domain.ManagedServiceLifecycleStatus
 import io.dockistry.platform.services.domain.ManagedServiceSecretReference
@@ -18,6 +19,7 @@ data class ManagedServiceDto(
     val args: List<String>?,
     val env: Map<String, String>,
     val secretReferences: List<ManagedServiceSecretReference>,
+    val warnings: List<SecretWarningDto>,
     val endpoints: List<ServiceEndpoint>,
     val volumes: List<ServiceVolumeMount>,
     val restartPolicy: DockerRestartPolicyType,

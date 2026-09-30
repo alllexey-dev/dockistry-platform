@@ -8,6 +8,8 @@ import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.projects.domain.Project
+import io.dockistry.platform.secrets.domain.SecretWarningType
+import io.dockistry.platform.secrets.domain.ServiceSecretWarning
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceConfigurationDraft
 import io.dockistry.platform.services.domain.ManagedServiceDesiredState
@@ -78,6 +80,99 @@ class ManagedServiceControllerIntegrationTests {
     @BeforeEach
     fun resetClock() {
         clock.set(BASE_TIME)
+    }
+
+    @Test
+    fun `service without warnings returns empty warnings in dto`() {
+        val fixtures = fixtures()
+        val user = authenticatedUser(fixtures, "warning-reader")
+        val project = fixtures.project()
+        fixtures.grantRead(user.user.principal, project)
+        val service = persistService(project, "main")
+        fixtures.flush()
+
+        for ((path, data) in listOf(
+            servicePath(project, service.id) to "$.data",
+            servicesPath(project) to "$.data[0]"
+        )) {
+            mockMvc.get(path) { bearer(user) }.andExpect {
+                status { isOk() }
+                jsonPath("$data.warnings") {
+                    isArray()
+                    isEmpty()
+                }
+                expectNoError()
+            }
+        }
+    }
+
+    @Test
+    fun `service dto contains active warnings and excludes resolved warnings`() {
+        val fixtures = fixtures()
+        val user = authenticatedUser(fixtures, "warning-reader")
+        val project = fixtures.project()
+        fixtures.grantRead(user.user.principal, project)
+        val service = persistService(project, "main")
+        val warnings = SecretWarningType.entries.mapIndexed { index, type ->
+            persistWarning(service, type, BASE_TIME.plusSeconds(index.toLong()))
+        }
+        persistWarning(service, resolvedAt = BASE_TIME.plusSeconds(10))
+        fixtures.flushAndClear()
+
+        for ((path, data) in listOf(
+            servicePath(project, service.id) to "$.data",
+            servicesPath(project) to "$.data[0]"
+        )) {
+            mockMvc.get(path) { bearer(user) }.andExpect {
+                status { isOk() }
+                jsonPath("$data.warnings", hasSize<Any>(warnings.size))
+                warnings.forEachIndexed { index, warning ->
+                    val warningPath = "$data.warnings[$index]"
+                    jsonPath("$warningPath.id") { value(warning.id.toString()) }
+                    jsonPath("$warningPath.warningType") { value(warning.warningType.name) }
+                    jsonPath("$warningPath.secretId") { value(warning.secretId) }
+                    jsonPath("$warningPath.secretKey") { value(warning.secretKey) }
+                    jsonPath("$warningPath.secretVersion") { value(nullValue()) }
+                    jsonPath("$warningPath.envName") { value(warning.envName) }
+                    jsonPath("$warningPath.createdAt") { value(warning.createdAt.toString()) }
+                }
+                expectNoError()
+            }
+        }
+    }
+
+    @Test
+    fun `warnings of another service do not appear in main service dto`() {
+        val fixtures = fixtures()
+        val user = authenticatedUser(fixtures, "warning-reader")
+        val project = fixtures.project()
+        fixtures.grantRead(user.user.principal, project)
+        val mainService = persistService(project, "main")
+        val otherService = persistService(project, "other")
+        val warning = persistWarning(otherService)
+        fixtures.flushAndClear()
+
+        mockMvc.get(servicePath(project, mainService.id)) {
+            bearer(user)
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.warnings") {
+                isArray()
+                isEmpty()
+            }
+            expectNoError()
+        }
+        val result = mockMvc.get(servicesPath(project)) { bearer(user) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data", hasSize<Any>(2))
+            expectNoError()
+        }.andReturn()
+        val services = objectMapper.readTree(result.response.contentAsString)["data"]
+        val mainDto = services.single { it["id"].asString() == mainService.id.toString() }
+        val otherDto = services.single { it["id"].asString() == otherService.id.toString() }
+        assertEquals(0, mainDto["warnings"].size())
+        assertEquals(1, otherDto["warnings"].size())
+        assertEquals(warning.id.toString(), otherDto["warnings"][0]["id"].asString())
     }
 
     @Test
@@ -592,6 +687,24 @@ class ManagedServiceControllerIntegrationTests {
         }.andExpect {
             expectApiError(404, "managed_service_not_found")
         }
+    }
+
+    private fun persistWarning(
+        service: ManagedService,
+        type: SecretWarningType = SecretWarningType.OUTDATED,
+        createdAt: Instant = BASE_TIME,
+        resolvedAt: Instant? = null
+    ): ServiceSecretWarning {
+        return ServiceSecretWarning(
+            service = service,
+            secretId = "sec-AAAAAAAAAAAA",
+            secretKey = "password",
+            secretVersion = null,
+            warningType = type,
+            envName = "PASSWORD",
+            createdAt = createdAt,
+            resolvedAt = resolvedAt
+        ).also(entityManager::persist)
     }
 
     private fun fixtures(): IamProjectFixtures = IamProjectFixtures(entityManager)

@@ -227,6 +227,10 @@ start/stop. Во время Docker operation service показывает соо
 но API возвращает каноническую строку. Custom registries и digest refs пока не
 поддерживаются. JSONB-поля (`command`, `args`, `env`, `endpoints`, `volumes`)
 возвращаются типизированной структурой в `ApiResponse<ManagedServiceDto>`.
+Поле `warnings` содержит только активные предупреждения конкретного сервиса
+(`OUTDATED`, `DELETED`, `DELEGATION_REVOKED`); при их отсутствии возвращается `[]`.
+Каждое предупреждение содержит `id`, `warningType`, `secretId`, `secretKey`,
+`secretVersion`, `envName` и `createdAt`, без значений Secret.
 
 Имена volumes содержат от 2 до 30 символов и соответствуют Docker name rules:
 первый символ alphanumeric, оставшиеся символы — alphanumeric, `_`, `.` или `-`.
