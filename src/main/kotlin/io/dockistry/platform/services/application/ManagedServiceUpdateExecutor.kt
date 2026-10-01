@@ -8,8 +8,6 @@ import io.dockistry.platform.services.application.dto.ManagedServiceUpdateComman
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceVersionConflictException
 import io.dockistry.platform.services.infrastructure.ManagedServiceRepository
-import jakarta.persistence.EntityManager
-import jakarta.persistence.LockModeType
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
@@ -23,8 +21,7 @@ class ManagedServiceUpdateExecutor(
     private val managedServiceSecretReferenceService: ManagedServiceSecretReferenceService,
     private val managedServiceRepository: ManagedServiceRepository,
     private val referenceRepository: ManagedServiceSecretReferenceRepository,
-    private val managedServiceSecretUsageGuard: ManagedServiceSecretUsageGuard,
-    private val entityManager: EntityManager
+    private val managedServiceSecretUsageGuard: ManagedServiceSecretUsageGuard
 ) {
     @Transactional
     fun execute(command: ManagedServiceUpdateCommand): ManagedService {
@@ -64,18 +61,9 @@ class ManagedServiceUpdateExecutor(
             return service
         }
 
-        val referencesOnlyChange = service.matches(
-            configuration,
-            configuration.secretReferences
-        )
         managedServiceSecretReferenceService.replace(service, configuration.secretReferences)
         service.updateConfiguration(configuration, clock.instant())
-        val updated = managedServiceRepository.saveAndFlush(service)
-        if (referencesOnlyChange) {
-            entityManager.lock(updated, LockModeType.OPTIMISTIC_FORCE_INCREMENT)
-            entityManager.flush()
-        }
-        return updated
+        return managedServiceRepository.saveAndFlush(service)
     }
 
     @Transactional

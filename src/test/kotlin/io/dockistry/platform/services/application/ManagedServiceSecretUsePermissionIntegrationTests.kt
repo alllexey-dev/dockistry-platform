@@ -17,6 +17,7 @@ import io.dockistry.platform.services.domain.ManagedServiceSecretReference
 import io.dockistry.platform.services.infrastructure.ManagedServiceRepository
 import io.dockistry.platform.services.testsupport.managedServiceDraft
 import io.dockistry.platform.testsupport.IamProjectFixtures
+import io.dockistry.platform.testsupport.MutableClock
 import jakarta.persistence.EntityManager
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -34,6 +35,9 @@ import kotlin.test.assertFalse
 @Import(TestcontainersConfig::class, TestClockConfig::class)
 @Testcontainers
 class ManagedServiceSecretUsePermissionIntegrationTests {
+    @Autowired
+    private lateinit var clock: MutableClock
+
     @Autowired
     private lateinit var createExecutor: ManagedServiceCreateExecutor
 
@@ -85,6 +89,7 @@ class ManagedServiceSecretUsePermissionIntegrationTests {
         val service = createExecutor.execute(
             createCommand(scenario, scenario.deniedPrincipal, "allowed-update", false)
         )
+        clock.set(service.updatedAt.plusSeconds(1))
 
         val updated = updateExecutor.execute(
             updateCommand(scenario, service.id, scenario.permittedPrincipal, service.version)
@@ -154,6 +159,7 @@ class ManagedServiceSecretUsePermissionIntegrationTests {
         )
         val originalVersion = service.version
         val replacement = scenario.reference.copy(envName = "NEW_PASSWORD")
+        clock.set(service.updatedAt.plusSeconds(1))
 
         val replaced = updateExecutor.execute(
             updateCommand(
@@ -172,6 +178,7 @@ class ManagedServiceSecretUsePermissionIntegrationTests {
             referenceRepository.findByServiceId(service.id).map { it.toDto() }
         )
 
+        clock.set(replaced.updatedAt.plusSeconds(1))
         val removed = updateExecutor.execute(
             updateCommand(
                 scenario, service.id, scenario.permittedPrincipal, replacedVersion,
