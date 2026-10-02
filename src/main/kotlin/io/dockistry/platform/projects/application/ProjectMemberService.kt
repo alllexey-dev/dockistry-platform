@@ -1,6 +1,7 @@
 package io.dockistry.platform.projects.application
 
 import io.dockistry.platform.iam.domain.Principal
+import io.dockistry.platform.iam.domain.PrincipalType
 import io.dockistry.platform.iam.domain.RoleBinding
 import io.dockistry.platform.iam.infrastructure.PrincipalInfoQueryRepository
 import io.dockistry.platform.iam.infrastructure.PrincipalRepository
@@ -15,6 +16,7 @@ import io.dockistry.platform.projects.domain.dto.ProjectMemberDto
 import io.dockistry.platform.projects.domain.dto.RoleBindingDto
 import io.dockistry.platform.projects.domain.dto.RoleDto
 import io.dockistry.platform.projects.infrastructure.ProjectMemberRepository
+import io.dockistry.platform.secrets.application.SecretDelegationPermissionGuard
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
@@ -28,7 +30,8 @@ class ProjectMemberService(
     private val principalInfoQueryRepository: PrincipalInfoQueryRepository,
     private val principalRepository: PrincipalRepository,
     private val roleRepository: RoleRepository,
-    private val roleBindingRepository: RoleBindingRepository
+    private val roleBindingRepository: RoleBindingRepository,
+    private val secretDelegationPermissionGuard: SecretDelegationPermissionGuard
 ) {
     @Transactional
     fun list(principal: Principal, projectId: UUID): List<ProjectMemberDto> {
@@ -116,6 +119,7 @@ class ProjectMemberService(
         roleBindingId: UUID
     ) {
         projectAccessGuard.requireMemberManageable(projectId, managerPrincipal)
+        lockSubjectAndGroupMembers(subjectPrincipalId)
 
         if (!roleBindingRepository.isAssigned(projectId, roleBindingId, subjectPrincipalId)) {
             throw ProjectRoleBindingNotFoundException(
@@ -138,6 +142,7 @@ class ProjectMemberService(
         subjectPrincipalId: UUID
     ) {
         projectAccessGuard.requireMemberManageable(projectId, managerPrincipal)
+        lockSubjectAndGroupMembers(subjectPrincipalId)
 
         if (!projectMemberRepository.isMember(projectId, subjectPrincipalId)) {
             throw ProjectMemberNotFoundException(
@@ -149,6 +154,18 @@ class ProjectMemberService(
             projectId = projectId,
             principalId = subjectPrincipalId
         )
+    }
+
+    private fun lockSubjectAndGroupMembers(principalId: UUID) {
+        secretDelegationPermissionGuard.lockPrincipal(principalId)
+
+        val subject = principalRepository.findPrincipalById(principalId)
+        if (subject?.principalType == PrincipalType.GROUP) {
+            // Include users without delegations to serialize a concurrent first delegation.
+            principalRepository.findGroupMemberIds(principalId)
+                .sorted()
+                .forEach(secretDelegationPermissionGuard::lockPrincipal)
+        }
     }
 
     private fun missingPrincipalInfo(principalId: UUID): InternalDataIntegrityException {

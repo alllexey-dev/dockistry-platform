@@ -33,7 +33,8 @@ class SecretService(
     private val transactionTemplate: TransactionTemplate,
     private val clock: Clock,
     private val referenceRepository: ManagedServiceSecretReferenceRepository,
-    private val serviceSecretWarningRepository: ServiceSecretWarningRepository
+    private val serviceSecretWarningRepository: ServiceSecretWarningRepository,
+    private val secretDelegationPermissionGuard: SecretDelegationPermissionGuard
 ) {
     fun create(
         name: String,
@@ -86,6 +87,8 @@ class SecretService(
     ): UUID {
         return try {
             transactionTemplate.execute {
+                secretDelegationPermissionGuard.lockPrincipal(ownerPrincipal.id)
+
                 secretAccessGuard.requireOwner(secretId, ownerPrincipal)
                 val project = projectAccessGuard.requireSecretsDelegable(projectId, ownerPrincipal)
                 val secret = secretRepository.findById(secretId).orElseThrow()

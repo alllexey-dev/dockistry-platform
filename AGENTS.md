@@ -306,6 +306,12 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - `RoleBinding` связывает subject principal, scope и role.
 - Permission checks должны учитывать direct user bindings и group-derived
   bindings. Для этого используй `PermissionCheckService`, не обходи его вручную.
+- Удаление project role binding/member сериализуется через
+  `SecretDelegationPermissionGuard` в транзакции `ProjectMemberService`: сначала
+  lock subject principal, для `GROUP` затем чтение member IDs через
+  `PrincipalRepository.findGroupMemberIds` и locks всех пользователей по порядку
+  UUID. Grant через `assignRole` не требует этого mutex: добавление источника
+  permission не нарушает delegation invariant.
 - Project permission predicates должны идти через `ProjectAccessService` и
   называться как `has*Permission`, потому что они проверяют только наличие
   permission, а не полный action-level доступ.
@@ -335,6 +341,39 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `SystemSettingKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED`: insert marker'а
   выполняется первым шагом той же транзакции и полагается на primary key в
   таблице `system_settings`.
+
+### Group membership и GLOBAL permission writers
+
+- При добавлении flows изменения group membership или GLOBAL role bindings
+  согласуй их concurrency protocol с существующими project binding writers и
+  созданием Secret delegations. Все эти flows используют PostgreSQL
+  transaction-level advisory locks с ключом только по `principalId` в общем
+  namespace; project ID в ключ не входит. Это обеспечивает координацию изменений
+  effective permissions сразу в нескольких проектах.
+- PostgreSQL advisory lock защищает только участвующие в общем протоколе flows.
+  Он не блокирует изменение `group_members` автоматически. Чтение состава группы
+  для group binding revoke и все membership writers должны использовать общий
+  principal-based mutex группы с одним и тем же ключом по её `principalId`.
+- Membership writer и group binding writer должны также сериализоваться с
+  direct permission writers и delegation пользователя. Получение locks,
+  чтение актуального membership/effective permissions, проверка инвариантов и
+  изменение выполняются в одной транзакции. Для нескольких principals соблюдай
+  общий стабильный порядок locks, исключающий deadlocks: сначала берутся GROUP
+  locks по возрастанию principal IDs, затем USER locks в том же порядке.
+- Исключение пользователя из группы и отзыв GLOBAL binding не должны удалять
+  последний effective источник `project.secrets.delegate` в любом проекте,
+  которому делегированы собственные Secrets затронутого owner. Учитывай оставшиеся
+  direct, group-derived и GLOBAL источники. При нарушении возвращай атомарный
+  отказ `secret_delegation_active` с требованием force-revoke; частичные изменения
+  membership/bindings запрещены.
+- При изменении bindings группы под lock её principal прочитай актуальный состав
+  и возьми principal-based locks всех её пользователей, включая пользователей
+  без delegations. Создание delegation использует тот же lock owner principal.
+  Это закрывает гонку с первой delegation в любом проекте; membership writers
+  используют общий lock группы и сохраняют её состав во время проверки.
+- Добавление этих flows требует concurrency tests на membership removal и GLOBAL
+  revoke одновременно с созданием первой delegation, а также на group binding
+  revoke одновременно с membership change и direct user binding revoke.
 
 ### Email verification и email jobs
 

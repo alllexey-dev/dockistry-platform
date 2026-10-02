@@ -23,13 +23,14 @@ import io.dockistry.platform.testsupport.IamProjectFixtures
 import io.dockistry.platform.testsupport.MutableClock
 import jakarta.persistence.EntityManager
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertNotNull
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
 import org.springframework.context.annotation.Primary
+import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.jdbc.core.queryForObject
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
@@ -43,6 +44,7 @@ import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -58,7 +60,8 @@ class SecretServiceConcurrencyTests(
     @Autowired private val secretService: SecretService,
     @Autowired private val managedServiceService: ManagedServiceService,
     @Autowired private val serviceSecretWarningRepository: ServiceSecretWarningRepository,
-    @Autowired private val transactionManager: PlatformTransactionManager
+    @Autowired private val transactionManager: PlatformTransactionManager,
+    @Autowired private val jdbcTemplate: JdbcTemplate
 ) {
     companion object {
         const val TIMEOUT = 15L
@@ -175,7 +178,7 @@ class SecretServiceConcurrencyTests(
     }
 
     @Test
-    fun `concurrent delegate returns one persisted delegation`() {
+    fun `concurrent delegate waits for principal lock and returns one delegation`() {
         val (owner, projectId, secretId) = transactionTemplate.execute {
             val fixtures = IamProjectFixtures(entityManager)
             val owner = fixtures.principal()
@@ -190,19 +193,36 @@ class SecretServiceConcurrencyTests(
             )
             Triple(owner, project.id, secretId)
         }
-        val barrier = delegationRepository.armSave()
+        val barrier = delegationRepository.armSave(participants = 1)
         val executor = Executors.newFixedThreadPool(THREADS)
 
         try {
-            val delegations = List(THREADS) {
-                executor.submit<UUID> {
-                    secretService.delegate(secretId, projectId, owner)
-                }
+            val firstDelegation = executor.submit<UUID> {
+                secretService.delegate(secretId, projectId, owner)
+            }
+            barrier.awaitAll()
+            val blockingPid = assertNotNull(delegationRepository.savePid)
+            val secondDelegation = executor.submit<UUID> {
+                secretService.delegate(secretId, projectId, owner)
             }
 
-            barrier.awaitAll()
+            assertTrue(awaitTrue({
+                jdbcTemplate.queryForObject<Boolean>(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM pg_locks waiting
+                        WHERE waiting.locktype = 'advisory'
+                          AND NOT waiting.granted
+                          AND ? = ANY(pg_blocking_pids(waiting.pid))
+                    )
+                """, blockingPid
+                ) == true
+            }, TIMEOUT), "Second delegation wasn't blocked by the principal lock")
+
             barrier.release()
-            val ids = delegations.map { it.get(TIMEOUT, TimeUnit.SECONDS) }
+            val ids = listOf(firstDelegation, secondDelegation)
+                .map { it.get(TIMEOUT, TimeUnit.SECONDS) }
 
             assertEquals(1, ids.toSet().size)
             val stored = transactionTemplate.execute {
@@ -433,14 +453,22 @@ class SecretServiceConcurrencyTests(
         @Volatile
         private var saveBarrier: SaveBarrier? = null
 
-        fun armSave(): SaveBarrier = SaveBarrier().also { saveBarrier = it }
+        @Volatile
+        var savePid: Int? = null
+            private set
+
+        fun armSave(participants: Int = THREADS): SaveBarrier =
+            SaveBarrier(participants).also { saveBarrier = it }
 
         fun disarmSave() {
             saveBarrier = null
         }
 
         override fun <S : ProjectSecretDelegation> saveAndFlush(entity: S): S {
-            saveBarrier?.awaitRelease()
+            saveBarrier?.let { barrier ->
+                savePid = getBackendPid()
+                barrier.awaitRelease()
+            }
             return delegate.saveAndFlush(entity)
         }
 
@@ -488,14 +516,14 @@ class SecretServiceConcurrencyTests(
         }
     }
 
-    private class SaveBarrier {
-        private val entered = CountDownLatch(THREADS)
+    private class SaveBarrier(participants: Int = THREADS) {
+        private val entered = CountDownLatch(participants)
         private val release = CountDownLatch(1)
 
         fun awaitAll() {
             assertTrue(
                 entered.await(TIMEOUT, TimeUnit.SECONDS),
-                "Both saveAndFlush calls weren't entered"
+                "Not all expected saveAndFlush calls were entered"
             )
         }
 

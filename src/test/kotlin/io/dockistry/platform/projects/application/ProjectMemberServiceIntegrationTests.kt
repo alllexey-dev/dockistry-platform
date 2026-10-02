@@ -11,6 +11,7 @@ import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.projects.domain.ProjectMemberNotFoundException
 import io.dockistry.platform.projects.domain.ProjectRoleBindingNotFoundException
 import io.dockistry.platform.projects.domain.ProjectRoleNotAssignableException
+import io.dockistry.platform.secrets.application.SecretDelegationPermissionGuard
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
@@ -19,12 +20,19 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.dao.DataAccessException
+import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
+import java.sql.SQLException
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -38,6 +46,15 @@ class ProjectMemberServiceIntegrationTests {
 
     @Autowired
     private lateinit var roleRepository: RoleRepository
+
+    @Autowired
+    private lateinit var secretDelegationPermissionGuard: SecretDelegationPermissionGuard
+
+    @Autowired
+    private lateinit var jdbcTemplate: JdbcTemplate
+
+    @Autowired
+    private lateinit var transactionManager: PlatformTransactionManager
 
     @PersistenceContext
     private lateinit var entityManager: EntityManager
@@ -245,6 +262,33 @@ class ProjectMemberServiceIntegrationTests {
 
         assertFalse(roleBindingExists(deletedBinding.id))
         assertTrue(roleBindingExists(keptBinding.id))
+        assertPrincipalLocked(subject.id)
+        attemptPrincipalLock(manager.id)
+    }
+
+    @Test
+    fun `delete group binding locks group and every member without delegations`() {
+        val fixtures = fixtures()
+        val project = fixtures.project()
+        val manager = fixtures.principal()
+        val (groupPrincipal, memberIds) = groupWithMembers(fixtures)
+        val binding = fixtures.bind(
+            groupPrincipal, project.scope, role(SystemRoleNames.PROJECT_VIEWER.key)
+        )
+        fixtures.grantMemberManagement(manager, project)
+        fixtures.flushAndClear()
+
+        projectMemberService.deleteRoleBinding(
+            managerPrincipal = manager,
+            projectId = project.id,
+            subjectPrincipalId = groupPrincipal.id,
+            roleBindingId = binding.id
+        )
+
+        assertFalse(roleBindingExists(binding.id))
+        assertPrincipalLocked(groupPrincipal.id)
+        memberIds.forEach(::assertPrincipalLocked)
+        attemptPrincipalLock(manager.id)
     }
 
     @Test
@@ -293,6 +337,32 @@ class ProjectMemberServiceIntegrationTests {
         assertFalse(roleBindingExists(firstProjectBinding.id))
         assertFalse(roleBindingExists(secondProjectBinding.id))
         assertTrue(roleBindingExists(otherProjectBinding.id))
+        assertPrincipalLocked(subject.id)
+        attemptPrincipalLock(manager.id)
+    }
+
+    @Test
+    fun `delete group member locks group and every user without delegations`() {
+        val fixtures = fixtures()
+        val project = fixtures.project()
+        val manager = fixtures.principal()
+        val (groupPrincipal, memberIds) = groupWithMembers(fixtures)
+        val binding = fixtures.bind(
+            groupPrincipal, project.scope, role(SystemRoleNames.PROJECT_VIEWER.key)
+        )
+        fixtures.grantMemberManagement(manager, project)
+        fixtures.flushAndClear()
+
+        projectMemberService.deleteMember(
+            managerPrincipal = manager,
+            projectId = project.id,
+            subjectPrincipalId = groupPrincipal.id
+        )
+
+        assertFalse(roleBindingExists(binding.id))
+        assertPrincipalLocked(groupPrincipal.id)
+        memberIds.forEach(::assertPrincipalLocked)
+        attemptPrincipalLock(manager.id)
     }
 
     @Test
@@ -337,6 +407,30 @@ class ProjectMemberServiceIntegrationTests {
     }
 
     private fun fixtures(): IamProjectFixtures = IamProjectFixtures(entityManager)
+
+    private fun groupWithMembers(fixtures: IamProjectFixtures): Pair<Principal, List<UUID>> {
+        val group = fixtures.group()
+        val members = List(2) {
+            fixtures.user().apply { groups += group }
+        }
+        return group.principal to members.map { it.id }
+    }
+
+    private fun assertPrincipalLocked(principalId: UUID) {
+        val exception = assertFailsWith<DataAccessException> {
+            attemptPrincipalLock(principalId)
+        }
+        assertEquals("55P03", assertIs<SQLException>(exception.mostSpecificCause).sqlState)
+    }
+
+    private fun attemptPrincipalLock(principalId: UUID) {
+        TransactionTemplate(transactionManager).apply {
+            propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
+        }.executeWithoutResult {
+            jdbcTemplate.execute("SET LOCAL lock_timeout = '200ms'")
+            secretDelegationPermissionGuard.lockPrincipal(principalId)
+        }
+    }
 
     private fun role(name: String): Role =
         assertNotNull(roleRepository.findByNameAndIsSystemTrue(name))
