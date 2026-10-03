@@ -9,10 +9,9 @@ interface PrincipalRepository : JpaRepository<Principal, UUID> {
     fun findPrincipalById(id: UUID): Principal?
 
     @Query("""
-        SELECT member.id
-        FROM Group g
-        JOIN g.members member
-        WHERE g.id = :groupId
+        SELECT principal.id
+        FROM Principal principal
+        WHERE principal.id IN (:principalIds)
     """)
-    fun findGroupMemberIds(groupId: UUID): List<UUID>
+    fun findExistingIds(principalIds: Collection<UUID>): List<UUID>
 }

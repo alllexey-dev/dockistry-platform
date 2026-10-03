@@ -309,9 +309,24 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Удаление project role binding/member сериализуется через
   `SecretDelegationPermissionGuard` в транзакции `ProjectMemberService`: сначала
   lock subject principal, для `GROUP` затем чтение member IDs через
-  `PrincipalRepository.findGroupMemberIds` и locks всех пользователей по порядку
+  `GroupRepository.findMemberIdsByPrincipalId` и locks всех пользователей по порядку
   UUID. Grant через `assignRole` не требует этого mutex: добавление источника
   permission не нарушает delegation invariant.
+- `deleteMember` фиксирует IDs удаляемых bindings под principal locks, исключает
+  именно их из effective permission check и удаляет тот же набор одним batch
+  DELETE. Не заменяй это удалением всех bindings по principal/project после
+  проверки: concurrent grant может стать оставшимся источником permission и
+  затем попасть под такое удаление.
+- `ProjectMemberService.requirePermissionRevocationAllowed` проверяет наличие
+  собственных Secret delegations в проекте и сохранение effective
+  `project.secrets.delegate` после исключения удаляемых bindings. Для `GROUP`
+  используй один batch-поиск owner IDs с delegations, включая саму группу и её
+  пользователей, затем batch permission check через `PermissionCheckService`.
+  Состав группы переиспользуется из locking flow; per-member queries запрещены.
+  Потеря последнего источника permission возвращает HTTP 409
+  `secret_delegation_active` с требованием force-revoke. Batch permission check
+  отдельно проверяет существование всех входных principals одним запросом:
+  отсутствующий principal является internal data integrity violation.
 - Project permission predicates должны идти через `ProjectAccessService` и
   называться как `has*Permission`, потому что они проверяют только наличие
   permission, а не полный action-level доступ.

@@ -172,6 +172,13 @@ Project endpoints требуют access token и возвращают JSON в en
 permission `project.read`. Mutating member endpoints требуют permission
 `project.members.manage`.
 
+Удаление binding или участника блокируется с `409 secret_delegation_active`,
+если оно лишит владельца делегированных этому проекту Secrets последнего
+effective источника `project.secrets.delegate`. Учитываются оставшиеся direct,
+group-derived и GLOBAL bindings. При удалении bindings группы проверяются её
+собственные Secrets и Secrets её пользователей. Перед повторной попыткой нужно
+выполнить force-revoke блокирующих delegations; автоматически они не отзываются.
+
 Для операций по конкретному project id отсутствие проекта и отсутствие read-access
 оба отображаются как `404 project_not_found`; если read-access есть, но не хватает
 права на действие, возвращается `403 insufficient_permission_for_operation`.

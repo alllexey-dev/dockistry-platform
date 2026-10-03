@@ -16,6 +16,10 @@ class SecretAlreadyExistsException(
     message: String
 ) : ConflictException(message, "secret_already_exists")
 
+class SecretDelegationActiveException(
+    message: String
+) : ConflictException(message, "secret_delegation_active")
+
 class InvalidSecretReferenceException(
     message: String
 ) : BadRequestException(message, "invalid_secret_reference")
