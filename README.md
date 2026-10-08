@@ -187,6 +187,9 @@ Slug задается при создании проекта, ограничен
 `ProjectInfoDto` содержит текущую `version`. `PATCH /api/projects/{id}` принимает
 `name`, `description` и обязательный `expectedVersion` из последнего полученного
 `ProjectInfoDto`; отрицательная версия возвращает `400 validation_error`.
+`description` обрезается по краям, пустое значение сохраняется как `null`;
+максимум 1000 символов, NUL и невалидный Unicode запрещены
+(`400 invalid_project_description`).
 
 ## Managed Services API
 

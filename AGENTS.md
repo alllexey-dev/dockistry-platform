@@ -599,6 +599,21 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Number verification code: ровно 6 digits.
 - Email fields используют `@field:NotBlank` и `@field:Email`.
 - Validation errors должны сохранять custom messages в response body.
+- Исключение для Secrets: request DTO не получают Jakarta annotations и `@Valid`.
+  Вся валидация доменная, через `SecretValidator` и shared normalizers, потому что
+  Secret flows вызываются не только из HTTP. Annotations не дублируют доменные
+  правила, чтобы не получить два расходящихся набора правил.
+- Resource descriptions (`Project`, `Secret`) проходят через
+  `ResourceDescriptionNormalizer`: trim, NFC, сохранение переносов строк,
+  blank -> `null`, максимум 1000 символов, запрет NUL и непарных surrogates.
+  Новые description-поля подключай к нему же.
+- Текст, который хранится в PostgreSQL text/jsonb или передаётся в container env,
+  проверяй через `StorableText`: NUL и непарные surrogates там непредставимы.
+  Размеры в байтах считай через `StorableText.utf8Length`, не через
+  `String.toByteArray`, который молча заменяет непарный surrogate на `?`.
+- Secret version values: не больше 100 keys, значение не больше 64 KiB в UTF-8
+  (ниже Linux `MAX_ARG_STRLEN` = 128 KiB для строки `NAME=value`), keys и values
+  вместе не больше 256 KiB. Ошибка — `invalid_secret_values`.
 
 ### Tests
 
@@ -655,6 +670,14 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Держи изменения узкими: не смешивай feature, refactor, formatting и docs без
   причины.
 - Не трогай unrelated файлы.
+- Явные и важные баги, найденные по ходу работы, исправляй сразу отдельным
+  коммитом и сообщай о них. Объёмные проблемы вне scope задачи, на которые до MVP
+  не стоит тратить время и которыми пока можно пренебречь, не исправляй попутно:
+  заводи на них GitHub issue (или PR) в `alllexey-dev/dockistry-platform` с
+  причиной, местом в коде и предлагаемым решением и добавляй его на доску
+  `https://github.com/users/alllexey-dev/projects/2` в статус `Backlog`
+  (`gh issue create`, `gh project item-add`, `gh project item-edit`; токену нужен
+  scope `project`).
 - Обновляй `AGENTS.md`, если новые
   решения меняют архитектуру, workflow, правила разработки, тестирования,
   инфраструктуру, модульные границы или важные проектные соглашения.
