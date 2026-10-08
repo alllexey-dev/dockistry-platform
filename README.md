@@ -341,6 +341,9 @@ Image endpoints сейчас работают только через `GLOBAL` p
 # По шаблону имени
 ./gradlew test --tests "*JwtAuthentication*"
 
+# Docker-in-Docker tests, исключённые из обычного ./gradlew test
+./gradlew dindTest
+
 # Docker stats tests, исключённые из обычного ./gradlew test
 ./gradlew dockerStatsTest
 
@@ -353,6 +356,11 @@ Image endpoints сейчас работают только через `GLOBAL` p
 Docker/cgroup окружениях, включая GitHub-hosted runners, могут быть нестабильными.
 Если меняется Docker stats mapping или сбор Docker metrics, локально запускайте
 `./gradlew dockerStatsTest`.
+
+`dindTest` запускает Docker-in-Docker integration tests (`@Tag("dind")`) для Docker
+agent adapter. Они исключены из обычного `test`/`build`, потому что зависят от сети и
+pull images внутри nested Docker и поэтому нестабильны. Docker stats tests в
+`dindTest` не входят.
 
 > **Colima вместо Docker Desktop.** Если Docker запущен через Colima, Testcontainers
 > может не найти сокет (ошибка `Could not find a valid Docker environment`), так как

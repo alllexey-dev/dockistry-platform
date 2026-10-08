@@ -108,7 +108,7 @@ CI:
 Корень репозитория:
 
 - `build.gradle.kts` — Gradle build, зависимости, Kotlin/JPA настройки,
-  `test` и `benchmarkTest` tasks;
+  `test`, `benchmarkTest`, `dindTest` и `dockerStatsTest` tasks;
 - `settings.gradle.kts` — имя root project и Foojay toolchain resolver;
 - `compose.yaml` — локальный PostgreSQL;
 - `README.md` — быстрый старт, команды запуска и тестирования;
@@ -612,6 +612,12 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   nested Docker-in-Docker stats counters нестабильны на GitHub-hosted runners.
   Если меняешь Docker stats mapping или сбор Docker metrics, локально запускай
   `./gradlew dockerStatsTest`.
+- Docker-in-Docker integration tests помечаются `@Tag("dind")`, исключены из
+  обычного `test`/`build` и запускаются отдельно через `./gradlew dindTest`:
+  они нестабильны из-за сети и pull images внутри nested Docker. Для проверки
+  изменений не запускай их в full suite; новые DinD-тесты всегда помечай этим
+  тегом. Если меняешь Docker agent adapter или docker-java mapping, локально
+  запускай `./gradlew dindTest`.
 - Для конкретного теста:
   `./gradlew test --tests "io.dockistry.platform.SomeTest"`.
 - Интеграционные тесты используют:

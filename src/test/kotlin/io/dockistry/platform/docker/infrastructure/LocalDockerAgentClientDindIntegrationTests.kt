@@ -47,6 +47,7 @@ import kotlin.test.assertTrue
     ]
 )
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@Tag("dind")
 class LocalDockerAgentClientDindIntegrationTests {
     @Autowired
     private lateinit var dockerAgentClient: DockerAgentClient
