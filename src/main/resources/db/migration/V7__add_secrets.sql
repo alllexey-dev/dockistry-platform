@@ -91,7 +91,7 @@ CREATE TABLE service_secret_warnings
     secret_key     VARCHAR(255)                NOT NULL,
     secret_version VARCHAR(16),
     warning_type   VARCHAR(32)                 NOT NULL,
-    env_name       VARCHAR(255),
+    env_name       VARCHAR(255)                NOT NULL,
     created_at     TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     resolved_at    TIMESTAMP WITHOUT TIME ZONE,
     CONSTRAINT pk_service_secret_warnings PRIMARY KEY (id),
