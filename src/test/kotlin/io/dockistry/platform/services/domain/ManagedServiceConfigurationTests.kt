@@ -18,6 +18,7 @@ class ManagedServiceConfigurationTests {
         val invalidReferences = listOf(
             reference.copy(secretId = "bad-id"),
             reference.copy(key = "bad key"),
+            reference.copy(key = "a".repeat(SecretValidator.MAX_KEY_LENGTH + 1)),
             reference.copy(envName = "BAD-NAME!"),
             reference.copy(envName = "1PASSWORD"),
             reference.copy(envName = "A".repeat(SecretValidator.MAX_ENV_NAME_LENGTH + 1)),
@@ -63,6 +64,22 @@ class ManagedServiceConfigurationTests {
         )
 
         assertEquals(envName, configuration.secretReferences.single().envName)
+    }
+
+    @Test
+    fun `secret reference key of max length is accepted`() {
+        val key = "a".repeat(SecretValidator.MAX_KEY_LENGTH)
+        val reference = ManagedServiceSecretReference(
+            secretId = "sec-AAAAAAAAAAAA",
+            key = key,
+            envName = "PASSWORD"
+        )
+
+        val configuration = ManagedServiceConfiguration.validated(
+            managedServiceDraft().copy(secretReferences = listOf(reference))
+        )
+
+        assertEquals(key, configuration.secretReferences.single().key)
     }
 
     @Test

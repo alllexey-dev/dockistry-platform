@@ -1,6 +1,7 @@
 package io.dockistry.platform.secrets.domain
 
 object SecretValidator {
+    const val MAX_KEY_LENGTH = 255
     const val MAX_ENV_NAME_LENGTH = 255
 
     private val keyRegex = Regex("^[A-Za-z0-9_.-]+$")
@@ -9,6 +10,11 @@ object SecretValidator {
     fun validateId(value: String): String = SecretIdGenerator.validate(value)
 
     fun validateKey(value: String): String {
+        if (value.length > MAX_KEY_LENGTH) {
+            throw InvalidSecretReferenceFormatException(
+                "Secret key must be at most $MAX_KEY_LENGTH characters"
+            )
+        }
         if (!value.matches(keyRegex)) {
             throw InvalidSecretReferenceFormatException(
                 "Secret key must contain only Latin letters, digits, underscores, dots or hyphens"
