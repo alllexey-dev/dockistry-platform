@@ -10,17 +10,27 @@ object SecretValidator {
     fun validateId(value: String): String = SecretIdGenerator.validate(value)
 
     fun validateKey(value: String): String {
-        if (value.length > MAX_KEY_LENGTH) {
-            throw InvalidSecretReferenceFormatException(
-                "Secret key must be at most $MAX_KEY_LENGTH characters"
-            )
-        }
-        if (!value.matches(keyRegex)) {
-            throw InvalidSecretReferenceFormatException(
-                "Secret key must contain only Latin letters, digits, underscores, dots or hyphens"
-            )
-        }
+        keyViolation(value)?.let { throw InvalidSecretReferenceFormatException(it) }
         return value
+    }
+
+    /** Keys of a new Secret version must be referenceable by [validateKey]. */
+    fun validateValues(values: Map<String, String>): Map<String, String> {
+        if (values.isEmpty()) {
+            throw EmptySecretValuesException()
+        }
+        values.keys.forEach { key ->
+            keyViolation(key)?.let { throw InvalidSecretValuesException(it) }
+        }
+        return values
+    }
+
+    private fun keyViolation(value: String): String? = when {
+        value.length > MAX_KEY_LENGTH ->
+            "Secret key must be at most $MAX_KEY_LENGTH characters"
+        !value.matches(keyRegex) ->
+            "Secret key must contain only Latin letters, digits, underscores, dots or hyphens"
+        else -> null
     }
 
     fun validateEnvName(value: String): String {

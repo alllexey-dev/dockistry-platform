@@ -9,6 +9,8 @@ import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
 import io.dockistry.platform.secrets.application.ports.SecretEncryptor
 import io.dockistry.platform.secrets.domain.EmptySecretValuesException
+import io.dockistry.platform.secrets.domain.InvalidSecretValuesException
+import io.dockistry.platform.secrets.domain.SecretValidator
 import io.dockistry.platform.secrets.domain.SecretNotFoundException
 import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
@@ -214,6 +216,31 @@ class SecretServiceIntegrationTests {
                 ownerPrincipal = owner
             )
         }
+    }
+
+    @Test
+    fun `create rejects values with invalid keys`() {
+        val owner = IamProjectFixtures(entityManager).principal()
+        entityManager.flush()
+        val secretCountBeforeCreate = secretRepository.count()
+        val invalidKeys = listOf(
+            "bad key",
+            "",
+            "a".repeat(SecretValidator.MAX_KEY_LENGTH + 1)
+        )
+
+        invalidKeys.forEach { key ->
+            val error = assertFailsWith<InvalidSecretValuesException> {
+                secretService.create(
+                    name = "invalid-key-secret",
+                    description = null,
+                    values = mapOf("password" to "value", key to "value"),
+                    ownerPrincipal = owner
+                )
+            }
+            assertEquals("invalid_secret_values", error.code)
+        }
+        assertEquals(secretCountBeforeCreate, secretRepository.count())
     }
 
     @Test

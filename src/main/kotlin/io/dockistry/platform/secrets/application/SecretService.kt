@@ -3,11 +3,11 @@ package io.dockistry.platform.secrets.application
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.application.ProjectAccessGuard
 import io.dockistry.platform.secrets.application.ports.SecretEncryptor
-import io.dockistry.platform.secrets.domain.EmptySecretValuesException
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
+import io.dockistry.platform.secrets.domain.SecretValidator
 import io.dockistry.platform.secrets.domain.SecretWarningType
 import io.dockistry.platform.secrets.domain.ServiceSecretWarning
 import io.dockistry.platform.secrets.domain.dto.SecretDto
@@ -42,10 +42,6 @@ class SecretService(
         values: Map<String, String>,
         ownerPrincipal: Principal
     ): String {
-        if (values.isEmpty()) {
-            throw EmptySecretValuesException()
-        }
-
         val payload = encryptPayload(values)
 
         val now = clock.instant()
@@ -158,6 +154,7 @@ class SecretService(
             secretId = secretId,
             principal = principal
         )
+        val payload = encryptPayload(newPayload)
 
         val projectIdsWithDelegation =
             projectSecretDelegationRepository.findBySecretId(secretId)
@@ -182,7 +179,7 @@ class SecretService(
 
         val newVersion = SecretVersion(
             secret = secret,
-            encryptedValues = encryptPayload(newPayload),
+            encryptedValues = payload,
             createdAt = clock.instant()
         )
         secret.addVersion(newVersion)
@@ -213,5 +210,6 @@ class SecretService(
     )
 
     private fun encryptPayload(values: Map<String, String>): Map<String, String> =
-        values.mapValues { (_, value) -> secretEncryptor.encrypt(value) }
+        SecretValidator.validateValues(values)
+            .mapValues { (_, value) -> secretEncryptor.encrypt(value) }
 }

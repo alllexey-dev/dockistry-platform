@@ -28,6 +28,10 @@ class InvalidSecretReferenceFormatException(
     message: String
 ) : BadRequestException(message, "invalid_secret_reference_format")
 
+class InvalidSecretValuesException(
+    message: String
+) : BadRequestException(message, "invalid_secret_values")
+
 class EmptySecretValuesException(
     message: String = "New secret version isn't allowed to have empty values"
 ) : BadRequestException(message, "empty_secret_values")

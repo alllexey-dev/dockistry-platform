@@ -4,6 +4,8 @@ import io.dockistry.platform.TestClockConfig
 import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.secrets.application.ports.SecretEncryptor
+import io.dockistry.platform.secrets.domain.EmptySecretValuesException
+import io.dockistry.platform.secrets.domain.InvalidSecretValuesException
 import io.dockistry.platform.secrets.domain.ManagedServiceSecretReferenceEntity
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
@@ -27,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.time.Clock
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -88,6 +91,42 @@ class SecretRotationIntegrationTests {
 
         val storedValues = versionRepository.findById(newVersionId).orElseThrow().encryptedValues
         assertEquals(mapOf("password" to "enc:new-value"), storedValues)
+    }
+
+    @Test
+    fun `rotate rejects empty values and invalid keys without side effects`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val owner = fixtures.principal()
+        val project = fixtures.project(ownerPrincipal = owner)
+        val service = managedService(project, "service-${fixtures.unique()}")
+        entityManager.persist(service)
+        val secret = secretWithVersion(owner)
+        val now = clock.instant()
+        entityManager.persist(ProjectSecretDelegation(secret, project, now, now))
+        entityManager.persist(ManagedServiceSecretReferenceEntity(
+            service = service,
+            secret = secret,
+            secretKey = "password",
+            secretVersion = null,
+            envName = "PASSWORD"
+        ))
+        entityManager.flush()
+        val latestVersionId = secret.versions.single().id
+
+        assertFailsWith<EmptySecretValuesException> {
+            secretService.rotate(secret.id, emptyMap(), owner)
+        }
+        val error = assertFailsWith<InvalidSecretValuesException> {
+            secretService.rotate(secret.id, mapOf("bad key" to "value"), owner)
+        }
+        assertEquals("invalid_secret_values", error.code)
+        entityManager.flush()
+        entityManager.clear()
+
+        assertEquals(latestVersionId, versionRepository.findLatestBySecretId(secret.id).id)
+        assertTrue(warningRepository.findActiveByServiceAndType(
+            service.id, SecretWarningType.OUTDATED
+        ).isEmpty())
     }
 
     @Test
