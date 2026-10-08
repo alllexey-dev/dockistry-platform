@@ -626,6 +626,15 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `MutableClock`.
 - Для auth setup в API tests переиспользуй `AuthTestClient`, когда подходит.
 - Для IAM/project fixtures используй `IamProjectFixtures`.
+- Все concurrency tests используют `testsupport/concurrency/ConcurrencyTestSupport`;
+  API и примеры описаны в `src/test/kotlin/io/dockistry/platform/testsupport/concurrency/README.md`.
+  В сценариях оставляй service calls, именованные checkpoints, порядок событий и
+  business assertions. Executors, latches, PIDs, polling и cleanup держи в testsupport.
+  `@Primary` test adapters делегируют реальные production calls и вызывают
+  checkpoints в существующих точках; production hooks ради тестов не добавляй.
+  `assertBlocked` проверяет ожидание конкретных PostgreSQL sessions, `run` всегда
+  освобождает pauses и завершает workers. Проверяй итоговое состояние после
+  commit/rollback. Сценарии одного shared helper выполняются последовательно.
 - Если меняешь contract:
   - добавляй positive tests для happy path;
   - добавляй negative tests для validation, permissions и error codes;

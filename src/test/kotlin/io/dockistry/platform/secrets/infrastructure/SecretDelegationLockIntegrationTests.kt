@@ -1,27 +1,23 @@
 package io.dockistry.platform.secrets.infrastructure
 
 import io.dockistry.platform.TestcontainersConfig
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyTestConfiguration
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyTestSupport
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.transaction.IllegalTransactionStateException
-import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
-import java.sql.Connection
 import java.util.UUID
-import javax.sql.DataSource
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 @SpringBootTest
-@Import(TestcontainersConfig::class)
+@Import(TestcontainersConfig::class, ConcurrencyTestConfiguration::class)
 @Testcontainers
 class SecretDelegationLockIntegrationTests {
     @Autowired private lateinit var secretDelegationLock: SecretDelegationLock
-    @Autowired private lateinit var transactionTemplate: TransactionTemplate
-    @Autowired private lateinit var dataSource: DataSource
+    @Autowired private lateinit var concurrency: ConcurrencyTestSupport
 
     @Test
     fun `lock requires an existing transaction`() {
@@ -34,13 +30,13 @@ class SecretDelegationLockIntegrationTests {
     fun `lock excludes another connection until transaction commits`() {
         val key = UUID.randomUUID().mostSignificantBits
 
-        dataSource.connection.use { otherConnection ->
-            transactionTemplate.executeWithoutResult {
+        concurrency.withAdvisoryLockProbe(key) { probe ->
+            concurrency.inNewTransaction {
                 secretDelegationLock.lock(key)
-                assertFalse(tryLock(otherConnection, key))
+                probe.assertUnavailable()
             }
 
-            assertTrue(tryLock(otherConnection, key))
+            probe.assertAvailable()
         }
     }
 
@@ -48,24 +44,13 @@ class SecretDelegationLockIntegrationTests {
     fun `lock is released when transaction rolls back`() {
         val key = UUID.randomUUID().mostSignificantBits
 
-        dataSource.connection.use { otherConnection ->
-            transactionTemplate.executeWithoutResult { status ->
+        concurrency.withAdvisoryLockProbe(key) { probe ->
+            concurrency.inRolledBackTransaction {
                 secretDelegationLock.lock(key)
-                assertFalse(tryLock(otherConnection, key))
-                status.setRollbackOnly()
+                probe.assertUnavailable()
             }
 
-            assertTrue(tryLock(otherConnection, key))
+            probe.assertAvailable()
         }
     }
-
-    private fun tryLock(connection: Connection, key: Long): Boolean =
-        connection.prepareStatement("SELECT pg_try_advisory_xact_lock(?)")
-            .use { statement ->
-                statement.setLong(1, key)
-                statement.executeQuery().use { result ->
-                    result.next()
-                    result.getBoolean(1)
-                }
-            }
 }

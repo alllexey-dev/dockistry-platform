@@ -5,6 +5,8 @@ import io.dockistry.platform.iam.infrastructure.UserRepository
 import io.dockistry.platform.setup.domain.InitialAdminAlreadyExistsException
 import io.dockistry.platform.shared.domain.SystemSettingKeys
 import io.dockistry.platform.shared.infrastructure.SystemSettingRepository
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyTestConfiguration
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyTestSupport
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.assertInstanceOf
 import org.springframework.beans.factory.annotation.Autowired
@@ -12,22 +14,16 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.util.UUID
-import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.CyclicBarrier
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 @SpringBootTest
-@Import(TestcontainersConfig::class)
+@Import(TestcontainersConfig::class, ConcurrencyTestConfiguration::class)
 @Testcontainers
 class InitialAdminServiceConcurrencyTests {
 
     companion object {
-        const val N_THREADS = 5
+        const val REQUEST_COUNT = 5
     }
 
     @Autowired
@@ -39,43 +35,28 @@ class InitialAdminServiceConcurrencyTests {
     @Autowired
     private lateinit var userRepository: UserRepository
 
+    @Autowired
+    private lateinit var concurrency: ConcurrencyTestSupport
+
     @Test
     fun `only one request succeeds out of several requests for initial admin bootstrap`() {
-        val executorService = Executors.newFixedThreadPool(N_THREADS)
-        val barrier = CyclicBarrier(N_THREADS)
-        val successCounter = AtomicInteger()
-        val exceptionList = CopyOnWriteArrayList<Throwable>()
-
-        repeat(N_THREADS) {
-            val suffix = UUID.randomUUID().toString().take(4)
-
-            executorService.submit {
-                try {
-                    barrier.await()
-
+        val outcomes = concurrency.run(workers = REQUEST_COUNT) {
+            startTogether(*Array(REQUEST_COUNT) {
+                {
+                    val suffix = UUID.randomUUID().toString().take(8)
                     initialAdminService.initializeAdmin(
-                        username = "concurrent-initial-admin-$suffix",
-                        email = "concurrent-initial-admin-$suffix@dockistry.io",
+                        username = "concurrent-admin-$suffix",
+                        email = "concurrent-admin-$suffix@dockistry.io",
                         password = "password-123"
                     )
-
-                    successCounter.incrementAndGet()
-                } catch (e: Exception) {
-                    exceptionList.add(e)
                 }
-            }
+            })
         }
 
-        executorService.shutdown()
-        val finished = executorService.awaitTermination(10, TimeUnit.SECONDS)
-        assertTrue(finished, "Threads haven't finished execution in given timeout")
-
-        exceptionList.forEach {
-            assertInstanceOf<InitialAdminAlreadyExistsException>(it)
-        }
-
-        assertEquals(1, successCounter.get())
-        assertEquals(N_THREADS - 1, exceptionList.size)
+        val failures = outcomes.mapNotNull { it.exceptionOrNull() }
+        failures.forEach { assertInstanceOf<InitialAdminAlreadyExistsException>(it) }
+        assertEquals(1, outcomes.count { it.isSuccess })
+        assertEquals(REQUEST_COUNT - 1, failures.size)
     }
 
     @AfterEach
@@ -86,7 +67,7 @@ class InitialAdminServiceConcurrencyTests {
             }
 
         userRepository.findAll()
-            .filter { it.username.startsWith("concurrent-initial-admin") }
+            .filter { it.username.startsWith("concurrent-admin-") }
             .forEach { userRepository.delete(it) }
     }
 }
