@@ -182,7 +182,7 @@ class SecretService(
 
         val newVersion = SecretVersion(
             secret = secret,
-            encryptedValues = newPayload,
+            encryptedValues = encryptPayload(newPayload),
             createdAt = clock.instant()
         )
         secret.addVersion(newVersion)
