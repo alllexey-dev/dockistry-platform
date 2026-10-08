@@ -1,6 +1,8 @@
 package io.dockistry.platform.secrets.domain
 
 object SecretValidator {
+    const val MAX_ENV_NAME_LENGTH = 255
+
     private val keyRegex = Regex("^[A-Za-z0-9_.-]+$")
     private val envNameRegex = Regex("^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -16,6 +18,11 @@ object SecretValidator {
     }
 
     fun validateEnvName(value: String): String {
+        if (value.length > MAX_ENV_NAME_LENGTH) {
+            throw InvalidSecretReferenceFormatException(
+                "Secret environment name must be at most $MAX_ENV_NAME_LENGTH characters"
+            )
+        }
         if (!value.matches(envNameRegex)) {
             throw InvalidSecretReferenceFormatException(
                 "Secret environment name must start with a Latin letter or underscore " +

@@ -1,6 +1,7 @@
 package io.dockistry.platform.services.domain
 
 import io.dockistry.platform.secrets.domain.InvalidSecretReferenceFormatException
+import io.dockistry.platform.secrets.domain.SecretValidator
 import io.dockistry.platform.services.testsupport.managedServiceDraft
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -19,6 +20,7 @@ class ManagedServiceConfigurationTests {
             reference.copy(key = "bad key"),
             reference.copy(envName = "BAD-NAME!"),
             reference.copy(envName = "1PASSWORD"),
+            reference.copy(envName = "A".repeat(SecretValidator.MAX_ENV_NAME_LENGTH + 1)),
             reference.copy(secretVersion = "bad-version")
         )
 
@@ -45,6 +47,22 @@ class ManagedServiceConfigurationTests {
         )
 
         assertEquals("_PASSWORD_1", configuration.secretReferences.single().envName)
+    }
+
+    @Test
+    fun `secret reference environment name of max length is accepted`() {
+        val envName = "A".repeat(SecretValidator.MAX_ENV_NAME_LENGTH)
+        val reference = ManagedServiceSecretReference(
+            secretId = "sec-AAAAAAAAAAAA",
+            key = "password",
+            envName = envName
+        )
+
+        val configuration = ManagedServiceConfiguration.validated(
+            managedServiceDraft().copy(secretReferences = listOf(reference))
+        )
+
+        assertEquals(envName, configuration.secretReferences.single().envName)
     }
 
     @Test
