@@ -15,11 +15,15 @@ import io.dockistry.platform.projects.domain.dto.AssignRoleResponse
 import io.dockistry.platform.projects.domain.dto.ProjectMemberDto
 import io.dockistry.platform.projects.domain.dto.RoleDto
 import io.dockistry.platform.shared.api.ApiResponse
+import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.testsupport.IamProjectFixtures
+import io.dockistry.platform.testsupport.SecretDelegationFixtures
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
 import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
@@ -61,6 +65,9 @@ class ProjectMemberControllerIntegrationTests {
 
     @Autowired
     private lateinit var roleRepository: RoleRepository
+
+    @Autowired
+    private lateinit var delegationRepository: ProjectSecretDelegationRepository
 
     @PersistenceContext
     private lateinit var entityManager: EntityManager
@@ -348,6 +355,39 @@ class ProjectMemberControllerIntegrationTests {
             jsonPath("$.data") { value(nullValue()) }
             jsonPath("$.errorCode") { value("authentication_required") }
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `both delete endpoints return active delegation conflict without deleting data`(
+        deleteMember: Boolean
+    ) {
+        val fixtures = fixtures()
+        val manager = authenticatedUser(fixtures, "revocation-manager")
+        val project = fixtures.project()
+        val owner = fixtures.principal()
+        val ownerBinding = fixtures.grantSystemPermission(
+            owner, project.scope,
+            SystemPermissionNames.PROJECT_READ.key,
+            SystemPermissionNames.SECRETS_DELEGATE.key
+        )
+        val delegation = SecretDelegationFixtures(entityManager).delegate(owner, project)
+        fixtures.grantMemberManagement(manager.user.principal, project)
+        fixtures.flushAndClear()
+        val memberPath = "/api/projects/${project.id}/members/${owner.id}"
+        val path = if (deleteMember) memberPath else "$memberPath/roles/${ownerBinding.id}"
+
+        val response = mockMvc.delete(path) {
+            bearer(manager)
+        }.andExpect {
+            expectApiError(statusCode = 409, errorCode = "secret_delegation_active")
+        }.andReturn().apiResponse<Any>()
+
+        assertTrue(assertNotNull(response.errorMessage).contains(
+            "force-revoke", ignoreCase = true
+        ))
+        assertTrue(roleBindingExists(ownerBinding.id))
+        assertTrue(delegationRepository.existsById(delegation.id))
     }
 
     private fun fixtures(): IamProjectFixtures = IamProjectFixtures(entityManager)
