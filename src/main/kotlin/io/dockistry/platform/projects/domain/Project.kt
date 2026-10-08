@@ -3,6 +3,7 @@ package io.dockistry.platform.projects.domain
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.Role
 import io.dockistry.platform.iam.domain.Scope
+import io.dockistry.platform.shared.domain.ResourceDescriptionNormalizer
 import io.dockistry.platform.shared.domain.ResourceNameNormalizer
 import io.dockistry.platform.shared.domain.SlugValidator
 import jakarta.persistence.CascadeType
@@ -32,7 +33,7 @@ class Project(
 
     slug: String,
 
-    var description: String? = null,
+    description: String? = null,
 
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
     val ownerPrincipal: Principal,
@@ -74,6 +75,12 @@ class Project(
         )
     }
 
+    @field:Column(length = ResourceDescriptionNormalizer.MAX_LENGTH)
+    var description: String? = normalizeDescription(description)
+        set(value) {
+            field = normalizeDescription(value)
+        }
+
     @OneToMany(mappedBy = "project", cascade = [CascadeType.ALL], fetch = FetchType.LAZY)
     val customRoles: MutableSet<Role> = mutableSetOf()
 
@@ -81,8 +88,15 @@ class Project(
     @PreUpdate
     fun normalizeBeforeSave() {
         name = normalizeName(name)
+        description = normalizeDescription(description)
     }
 
     private fun normalizeName(value: String): String =
         ResourceNameNormalizer.normalizeAndValidate(value, ::InvalidProjectNameException)
+
+    private fun normalizeDescription(value: String?): String? =
+        ResourceDescriptionNormalizer.normalizeAndValidate(
+            value,
+            ::InvalidProjectDescriptionException
+        )
 }

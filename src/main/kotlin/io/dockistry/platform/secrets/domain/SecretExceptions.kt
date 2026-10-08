@@ -20,6 +20,10 @@ class SecretDelegationActiveException(
     message: String
 ) : ConflictException(message, "secret_delegation_active")
 
+class InvalidSecretDescriptionException(
+    message: String
+) : BadRequestException(message, "invalid_secret_description")
+
 class InvalidSecretReferenceException(
     message: String
 ) : BadRequestException(message, "invalid_secret_reference")

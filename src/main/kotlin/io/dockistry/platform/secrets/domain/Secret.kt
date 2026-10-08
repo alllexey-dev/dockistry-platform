@@ -1,6 +1,7 @@
 package io.dockistry.platform.secrets.domain
 
 import io.dockistry.platform.iam.domain.Principal
+import io.dockistry.platform.shared.domain.ResourceDescriptionNormalizer
 import io.dockistry.platform.shared.domain.ResourceNameNormalizer
 import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
@@ -46,8 +47,11 @@ class Secret(
     var name: String = normalizeName(name)
         protected set
 
-    @Column(name = "description", columnDefinition = "text")
-    var description: String? = description
+    @Column(name = "description", length = ResourceDescriptionNormalizer.MAX_LENGTH)
+    var description: String? = ResourceDescriptionNormalizer.normalizeAndValidate(
+        description,
+        ::InvalidSecretDescriptionException
+    )
         protected set
 
     @OneToMany(

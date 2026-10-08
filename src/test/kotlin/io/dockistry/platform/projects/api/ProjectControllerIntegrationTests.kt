@@ -13,6 +13,7 @@ import io.dockistry.platform.projects.domain.dto.ProjectSaveRequest
 import io.dockistry.platform.projects.domain.dto.ProjectUpdateRequest
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
 import io.dockistry.platform.services.testsupport.managedService
+import io.dockistry.platform.shared.domain.ResourceDescriptionNormalizer
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
@@ -539,6 +540,72 @@ class ProjectControllerIntegrationTests {
             content = projectJson(name = " \n\t ", slug = "valid-slug")
         }.andExpect {
             expectApiError(statusCode = 400, errorCode = "invalid_project_name")
+        }
+    }
+
+    @Test
+    fun `create returns invalid project description error for too long or NUL description`() {
+        val fixtures = fixtures()
+        val user = authenticatedUser(fixtures, "creator")
+        fixtures.grantSystemPermission(
+            user.user.principal,
+            fixtures.globalScope(),
+            SystemPermissionNames.PROJECT_CREATE.key
+        )
+        fixtures.flush()
+        val invalidDescriptions = listOf(
+            "a".repeat(ResourceDescriptionNormalizer.MAX_LENGTH + 1),
+            "bad\u0000description"
+        )
+
+        invalidDescriptions.forEach { description ->
+            mockMvc.post("/api/projects") {
+                bearer(user)
+                contentType = MediaType.APPLICATION_JSON
+                content = projectJson(
+                    name = "Valid Name",
+                    slug = "valid-slug",
+                    description = description
+                )
+            }.andExpect {
+                expectApiError(statusCode = 400, errorCode = "invalid_project_description")
+            }
+        }
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    fun `update accepts max length description and rejects longer one`() {
+        val context = committedUpdateContext(SystemPermissionNames.PROJECT_UPDATE.key)
+        val maxDescription = "a".repeat(ResourceDescriptionNormalizer.MAX_LENGTH)
+
+        try {
+            mockMvc.patch("/api/projects/${context.project.id}") {
+                bearer(context.user)
+                contentType = MediaType.APPLICATION_JSON
+                content = projectUpdateJson(
+                    name = context.project.name,
+                    description = maxDescription + "a",
+                    expectedVersion = context.project.version
+                )
+            }.andExpect {
+                expectApiError(statusCode = 400, errorCode = "invalid_project_description")
+            }
+
+            mockMvc.patch("/api/projects/${context.project.id}") {
+                bearer(context.user)
+                contentType = MediaType.APPLICATION_JSON
+                content = projectUpdateJson(
+                    name = context.project.name,
+                    description = "  $maxDescription\n",
+                    expectedVersion = context.project.version
+                )
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.description") { value(maxDescription) }
+            }
+        } finally {
+            cleanupCommittedProject(context.project.id)
         }
     }
 

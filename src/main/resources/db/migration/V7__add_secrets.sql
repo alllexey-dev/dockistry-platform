@@ -2,7 +2,7 @@ CREATE TABLE secrets
 (
     id                 VARCHAR(16)                 NOT NULL,
     name               VARCHAR(255)                NOT NULL,
-    description        TEXT,
+    description        VARCHAR(1000),
     owner_principal_id UUID                        NOT NULL,
     version            BIGINT                      NOT NULL,
     created_at         TIMESTAMP WITHOUT TIME ZONE NOT NULL,

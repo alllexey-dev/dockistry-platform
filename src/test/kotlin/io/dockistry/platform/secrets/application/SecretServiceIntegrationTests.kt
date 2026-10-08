@@ -9,6 +9,7 @@ import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
 import io.dockistry.platform.secrets.application.ports.SecretEncryptor
 import io.dockistry.platform.secrets.domain.EmptySecretValuesException
+import io.dockistry.platform.secrets.domain.InvalidSecretDescriptionException
 import io.dockistry.platform.secrets.domain.InvalidSecretValuesException
 import io.dockistry.platform.secrets.domain.SecretValidator
 import io.dockistry.platform.secrets.domain.SecretNotFoundException
@@ -16,6 +17,7 @@ import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
 import io.dockistry.platform.secrets.infrastructure.SecretVersionRepository
+import io.dockistry.platform.shared.domain.ResourceDescriptionNormalizer
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
@@ -215,6 +217,40 @@ class SecretServiceIntegrationTests {
                 values = mapOf(),
                 ownerPrincipal = owner
             )
+        }
+    }
+
+    @Test
+    fun `create normalizes description and rejects invalid one`() {
+        val owner = IamProjectFixtures(entityManager).principal()
+        entityManager.flush()
+
+        val secretId = secretService.create(
+            name = "described-secret",
+            description = "  first line\nsecond line  ",
+            values = mapOf("password" to "value"),
+            ownerPrincipal = owner
+        )
+        entityManager.flush()
+        entityManager.clear()
+        assertEquals(
+            "first line\nsecond line",
+            secretRepository.findById(secretId).orElseThrow().description
+        )
+
+        listOf(
+            "a".repeat(ResourceDescriptionNormalizer.MAX_LENGTH + 1),
+            "bad\u0000description"
+        ).forEach { description ->
+            val error = assertFailsWith<InvalidSecretDescriptionException> {
+                secretService.create(
+                    name = "invalid-description-secret",
+                    description = description,
+                    values = mapOf("password" to "value"),
+                    ownerPrincipal = owner
+                )
+            }
+            assertEquals("invalid_secret_description", error.code)
         }
     }
 
