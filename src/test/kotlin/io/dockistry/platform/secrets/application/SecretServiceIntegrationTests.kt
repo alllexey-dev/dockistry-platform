@@ -280,6 +280,22 @@ class SecretServiceIntegrationTests {
     }
 
     @Test
+    fun `create rejects NUL value with a typed error instead of a database failure`() {
+        val owner = IamProjectFixtures(entityManager).principal()
+        entityManager.flush()
+
+        val error = assertFailsWith<InvalidSecretValuesException> {
+            secretService.create(
+                name = "nul-value-secret",
+                description = null,
+                values = mapOf("password" to "bad\u0000value"),
+                ownerPrincipal = owner
+            )
+        }
+        assertEquals("invalid_secret_values", error.code)
+    }
+
+    @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delegate requires project secrets delegate permission and rejects without it`() {
         val (owner, delegator, project, ownerSecret, delegatorSecret) = transactionTemplate.execute {
