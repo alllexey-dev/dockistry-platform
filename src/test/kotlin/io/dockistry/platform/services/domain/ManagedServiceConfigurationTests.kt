@@ -18,6 +18,7 @@ class ManagedServiceConfigurationTests {
             reference.copy(secretId = "bad-id"),
             reference.copy(key = "bad key"),
             reference.copy(envName = "BAD-NAME!"),
+            reference.copy(envName = "1PASSWORD"),
             reference.copy(secretVersion = "bad-version")
         )
 
@@ -29,6 +30,21 @@ class ManagedServiceConfigurationTests {
             }
             assertEquals("invalid_secret_reference_format", error.code)
         }
+    }
+
+    @Test
+    fun `secret reference environment name may start with an underscore`() {
+        val reference = ManagedServiceSecretReference(
+            secretId = "sec-AAAAAAAAAAAA",
+            key = "password",
+            envName = "_PASSWORD_1"
+        )
+
+        val configuration = ManagedServiceConfiguration.validated(
+            managedServiceDraft().copy(secretReferences = listOf(reference))
+        )
+
+        assertEquals("_PASSWORD_1", configuration.secretReferences.single().envName)
     }
 
     @Test

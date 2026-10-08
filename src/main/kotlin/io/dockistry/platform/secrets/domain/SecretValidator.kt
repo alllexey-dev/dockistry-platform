@@ -2,7 +2,7 @@ package io.dockistry.platform.secrets.domain
 
 object SecretValidator {
     private val keyRegex = Regex("^[A-Za-z0-9_.-]+$")
-    private val envNameRegex = Regex("^[A-Za-z0-9_]+$")
+    private val envNameRegex = Regex("^[A-Za-z_][A-Za-z0-9_]*$")
 
     fun validateId(value: String): String = SecretIdGenerator.validate(value)
 
@@ -18,7 +18,8 @@ object SecretValidator {
     fun validateEnvName(value: String): String {
         if (!value.matches(envNameRegex)) {
             throw InvalidSecretReferenceFormatException(
-                "Secret environment name must contain only Latin letters, digits or underscores"
+                "Secret environment name must start with a Latin letter or underscore " +
+                    "and contain only Latin letters, digits or underscores"
             )
         }
         return value
