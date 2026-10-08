@@ -27,8 +27,9 @@ interface ManagedServiceSecretReferenceRepository :
         FROM ManagedServiceSecretReferenceEntity reference
         JOIN FETCH reference.service
         WHERE reference.secret.id = :secretId
+            AND reference.secretVersion IS NULL
     """)
-    fun findBySecretId(secretId: String): List<ManagedServiceSecretReferenceEntity>
+    fun findLatestBySecretId(secretId: String): List<ManagedServiceSecretReferenceEntity>
 
     @Query("""
         SELECT reference

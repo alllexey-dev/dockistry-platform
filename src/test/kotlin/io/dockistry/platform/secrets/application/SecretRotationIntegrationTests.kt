@@ -104,6 +104,34 @@ class SecretRotationIntegrationTests {
         assertNull(warning.resolvedAt)
     }
 
+    @Test
+    fun `rotate does not create an outdated warning for a pinned reference`() {
+        val fixtures = IamProjectFixtures(entityManager)
+        val owner = fixtures.principal()
+        val project = fixtures.project(ownerPrincipal = owner)
+        val service = managedService(project, "service-${fixtures.unique()}")
+        entityManager.persist(service)
+        val secret = secretWithVersion(owner)
+        val now = clock.instant()
+        entityManager.persist(ProjectSecretDelegation(secret, project, now, now))
+        entityManager.persist(ManagedServiceSecretReferenceEntity(
+            service = service,
+            secret = secret,
+            secretKey = "password",
+            secretVersion = secret.versions.single().id,
+            envName = "PASSWORD"
+        ))
+        entityManager.flush()
+
+        secretService.rotate(secret.id, mapOf("password" to "new-value"), owner)
+        entityManager.flush()
+        entityManager.clear()
+
+        assertTrue(warningRepository.findActiveByServiceAndType(
+            service.id, SecretWarningType.OUTDATED
+        ).isEmpty())
+    }
+
     private fun secretWithVersion(owner: Principal): Secret {
         val now = clock.instant().minusSeconds(1)
         val secret = Secret("postgres-credentials", null, owner, now, now)

@@ -163,7 +163,7 @@ class SecretService(
             projectSecretDelegationRepository.findBySecretId(secretId)
                 .map { it.project.id }.toSet()
 
-        val secretReferences = referenceRepository.findBySecretId(secretId)
+        val secretReferences = referenceRepository.findLatestBySecretId(secretId)
             .filter { it.service.project.id in projectIdsWithDelegation }
 
         secretReferences.forEach { referenceEntity ->
