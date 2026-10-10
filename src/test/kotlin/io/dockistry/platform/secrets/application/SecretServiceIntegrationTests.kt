@@ -25,6 +25,10 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import java.util.concurrent.atomic.AtomicLong
+import org.springframework.context.annotation.Primary
+import org.springframework.context.annotation.Bean
+import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.support.TransactionTemplate
@@ -34,7 +38,11 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 @SpringBootTest
-@Import(TestcontainersConfig::class, TestClockConfig::class)
+@Import(
+    TestcontainersConfig::class,
+    TestClockConfig::class,
+    SecretServiceIntegrationTests.RandomizedSecretEncryptorConfig::class
+)
 @Testcontainers
 @Transactional
 class SecretServiceIntegrationTests {
@@ -385,5 +393,21 @@ class SecretServiceIntegrationTests {
 
     private fun createOwner() = transactionTemplate.execute {
         IamProjectFixtures(entityManager).principal()
+    }
+
+    /** Like real AES-GCM: the same plaintext gets a different ciphertext on every call. */
+    @TestConfiguration
+    class RandomizedSecretEncryptorConfig {
+        @Bean
+        @Primary
+        fun randomizedSecretEncryptor(): SecretEncryptor = object : SecretEncryptor {
+            private val nonce = AtomicLong()
+
+            override fun encrypt(plaintext: String): String =
+                "enc:${nonce.incrementAndGet()}:$plaintext"
+
+            override fun decrypt(encryptedPayload: String): String =
+                encryptedPayload.substringAfter(':').substringAfter(':')
+        }
     }
 }

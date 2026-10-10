@@ -63,10 +63,8 @@ class SecretService(
             secretRepository.saveAndFlush(secret).id
         } catch (exception: DataIntegrityViolationException) {
             val existing = secretRepository.findByOwnerAndName(ownerPrincipal, secret.name)
-            if (existing != null &&
-                isSameLogicalSecret(existing, secret) &&
-                existing.versions.singleOrNull()?.encryptedValues == payload
-            ) {
+                ?: throw exception
+            if (isSameLogicalSecret(existing, secret) && hasSingleVersionWith(existing, values)) {
                 existing.id
             } else {
                 throw SecretAlreadyExistsException(
@@ -196,8 +194,18 @@ class SecretService(
             existing.description == requested.description &&
             existing.ownerPrincipal.id == requested.ownerPrincipal.id
 
-    private fun isSameSecretVersion(existing: SecretVersion, requested: SecretVersion) =
-        existing.secret.id == requested.secret.id && existing.encryptedValues == requested.encryptedValues
+    /*
+     * Ciphertext can't be compared: real encryption uses a random nonce, so the same
+     * plaintext encrypts differently on every call. Retried creates are rare, so
+     * decrypting the existing version in memory is cheap enough.
+     */
+    private fun hasSingleVersionWith(existing: Secret, values: Map<String, String>): Boolean {
+        val encryptedValues = existing.versions.singleOrNull()?.encryptedValues ?: return false
+        return encryptedValues.keys == values.keys &&
+            encryptedValues.all { (key, encrypted) ->
+                secretEncryptor.decrypt(encrypted) == values[key]
+            }
+    }
 
     private fun toDto(secret: Secret): SecretDto = SecretDto(
         id = secret.id,
