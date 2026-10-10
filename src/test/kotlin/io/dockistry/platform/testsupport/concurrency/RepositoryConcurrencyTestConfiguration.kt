@@ -3,6 +3,8 @@ package io.dockistry.platform.testsupport.concurrency
 import io.dockistry.platform.iam.domain.RoleBinding
 import io.dockistry.platform.iam.domain.Scope
 import io.dockistry.platform.iam.infrastructure.RoleBindingRepository
+import io.dockistry.platform.projects.domain.Project
+import io.dockistry.platform.projects.infrastructure.ProjectRepository
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
@@ -17,6 +19,7 @@ import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_BIN
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_DELEGATION_ROW_LOCK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_DELEGATION_SAVE
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_PRINCIPAL_LOCK
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_PROJECT_SAVE
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_SECRET_SAVE
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_SERVICE_ROW_LOCK
 import org.springframework.boot.test.context.TestConfiguration
@@ -37,6 +40,13 @@ class RepositoryConcurrencyTestConfiguration {
         delegate: SecretRepository,
         concurrency: ConcurrencyTestSupport
     ): SecretRepository = CoordinatedSecretRepository(delegate, concurrency)
+
+    @Bean
+    @Primary
+    fun coordinatedProjectRepository(
+        delegate: ProjectRepository,
+        concurrency: ConcurrencyTestSupport
+    ): ProjectRepository = CoordinatedProjectRepository(delegate, concurrency)
 
     @Bean
     @Primary
@@ -83,6 +93,16 @@ private open class CoordinatedSecretRepository(
     // JpaRepository requires this generic signature for saveAndFlush overrides.
     override fun <S : Secret> saveAndFlush(entity: S): S {
         concurrency.checkpoint(BEFORE_SECRET_SAVE, entity.name)
+        return delegate.saveAndFlush(entity)
+    }
+}
+
+private open class CoordinatedProjectRepository(
+    private val delegate: ProjectRepository,
+    private val concurrency: ConcurrencyTestSupport
+) : ProjectRepository by delegate {
+    override fun <S : Project> saveAndFlush(entity: S): S {
+        concurrency.checkpoint(BEFORE_PROJECT_SAVE, entity.ownerPrincipal.id)
         return delegate.saveAndFlush(entity)
     }
 }

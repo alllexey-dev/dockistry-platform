@@ -3,6 +3,7 @@ package io.dockistry.platform.testsupport.concurrency
 /** Named boundaries implemented by test adapters. BEFORE/AFTER describe the real call. */
 enum class ConcurrencyPoint {
     BEFORE_SECRET_SAVE,
+    BEFORE_PROJECT_SAVE,
     BEFORE_DELEGATION_SAVE,
     BEFORE_DELEGATION_ROW_LOCK,
     AFTER_REFERENCE_FLUSH,

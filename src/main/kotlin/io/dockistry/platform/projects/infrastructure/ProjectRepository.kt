@@ -9,6 +9,10 @@ import java.util.UUID
 interface ProjectRepository : JpaRepository<Project, UUID> {
     fun findProjectById(id: UUID): Project?
 
+    fun existsByNameOrSlug(name: String, slug: String): Boolean
+
+    fun existsByNameAndIdNot(name: String, id: UUID): Boolean
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
         UPDATE Project project

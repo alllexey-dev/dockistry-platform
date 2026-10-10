@@ -4,14 +4,12 @@ import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.projects.domain.InvalidProjectDescriptionException
 import io.dockistry.platform.projects.domain.InvalidProjectNameException
-import io.dockistry.platform.projects.domain.ProjectAlreadyExistsException
 import io.dockistry.platform.projects.domain.ProjectNotFoundException
 import io.dockistry.platform.projects.domain.ProjectVersionConflictException
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
 import io.dockistry.platform.shared.domain.ResourceDescriptionNormalizer
 import io.dockistry.platform.shared.domain.ResourceNameNormalizer
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
-import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
@@ -38,16 +36,12 @@ class ProjectUpdateExecutor(
         )
         val normalizedDescription = normalizeDescription(description)
 
-        val updatedRows = try {
-            projectRepository.updateWithExpectedVersion(
-                projectId = projectId,
-                name = normalizedName,
-                description = normalizedDescription,
-                expectedVersion = expectedVersion
-            )
-        } catch (_: DataIntegrityViolationException) {
-            throw ProjectAlreadyExistsException("Project with such name already exists")
-        }
+        val updatedRows = projectRepository.updateWithExpectedVersion(
+            projectId = projectId,
+            name = normalizedName,
+            description = normalizedDescription,
+            expectedVersion = expectedVersion
+        )
 
         if (updatedRows == 0) {
             return resolveConflict(
