@@ -3,13 +3,13 @@ package io.dockistry.platform.secrets.application
 import io.dockistry.platform.secrets.domain.InvalidSecretReferenceException
 import io.dockistry.platform.secrets.domain.ManagedServiceSecretReferenceEntity
 import io.dockistry.platform.secrets.domain.SecretPayload
-import io.dockistry.platform.secrets.domain.SecretValidator
 import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.domain.toDto
 import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.secrets.infrastructure.SecretVersionRepository
 import io.dockistry.platform.services.domain.ManagedService
+import io.dockistry.platform.services.domain.ManagedServiceConfiguration
 import io.dockistry.platform.services.domain.ManagedServiceSecretReference
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
 import org.springframework.stereotype.Service
@@ -23,14 +23,8 @@ class ManagedServiceSecretReferenceService(
     private val projectSecretDelegationRepository: ProjectSecretDelegationRepository
 ) {
     @Transactional
-    fun replace(service: ManagedService, references: List<ManagedServiceSecretReference>) {
-        references.forEach { reference ->
-            SecretValidator.validateId(reference.secretId)
-            SecretValidator.validateKey(reference.key)
-            SecretValidator.validateEnvName(reference.envName)
-            SecretValidator.validateOptionalVersion(reference.secretVersion)
-        }
-
+    fun replace(service: ManagedService, configuration: ManagedServiceConfiguration) {
+        val references = configuration.secretReferences
         lockSecretsAndCheckDelegation(service, references)
 
         referenceRepository.deleteByService(service)

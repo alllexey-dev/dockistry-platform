@@ -61,7 +61,7 @@ class ManagedServiceUpdateExecutor(
             return service
         }
 
-        managedServiceSecretReferenceService.replace(service, configuration.secretReferences)
+        managedServiceSecretReferenceService.replace(service, configuration)
         service.updateConfiguration(configuration, clock.instant())
         return managedServiceRepository.saveAndFlush(service)
     }

@@ -4,14 +4,15 @@ import io.dockistry.platform.TestClockConfig
 import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.secrets.domain.InvalidSecretReferenceException
-import io.dockistry.platform.secrets.domain.InvalidSecretReferenceFormatException
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
 import io.dockistry.platform.services.domain.ManagedService
+import io.dockistry.platform.services.domain.ManagedServiceConfiguration
 import io.dockistry.platform.services.domain.ManagedServiceSecretReference
 import io.dockistry.platform.services.testsupport.managedService
+import io.dockistry.platform.services.testsupport.managedServiceDraft
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
@@ -52,7 +53,7 @@ class ManagedServiceSecretReferenceServiceIntegrationTests {
             reference(secret, "password", "LATEST_PASSWORD"),
             reference(secret, "password", "PINNED_PASSWORD", oldVersion.id)
         )
-        referenceService.replace(service, references)
+        referenceService.replace(service, configuration(references))
         entityManager.flush()
         entityManager.clear()
 
@@ -70,7 +71,7 @@ class ManagedServiceSecretReferenceServiceIntegrationTests {
         val error = assertFailsWith<InvalidSecretReferenceException> {
             referenceService.replace(
                 service,
-                listOf(reference(secret, "password", "PASSWORD"))
+                configuration(listOf(reference(secret, "password", "PASSWORD")))
             )
         }
 
@@ -79,25 +80,12 @@ class ManagedServiceSecretReferenceServiceIntegrationTests {
     }
 
     @Test
-    fun `invalid reference inputs return their expected error codes`() {
+    fun `unresolved references return invalid secret reference`() {
         val (project, service) = projectAndService()
         val secret = secret(project)
         version(secret, mapOf("password" to "value"), LATER)
         delegate(project, secret)
         entityManager.flush()
-
-        val invalidFormats = listOf(
-            reference(secret, "password", "PASSWORD").copy(secretId = "bad-id"),
-            reference(secret, "bad key", "PASSWORD"),
-            reference(secret, "password", "BAD-NAME!"),
-            reference(secret, "password", "PASSWORD", "bad-version")
-        )
-        invalidFormats.forEach { invalid ->
-            val error = assertFailsWith<InvalidSecretReferenceFormatException> {
-                referenceService.replace(service, listOf(invalid))
-            }
-            assertEquals("invalid_secret_reference_format", error.code)
-        }
 
         val unresolved = listOf(
             reference(secret, "missing", "PASSWORD"),
@@ -105,11 +93,10 @@ class ManagedServiceSecretReferenceServiceIntegrationTests {
         )
         unresolved.forEach { invalid ->
             val error = assertFailsWith<InvalidSecretReferenceException> {
-                referenceService.replace(service, listOf(invalid))
+                referenceService.replace(service, configuration(listOf(invalid)))
             }
             assertEquals("invalid_secret_reference", error.code)
         }
-
     }
 
     @Test
@@ -126,7 +113,7 @@ class ManagedServiceSecretReferenceServiceIntegrationTests {
         val currentService = entityManager.find(ManagedService::class.java, service.id)
         referenceService.replace(
             currentService,
-            listOf(reference(secret, "latest_only", "LATEST"))
+            configuration(listOf(reference(secret, "latest_only", "LATEST")))
         )
         entityManager.flush()
 
@@ -158,7 +145,9 @@ class ManagedServiceSecretReferenceServiceIntegrationTests {
         val error = assertFailsWith<InvalidSecretReferenceException> {
             referenceService.replace(
                 service,
-                listOf(reference(requestedSecret, "password", "PASSWORD", otherVersion.id))
+                configuration(
+                    listOf(reference(requestedSecret, "password", "PASSWORD", otherVersion.id))
+                )
             )
         }
 
@@ -201,6 +190,11 @@ class ManagedServiceSecretReferenceServiceIntegrationTests {
         envName: String,
         version: String? = null
     ) = ManagedServiceSecretReference(secret.id, key, envName, version)
+
+    private fun configuration(references: List<ManagedServiceSecretReference>) =
+        ManagedServiceConfiguration.validated(
+            managedServiceDraft().copy(secretReferences = references)
+        )
 
     companion object {
         private val EARLIER = Instant.parse("2025-01-01T00:00:00Z")

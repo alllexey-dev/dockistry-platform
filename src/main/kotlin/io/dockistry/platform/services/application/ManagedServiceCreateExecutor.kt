@@ -47,7 +47,7 @@ class ManagedServiceCreateExecutor(
         )
 
         managedServiceRepository.saveAndFlush(service)
-        managedServiceSecretReferenceService.replace(service, configuration.secretReferences)
+        managedServiceSecretReferenceService.replace(service, configuration)
         return service
     }
 
