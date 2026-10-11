@@ -2,8 +2,10 @@ package io.dockistry.platform.secrets.application
 
 import io.dockistry.platform.secrets.domain.InvalidSecretReferenceException
 import io.dockistry.platform.secrets.domain.ManagedServiceSecretReferenceEntity
+import io.dockistry.platform.secrets.domain.SecretHasNoVersionsException
 import io.dockistry.platform.secrets.domain.SecretPayload
 import io.dockistry.platform.secrets.domain.SecretVersion
+import io.dockistry.platform.secrets.domain.SecretVersionNotFoundException
 import io.dockistry.platform.secrets.domain.toDto
 import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
@@ -125,14 +127,14 @@ class ManagedServiceSecretReferenceService(
     ): SecretVersion {
         val versionEntity = if (reference.secretVersion == null) {
             latestVersionBySecretId[reference.secretId]
-                ?: throw InvalidSecretReferenceException(
-                    "Secret ${reference.secretId} couldn't be resolved"
+                ?: throw SecretHasNoVersionsException(
+                    "Secret ${reference.secretId} has no versions to resolve latest from"
                 )
         } else {
             pinnedVersionById[reference.secretVersion]?.takeIf { it.secret.id == reference.secretId }
-                ?: throw InvalidSecretReferenceException(
-                    "Secret ${reference.secretId} at version ${reference.secretVersion} " +
-                        "couldn't be resolved"
+                ?: throw SecretVersionNotFoundException(
+                    "Version ${reference.secretVersion} of Secret ${reference.secretId} " +
+                        "couldn't be found"
                 )
         }
 

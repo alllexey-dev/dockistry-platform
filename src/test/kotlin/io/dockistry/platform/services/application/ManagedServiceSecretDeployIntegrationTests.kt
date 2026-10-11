@@ -12,6 +12,7 @@ import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.secrets.application.SecretService
 import io.dockistry.platform.secrets.domain.InvalidSecretReferenceException
+import io.dockistry.platform.secrets.domain.SecretHasNoVersionsException
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.domain.SecretVersion
@@ -128,9 +129,11 @@ class ManagedServiceSecretDeployIntegrationTests {
             ).setParameter("secretId", scenario.secretId).executeUpdate()
         }
 
-        assertFailsWith<InvalidSecretReferenceException> {
+        val error = assertFailsWith<SecretHasNoVersionsException> {
             service.deploy(scenario.projectId, scenario.serviceId, scenario.owner, false)
         }
+
+        assertEquals("secret_has_no_versions", error.code)
 
         Mockito.verifyNoInteractions(containerService)
         assertTrue(deploymentRepository.findAll().none { it.service.id == scenario.serviceId })

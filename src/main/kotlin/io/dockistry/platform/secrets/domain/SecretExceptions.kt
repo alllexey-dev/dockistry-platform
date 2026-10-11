@@ -32,6 +32,14 @@ class InvalidSecretReferenceFormatException(
     message: String
 ) : BadRequestException(message, "invalid_secret_reference_format")
 
+class SecretVersionNotFoundException(
+    message: String
+) : NotFoundException(message, "secret_version_not_found")
+
+class SecretHasNoVersionsException(
+    message: String
+) : ConflictException(message, "secret_has_no_versions")
+
 class InvalidSecretValuesException(
     message: String
 ) : BadRequestException(message, "invalid_secret_values")

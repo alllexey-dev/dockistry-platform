@@ -4,6 +4,8 @@ import io.dockistry.platform.TestClockConfig
 import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.secrets.domain.InvalidSecretReferenceException
+import io.dockistry.platform.secrets.domain.SecretHasNoVersionsException
+import io.dockistry.platform.secrets.domain.SecretVersionNotFoundException
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.domain.SecretVersion
@@ -80,23 +82,59 @@ class ManagedServiceSecretReferenceServiceIntegrationTests {
     }
 
     @Test
-    fun `unresolved references return invalid secret reference`() {
+    fun `missing key returns invalid secret reference`() {
         val (project, service) = projectAndService()
         val secret = secret(project)
         version(secret, mapOf("password" to "value"), LATER)
         delegate(project, secret)
         entityManager.flush()
 
-        val unresolved = listOf(
-            reference(secret, "missing", "PASSWORD"),
-            reference(secret, "password", "PASSWORD", "ver-AAAAAAAAAAAA")
-        )
-        unresolved.forEach { invalid ->
-            val error = assertFailsWith<InvalidSecretReferenceException> {
-                referenceService.replace(service, configuration(listOf(invalid)))
-            }
-            assertEquals("invalid_secret_reference", error.code)
+        val error = assertFailsWith<InvalidSecretReferenceException> {
+            referenceService.replace(
+                service,
+                configuration(listOf(reference(secret, "missing", "PASSWORD")))
+            )
         }
+
+        assertEquals("invalid_secret_reference", error.code)
+    }
+
+    @Test
+    fun `missing pinned version returns secret version not found`() {
+        val (project, service) = projectAndService()
+        val secret = secret(project)
+        version(secret, mapOf("password" to "value"), LATER)
+        delegate(project, secret)
+        entityManager.flush()
+
+        val error = assertFailsWith<SecretVersionNotFoundException> {
+            referenceService.replace(
+                service,
+                configuration(
+                    listOf(reference(secret, "password", "PASSWORD", "ver-AAAAAAAAAAAA"))
+                )
+            )
+        }
+
+        assertEquals("secret_version_not_found", error.code)
+    }
+
+    @Test
+    fun `latest reference to secret without versions returns secret has no versions`() {
+        val (project, service) = projectAndService()
+        val secret = secret(project)
+        delegate(project, secret)
+        entityManager.flush()
+
+        val error = assertFailsWith<SecretHasNoVersionsException> {
+            referenceService.replace(
+                service,
+                configuration(listOf(reference(secret, "password", "PASSWORD")))
+            )
+        }
+
+        assertEquals("secret_has_no_versions", error.code)
+        assertEquals(0, referenceRepository.findByServiceId(service.id).size)
     }
 
     @Test
@@ -132,7 +170,7 @@ class ManagedServiceSecretReferenceServiceIntegrationTests {
     }
 
     @Test
-    fun `pinned version belonging to another secret is invalid reference`() {
+    fun `pinned version belonging to another secret is not found`() {
         val (project, service) = projectAndService()
         val requestedSecret = secret(project)
         val otherSecret = secret(project)
@@ -142,7 +180,7 @@ class ManagedServiceSecretReferenceServiceIntegrationTests {
         delegate(project, otherSecret)
         entityManager.flush()
 
-        val error = assertFailsWith<InvalidSecretReferenceException> {
+        val error = assertFailsWith<SecretVersionNotFoundException> {
             referenceService.replace(
                 service,
                 configuration(
@@ -151,7 +189,7 @@ class ManagedServiceSecretReferenceServiceIntegrationTests {
             )
         }
 
-        assertEquals("invalid_secret_reference", error.code)
+        assertEquals("secret_version_not_found", error.code)
         assertEquals(0, referenceRepository.findByServiceId(service.id).size)
     }
 
