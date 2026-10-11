@@ -81,6 +81,7 @@ production-границами. `await()` возвращает значение �
 | Точка | Значение для matching |
 | --- | --- |
 | `BEFORE_SECRET_SAVE` | Secret name |
+| `BEFORE_SECRET_ROW_LOCK`, `BEFORE_SECRET_DELEGATIONS_LOCK` | Secret ID |
 | `BEFORE_PROJECT_SAVE` | Owner principal ID |
 | `BEFORE_DELEGATION_SAVE` | Secret ID |
 | `BEFORE_DELEGATION_ROW_LOCK` | Project ID |

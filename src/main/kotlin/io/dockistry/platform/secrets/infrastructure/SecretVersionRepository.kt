@@ -2,6 +2,7 @@ package io.dockistry.platform.secrets.infrastructure
 
 import io.dockistry.platform.secrets.domain.SecretVersion
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 
 interface SecretVersionRepository : JpaRepository<SecretVersion, String> {
@@ -29,4 +30,13 @@ interface SecretVersionRepository : JpaRepository<SecretVersion, String> {
     """, nativeQuery = true
     )
     fun findLatestBySecretIdIn(secretIds: Collection<String>): List<SecretVersion>
+
+    /* Database cascade removes pinned canonical references of the version. */
+    @Modifying
+    @Query("""
+        DELETE FROM SecretVersion version
+        WHERE version.secret.id = :secretId
+            AND version.id = :versionId
+    """)
+    fun deleteBySecretIdAndId(secretId: String, versionId: String): Int
 }

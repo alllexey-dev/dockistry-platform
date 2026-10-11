@@ -7,12 +7,16 @@ import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
+import io.dockistry.platform.secrets.domain.SecretNotFoundException
 import io.dockistry.platform.secrets.domain.SecretWarningType
+import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
+import io.dockistry.platform.secrets.infrastructure.SecretVersionRepository
 import io.dockistry.platform.secrets.infrastructure.ServiceSecretWarningRepository
 import io.dockistry.platform.services.application.ManagedServiceService
 import io.dockistry.platform.services.application.dto.ManagedServiceCreateCommand
+import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceConfigurationDraft
 import io.dockistry.platform.services.domain.ManagedServiceDesiredState
 import io.dockistry.platform.services.domain.ManagedServiceSecretReference
@@ -22,6 +26,8 @@ import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_REFE
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_DELEGATION_ROW_LOCK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_DELEGATION_SAVE
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_PRINCIPAL_LOCK
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_SECRET_DELEGATIONS_LOCK
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_SECRET_ROW_LOCK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_SECRET_SAVE
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyTestSupport
 import io.dockistry.platform.testsupport.concurrency.RepositoryConcurrencyTestConfiguration
@@ -33,6 +39,7 @@ import org.springframework.context.annotation.Import
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -56,6 +63,12 @@ class SecretServiceConcurrencyTests @Autowired constructor(
 
     @Autowired
     private lateinit var secretRepository: SecretRepository
+
+    @Autowired
+    private lateinit var versionRepository: SecretVersionRepository
+
+    @Autowired
+    private lateinit var referenceRepository: ManagedServiceSecretReferenceRepository
 
     @Autowired
     private lateinit var entityManager: EntityManager
@@ -200,6 +213,141 @@ class SecretServiceConcurrencyTests @Autowired constructor(
             assertEquals(ids.first(), stored.single().id)
         }
     }
+
+    @Test
+    fun `rotate waits for latest version deletion and outdates the remaining latest reference`() {
+        val data = prepareTestData()
+        val service = createService(data, secretVersion = null)
+        val deletedVersionId = latestVersionId(data.secretId)
+        val rotatedVersionId = concurrency.run {
+            val deletionLocks = pauseAt(BEFORE_SECRET_DELEGATIONS_LOCK, matching = data.secretId)
+            val deletion = start("delete latest version") {
+                secretService.deleteVersion(data.secretId, deletedVersionId, data.owner)
+            }
+            deletionLocks.awaitReached()
+            val secretLock = observeNext(BEFORE_SECRET_ROW_LOCK)
+            val rotation = start("rotate") {
+                secretService.rotate(data.secretId, mapOf(data.secretKey to "rotated"), data.owner)
+            }
+            assertBlocked(secretLock, by = deletionLocks)
+            deletionLocks.release()
+            deletion.await()
+            rotation.await()
+        }
+
+        assertEquals(rotatedVersionId, latestVersionId(data.secretId))
+        assertFalse(versionRepository.existsById(deletedVersionId))
+        assertEquals(
+            setOf(SecretWarningType.DELETED, SecretWarningType.OUTDATED),
+            activeWarnings(service).map { it.warningType }.toSet()
+        )
+    }
+
+    @Test
+    fun `version deletion waits for configuration and warns its new pinned reference`() {
+        val data = prepareTestData()
+        val versionId = latestVersionId(data.secretId)
+        val service = concurrency.run {
+            val afterFlush = pauseAt(AFTER_REFERENCE_FLUSH)
+            val configuration = start("create pinned configuration") {
+                createService(data, secretVersion = versionId)
+            }
+            afterFlush.awaitReached()
+            val delegationsLock = observeNext(BEFORE_SECRET_DELEGATIONS_LOCK)
+            val deletion = start("delete pinned version") {
+                secretService.deleteVersion(data.secretId, versionId, data.owner)
+            }
+            assertBlocked(delegationsLock, by = afterFlush)
+            afterFlush.release()
+            deletion.await()
+            configuration.await()
+        }
+
+        assertEquals(emptyList(), referenceRepository.findByServiceId(service.id))
+        val warning = activeWarnings(service).single()
+        assertEquals(SecretWarningType.DELETED, warning.warningType)
+        assertEquals(versionId, warning.secretVersion)
+    }
+
+    @Test
+    fun `secret deletion waits for configuration and warns its new reference`() {
+        val data = prepareTestData()
+        val service = concurrency.run {
+            val afterFlush = pauseAt(AFTER_REFERENCE_FLUSH)
+            val configuration = start("create latest configuration") {
+                createService(data, secretVersion = null)
+            }
+            afterFlush.awaitReached()
+            val delegationsLock = observeNext(BEFORE_SECRET_DELEGATIONS_LOCK)
+            val deletion = start("delete secret") {
+                secretService.delete(data.secretId, data.owner)
+            }
+            assertBlocked(delegationsLock, by = afterFlush)
+            afterFlush.release()
+            deletion.await()
+            configuration.await()
+        }
+
+        assertFalse(secretRepository.existsById(data.secretId))
+        assertEquals(emptyList(), referenceRepository.findByServiceId(service.id))
+        val warning = activeWarnings(service).single()
+        assertEquals(SecretWarningType.DELETED, warning.warningType)
+        assertNull(warning.secretVersion)
+    }
+
+    @Test
+    fun `delegation waits for secret deletion and then fails as missing`() {
+        val data = prepareTestData()
+        val otherProjectId = concurrency.inNewTransaction {
+            val fixtures = IamProjectFixtures(entityManager)
+            val project = fixtures.project(ownerPrincipal = data.owner)
+            fixtures.grantSystemPermission(
+                data.owner, project.scope,
+                SystemPermissionNames.PROJECT_READ.key,
+                SystemPermissionNames.SECRETS_DELEGATE.key
+            )
+            project.id
+        }
+        val error = concurrency.run {
+            val deletionLocks = pauseAt(BEFORE_SECRET_DELEGATIONS_LOCK, matching = data.secretId)
+            val deletion = start("delete secret") {
+                secretService.delete(data.secretId, data.owner)
+            }
+            deletionLocks.awaitReached()
+            val principalLock = observeNext(BEFORE_PRINCIPAL_LOCK)
+            val delegation = start("delegate to another project") {
+                secretService.delegate(data.secretId, otherProjectId, data.owner)
+            }
+            assertBlocked(principalLock, by = deletionLocks)
+            deletionLocks.release()
+            deletion.await()
+            delegation.failure()
+        }
+
+        assertIs<SecretNotFoundException>(error)
+        assertFalse(secretRepository.existsById(data.secretId))
+        assertNull(delegationRepository.getByProjectAndSecret(otherProjectId, data.secretId))
+    }
+
+    private fun createService(data: ConcurrencyTestData, secretVersion: String?): ManagedService =
+        managedServiceService.create(
+            ManagedServiceCreateCommand(
+                projectId = data.project.id,
+                principal = data.owner,
+                name = "service-" + suffix(),
+                configuration = configurationDraft(
+                    secretId = data.secretId,
+                    secretKey = data.secretKey,
+                    secretVersion = secretVersion
+                )
+            )
+        )
+
+    private fun latestVersionId(secretId: String): String =
+        versionRepository.findLatestBySecretId(secretId).id
+
+    private fun activeWarnings(service: ManagedService) =
+        serviceSecretWarningRepository.findByServiceAndResolvedAtIsNullOrderByCreatedAtAsc(service)
 
     private fun prepareTestData(): ConcurrencyTestData {
         val fixtures = IamProjectFixtures(entityManager)

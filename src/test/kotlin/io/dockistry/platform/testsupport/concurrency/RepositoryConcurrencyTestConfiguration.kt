@@ -20,6 +20,8 @@ import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_DEL
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_DELEGATION_SAVE
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_PRINCIPAL_LOCK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_PROJECT_SAVE
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_SECRET_DELEGATIONS_LOCK
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_SECRET_ROW_LOCK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_SECRET_SAVE
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_SERVICE_ROW_LOCK
 import org.springframework.boot.test.context.TestConfiguration
@@ -95,6 +97,11 @@ private open class CoordinatedSecretRepository(
         concurrency.checkpoint(BEFORE_SECRET_SAVE, entity.name)
         return delegate.saveAndFlush(entity)
     }
+
+    override fun findByIdForNoKeyUpdate(secretId: String): Secret? {
+        concurrency.checkpoint(BEFORE_SECRET_ROW_LOCK, secretId)
+        return delegate.findByIdForNoKeyUpdate(secretId)
+    }
 }
 
 private open class CoordinatedProjectRepository(
@@ -122,6 +129,11 @@ private open class CoordinatedDelegationRepository(
     ): List<ProjectSecretDelegation> {
         concurrency.checkpoint(BEFORE_DELEGATION_ROW_LOCK, projectId)
         return delegate.findByProjectAndSecretForNoKeyUpdateBatch(projectId, secretIds)
+    }
+
+    override fun findBySecretIdForNoKeyUpdate(secretId: String): List<ProjectSecretDelegation> {
+        concurrency.checkpoint(BEFORE_SECRET_DELEGATIONS_LOCK, secretId)
+        return delegate.findBySecretIdForNoKeyUpdate(secretId)
     }
 }
 

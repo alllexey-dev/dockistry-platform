@@ -3,17 +3,20 @@ package io.dockistry.platform.secrets.application
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.application.ProjectAccessGuard
 import io.dockistry.platform.secrets.application.ports.SecretEncryptor
+import io.dockistry.platform.secrets.domain.ManagedServiceSecretReferenceEntity
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
 import io.dockistry.platform.secrets.domain.SecretValidator
+import io.dockistry.platform.secrets.domain.SecretVersionNotFoundException
 import io.dockistry.platform.secrets.domain.SecretWarningType
 import io.dockistry.platform.secrets.domain.ServiceSecretWarning
 import io.dockistry.platform.secrets.domain.dto.SecretDto
 import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
+import io.dockistry.platform.secrets.infrastructure.SecretVersionRepository
 import io.dockistry.platform.secrets.infrastructure.ServiceSecretWarningRepository
 import io.dockistry.platform.shared.domain.ResourceNameNormalizer
 import org.springframework.dao.DataIntegrityViolationException
@@ -26,6 +29,7 @@ import java.util.UUID
 @Service
 class SecretService(
     private val secretRepository: SecretRepository,
+    private val secretVersionRepository: SecretVersionRepository,
     private val projectSecretDelegationRepository: ProjectSecretDelegationRepository,
     private val secretEncryptor: SecretEncryptor,
     private val projectAccessGuard: ProjectAccessGuard,
@@ -148,11 +152,12 @@ class SecretService(
         newPayload: Map<String, String>,
         principal: Principal
     ): String {
-        val secret = secretAccessGuard.requireOwner(
+        val payload = encryptPayload(newPayload)
+        // Serializes with version and logical Secret deletion that decide what is latest.
+        val secret = secretAccessGuard.requireOwnerForUpdate(
             secretId = secretId,
             principal = principal
         )
-        val payload = encryptPayload(newPayload)
 
         val projectIdsWithDelegation =
             projectSecretDelegationRepository.findBySecretId(secretId)
@@ -161,19 +166,7 @@ class SecretService(
         val secretReferences = referenceRepository.findLatestBySecretId(secretId)
             .filter { it.service.project.id in projectIdsWithDelegation }
 
-        secretReferences.forEach { referenceEntity ->
-            serviceSecretWarningRepository.saveIdempotent(
-                ServiceSecretWarning(
-                    service = referenceEntity.service,
-                    secretId = secretId,
-                    secretKey = referenceEntity.secretKey,
-                    secretVersion = referenceEntity.secretVersion,
-                    warningType = SecretWarningType.OUTDATED,
-                    envName = referenceEntity.envName,
-                    createdAt = clock.instant()
-                )
-            )
-        }
+        createWarnings(secretReferences, SecretWarningType.OUTDATED)
 
         val newVersion = SecretVersion(
             secret = secret,
@@ -185,9 +178,88 @@ class SecretService(
         return newVersion.id
     }
 
+    /**
+     * Physically deletes one version. Pinned references to it are removed by FK cascade, so
+     * they get `DELETED` warnings first; deleting the current latest also warns every latest
+     * reference, which silently starts resolving to the previous version or to nothing.
+     */
+    @Transactional
+    fun deleteVersion(secretId: String, versionId: String, principal: Principal) {
+        lockForDestructiveChange(secretId, principal)
+
+        val version = secretVersionRepository.findById(versionId)
+            .filter { it.secret.id == secretId }
+            .orElseThrow {
+                SecretVersionNotFoundException(
+                    "Version $versionId of Secret $secretId couldn't be found"
+                )
+            }
+        val isLatest = secretVersionRepository.findLatestBySecretId(secretId).id == version.id
+
+        val pinnedReferences =
+            referenceRepository.findPinnedBySecretIdAndVersion(secretId, version.id)
+        val latestReferences =
+            if (isLatest) referenceRepository.findLatestBySecretId(secretId) else emptyList()
+        createWarnings(pinnedReferences + latestReferences, SecretWarningType.DELETED)
+
+        secretVersionRepository.deleteBySecretIdAndId(secretId, version.id)
+    }
+
+    /**
+     * Deletes the logical Secret with all versions and delegations regardless of
+     * configuration and runtime dependencies. Every canonical reference is removed by FK
+     * cascade, so each one gets a `DELETED` warning first.
+     */
+    @Transactional
+    fun delete(secretId: String, principal: Principal) {
+        lockForDestructiveChange(secretId, principal)
+
+        createWarnings(referenceRepository.findBySecretId(secretId), SecretWarningType.DELETED)
+
+        projectSecretDelegationRepository.deleteBySecretId(secretId)
+        secretRepository.deleteLogicalSecret(secretId)
+    }
+
     @Transactional(readOnly = true)
     fun list(ownerPrincipal: Principal): List<SecretDto> =
         secretRepository.listByOwnerPrincipal(ownerPrincipal).map(::toDto)
+
+    /*
+     * The FK cascade must not remove a reference that got no DELETED warning, so the set of
+     * references read afterwards has to be final until commit:
+     * - owner principal lock blocks a concurrent delegation, which would open a new project
+     *   for references;
+     * - Secret row lock serializes with rotation and other deletions of this Secret;
+     * - delegation row locks wait for in-flight configuration replacements, which hold them
+     *   while inserting references, and make later ones fail on the missing version/delegation.
+     * NO KEY UPDATE keeps the Secret row compatible with FK KEY SHARE of reference inserts:
+     * otherwise a replacement holding a delegation lock would deadlock with this flow.
+     */
+    private fun lockForDestructiveChange(secretId: String, principal: Principal) {
+        secretDelegationPermissionGuard.lockPrincipal(principal.id)
+        secretAccessGuard.requireOwnerForUpdate(secretId, principal)
+        projectSecretDelegationRepository.findBySecretIdForNoKeyUpdate(secretId)
+    }
+
+    private fun createWarnings(
+        references: List<ManagedServiceSecretReferenceEntity>,
+        type: SecretWarningType
+    ) {
+        val now = clock.instant()
+        references.forEach { reference ->
+            serviceSecretWarningRepository.saveIdempotent(
+                ServiceSecretWarning(
+                    service = reference.service,
+                    secretId = reference.secret.id,
+                    secretKey = reference.secretKey,
+                    secretVersion = reference.secretVersion,
+                    warningType = type,
+                    envName = reference.envName,
+                    createdAt = now
+                )
+            )
+        }
+    }
 
     private fun isSameLogicalSecret(existing: Secret, requested: Secret): Boolean =
         existing.name == ResourceNameNormalizer.normalize(requested.name) &&

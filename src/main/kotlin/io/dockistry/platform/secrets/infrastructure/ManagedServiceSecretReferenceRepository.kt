@@ -38,4 +38,24 @@ interface ManagedServiceSecretReferenceRepository :
             AND reference.secret.id = :secretId
     """)
     fun findByProjectAndSecret(projectId: UUID, secretId: String): List<ManagedServiceSecretReferenceEntity>
+
+    @Query("""
+        SELECT reference
+        FROM ManagedServiceSecretReferenceEntity reference
+        JOIN FETCH reference.service
+        WHERE reference.secret.id = :secretId
+            AND reference.secretVersion = :secretVersion
+    """)
+    fun findPinnedBySecretIdAndVersion(
+        secretId: String,
+        secretVersion: String
+    ): List<ManagedServiceSecretReferenceEntity>
+
+    @Query("""
+        SELECT reference
+        FROM ManagedServiceSecretReferenceEntity reference
+        JOIN FETCH reference.service
+        WHERE reference.secret.id = :secretId
+    """)
+    fun findBySecretId(secretId: String): List<ManagedServiceSecretReferenceEntity>
 }

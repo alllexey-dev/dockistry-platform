@@ -66,6 +66,20 @@ interface ProjectSecretDelegationRepository : JpaRepository<ProjectSecretDelegat
         secretId: String
     ): List<ProjectSecretDelegation>
 
+    /* Locks every project delegation of one Secret in a deterministic order. */
+    @Query(
+        """
+        SELECT delegation.*
+        FROM project_secret_delegations delegation
+        WHERE delegation.secret_id = :secretId
+        ORDER BY delegation.project_id
+        FOR NO KEY UPDATE
+    """, nativeQuery = true
+    )
+    fun findBySecretIdForNoKeyUpdate(
+        secretId: String
+    ): List<ProjectSecretDelegation>
+
     @Query("""
         DELETE FROM ProjectSecretDelegation delegation
         WHERE delegation.project.id = :projectId
@@ -76,4 +90,11 @@ interface ProjectSecretDelegationRepository : JpaRepository<ProjectSecretDelegat
         projectId: UUID,
         secretId: String
     )
+
+    @Query("""
+        DELETE FROM ProjectSecretDelegation delegation
+        WHERE delegation.secret.id = :secretId
+    """)
+    @Modifying
+    fun deleteBySecretId(secretId: String): Int
 }

@@ -21,6 +21,18 @@ class SecretAccessGuard(
         return secret
     }
 
+    /** Locks the logical Secret row until the caller's transaction ends, then checks owner. */
+    fun requireOwnerForUpdate(
+        secretId: String,
+        principal: Principal,
+    ): Secret {
+        val secret = secretRepository.findByIdForNoKeyUpdate(secretId) ?: throw notFound()
+
+        if (secret.ownerPrincipal.id != principal.id) throw notFound()
+
+        return secret
+    }
+
     private fun notFound() =
         SecretNotFoundException("Secret with provided ID couldn't be found")
 }
