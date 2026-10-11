@@ -2,13 +2,13 @@ package io.dockistry.platform.services.application
 
 import io.dockistry.platform.TestClockConfig
 import io.dockistry.platform.TestcontainersConfig
-import io.dockistry.platform.iam.domain.InsufficientPermissionException
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.domain.InvalidSecretReferenceException
+import io.dockistry.platform.secrets.domain.SecretPermissionRequiredException
 import io.dockistry.platform.secrets.domain.toDto
 import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
 import io.dockistry.platform.services.application.dto.ManagedServiceCreateCommand
@@ -75,11 +75,11 @@ class ManagedServiceSecretUsePermissionIntegrationTests {
         val scenario = scenario()
         val command = createCommand(scenario, scenario.deniedPrincipal, "denied-create")
 
-        val error = assertFailsWith<InsufficientPermissionException> {
+        val error = assertFailsWith<SecretPermissionRequiredException> {
             createExecutor.execute(command)
         }
 
-        assertEquals("insufficient_permission_for_operation", error.code)
+        assertEquals("secret_permission_required", error.code)
         assertFalse(serviceRepository.existsByProjectIdAndName(command.projectId, command.name))
     }
 
@@ -109,13 +109,13 @@ class ManagedServiceSecretUsePermissionIntegrationTests {
             createCommand(scenario, scenario.deniedPrincipal, "denied-add", false)
         )
 
-        val error = assertFailsWith<InsufficientPermissionException> {
+        val error = assertFailsWith<SecretPermissionRequiredException> {
             updateExecutor.execute(
                 updateCommand(scenario, service.id, scenario.deniedPrincipal, service.version)
             )
         }
 
-        assertEquals("insufficient_permission_for_operation", error.code)
+        assertEquals("secret_permission_required", error.code)
         val persisted = serviceRepository.findById(service.id).orElseThrow()
         assertEquals("nginx", persisted.imageRepository)
         assertEquals(service.version, persisted.version)
@@ -129,7 +129,7 @@ class ManagedServiceSecretUsePermissionIntegrationTests {
             createCommand(scenario, scenario.permittedPrincipal, "denied-update")
         )
 
-        val error = assertFailsWith<InsufficientPermissionException> {
+        val error = assertFailsWith<SecretPermissionRequiredException> {
             updateExecutor.execute(
                 updateCommand(
                     scenario,
@@ -141,7 +141,7 @@ class ManagedServiceSecretUsePermissionIntegrationTests {
             )
         }
 
-        assertEquals("insufficient_permission_for_operation", error.code)
+        assertEquals("secret_permission_required", error.code)
         val persisted = serviceRepository.findById(service.id).orElseThrow()
         assertEquals("nginx", persisted.imageRepository)
         assertEquals(service.version, persisted.version)
@@ -229,11 +229,11 @@ class ManagedServiceSecretUsePermissionIntegrationTests {
             secretReferences = listOf(scenario.reference)
         ))
 
-        val error = assertFailsWith<InsufficientPermissionException> {
+        val error = assertFailsWith<SecretPermissionRequiredException> {
             updateExecutor.execute(command)
         }
 
-        assertEquals("insufficient_permission_for_operation", error.code)
+        assertEquals("secret_permission_required", error.code)
         assertEquals(service.version, serviceRepository.findById(service.id).orElseThrow().version)
     }
 
@@ -249,11 +249,11 @@ class ManagedServiceSecretUsePermissionIntegrationTests {
             secretReferences = listOf(scenario.reference)
         ))
 
-        val error = assertFailsWith<InsufficientPermissionException> {
+        val error = assertFailsWith<SecretPermissionRequiredException> {
             updateExecutor.resolveConflict(command)
         }
 
-        assertEquals("insufficient_permission_for_operation", error.code)
+        assertEquals("secret_permission_required", error.code)
     }
 
     private fun scenario(): Scenario = transactionTemplate.execute {

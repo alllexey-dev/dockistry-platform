@@ -7,11 +7,11 @@ import io.dockistry.platform.docker.domain.DockerLabels
 import io.dockistry.platform.docker.domain.model.DockerContainerCreateCommand
 import io.dockistry.platform.docker.domain.model.DockerNetworkRef
 import io.dockistry.platform.docker.domain.model.DockerImageRef
-import io.dockistry.platform.iam.domain.InsufficientPermissionException
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.secrets.application.SecretService
-import io.dockistry.platform.secrets.domain.InvalidSecretReferenceException
+import io.dockistry.platform.secrets.domain.SecretPermissionRequiredException
+import io.dockistry.platform.secrets.domain.SecretReferenceNotDelegatedException
 import io.dockistry.platform.secrets.domain.SecretHasNoVersionsException
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
@@ -112,9 +112,11 @@ class ManagedServiceSecretDeployIntegrationTests {
         val scenario = scenario()
         secretService.revoke(scenario.secretId, scenario.projectId, scenario.owner)
 
-        assertFailsWith<InvalidSecretReferenceException> {
+        val error = assertFailsWith<SecretReferenceNotDelegatedException> {
             service.deploy(scenario.projectId, scenario.serviceId, scenario.owner, false)
         }
+
+        assertEquals("secret_reference_not_delegated", error.code)
 
         Mockito.verifyNoInteractions(containerService)
         assertTrue(deploymentRepository.findAll().none { it.service.id == scenario.serviceId })
@@ -143,9 +145,11 @@ class ManagedServiceSecretDeployIntegrationTests {
     fun `deploy requires secrets use even when principal can manage service`() {
         val scenario = scenario()
 
-        assertFailsWith<InsufficientPermissionException> {
+        val error = assertFailsWith<SecretPermissionRequiredException> {
             service.deploy(scenario.projectId, scenario.serviceId, scenario.manager, false)
         }
+
+        assertEquals("secret_permission_required", error.code)
 
         Mockito.verifyNoInteractions(containerService)
         assertTrue(deploymentRepository.findAll().none { it.service.id == scenario.serviceId })

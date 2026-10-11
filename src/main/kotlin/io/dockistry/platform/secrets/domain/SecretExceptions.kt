@@ -2,6 +2,7 @@ package io.dockistry.platform.secrets.domain
 
 import io.dockistry.platform.shared.exception.BadRequestException
 import io.dockistry.platform.shared.exception.ConflictException
+import io.dockistry.platform.shared.exception.ForbiddenException
 import io.dockistry.platform.shared.exception.NotFoundException
 
 class InvalidSecretNameException(
@@ -39,6 +40,14 @@ class SecretVersionNotFoundException(
 class SecretHasNoVersionsException(
     message: String
 ) : ConflictException(message, "secret_has_no_versions")
+
+class SecretReferenceNotDelegatedException(
+    message: String
+) : BadRequestException(message, "secret_reference_not_delegated")
+
+class SecretPermissionRequiredException(
+    message: String
+) : ForbiddenException(message, "secret_permission_required")
 
 class InvalidSecretValuesException(
     message: String

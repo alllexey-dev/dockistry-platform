@@ -5,6 +5,7 @@ import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.secrets.domain.InvalidSecretReferenceException
 import io.dockistry.platform.secrets.domain.SecretHasNoVersionsException
+import io.dockistry.platform.secrets.domain.SecretReferenceNotDelegatedException
 import io.dockistry.platform.secrets.domain.SecretVersionNotFoundException
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
@@ -70,14 +71,14 @@ class ManagedServiceSecretReferenceServiceIntegrationTests {
         version(secret, mapOf("password" to "value"), LATER)
         entityManager.flush()
 
-        val error = assertFailsWith<InvalidSecretReferenceException> {
+        val error = assertFailsWith<SecretReferenceNotDelegatedException> {
             referenceService.replace(
                 service,
                 configuration(listOf(reference(secret, "password", "PASSWORD")))
             )
         }
 
-        assertEquals("invalid_secret_reference", error.code)
+        assertEquals("secret_reference_not_delegated", error.code)
         assertEquals(0, referenceRepository.findByServiceId(service.id).size)
     }
 

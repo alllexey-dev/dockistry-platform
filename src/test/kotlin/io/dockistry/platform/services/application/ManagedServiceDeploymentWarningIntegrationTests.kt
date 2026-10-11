@@ -2,10 +2,11 @@ package io.dockistry.platform.services.application
 
 import io.dockistry.platform.TestClockConfig
 import io.dockistry.platform.TestcontainersConfig
-import io.dockistry.platform.iam.domain.InsufficientPermissionException
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.secrets.domain.InvalidSecretReferenceException
+import io.dockistry.platform.secrets.domain.SecretPermissionRequiredException
+import io.dockistry.platform.secrets.domain.SecretReferenceNotDelegatedException
 import io.dockistry.platform.secrets.domain.ManagedServiceSecretReferenceEntity
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
@@ -63,7 +64,7 @@ class ManagedServiceDeploymentWarningIntegrationTests {
     fun `begin without secrets use leaves both warnings active`() {
         val scenario = scenario()
 
-        val error = assertFailsWith<InsufficientPermissionException> {
+        val error = assertFailsWith<SecretPermissionRequiredException> {
             lifecycleService.begin(
                 scenario.serviceId,
                 scenario.principalWithoutSecretsUse,
@@ -71,7 +72,7 @@ class ManagedServiceDeploymentWarningIntegrationTests {
             )
         }
 
-        assertEquals("insufficient_permission_for_operation", error.code)
+        assertEquals("secret_permission_required", error.code)
         assertWarningsStillActive(scenario)
     }
 
@@ -87,11 +88,11 @@ class ManagedServiceDeploymentWarningIntegrationTests {
                 .executeUpdate()
         }
 
-        val error = assertFailsWith<InvalidSecretReferenceException> {
+        val error = assertFailsWith<SecretReferenceNotDelegatedException> {
             lifecycleService.begin(scenario.serviceId, scenario.owner, false)
         }
 
-        assertEquals("invalid_secret_reference", error.code)
+        assertEquals("secret_reference_not_delegated", error.code)
         assertWarningsStillActive(scenario)
     }
 

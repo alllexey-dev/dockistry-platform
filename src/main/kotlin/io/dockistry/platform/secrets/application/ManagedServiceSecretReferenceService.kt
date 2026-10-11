@@ -4,6 +4,7 @@ import io.dockistry.platform.secrets.domain.InvalidSecretReferenceException
 import io.dockistry.platform.secrets.domain.ManagedServiceSecretReferenceEntity
 import io.dockistry.platform.secrets.domain.SecretHasNoVersionsException
 import io.dockistry.platform.secrets.domain.SecretPayload
+import io.dockistry.platform.secrets.domain.SecretReferenceNotDelegatedException
 import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.domain.SecretVersionNotFoundException
 import io.dockistry.platform.secrets.domain.toDto
@@ -103,7 +104,8 @@ class ManagedServiceSecretReferenceService(
         val missingSecrets = references.map { it.secretId }.filter { it !in lockedSecrets }
 
         if (!missingSecrets.isEmpty()) {
-            throw InvalidSecretReferenceException(
+            // Missing and non-delegated Secrets share one error to hide Secret existence.
+            throw SecretReferenceNotDelegatedException(
                 "Following Secrets couldn't be found or are not delegated to this project: " +
                         missingSecrets.joinToString(separator = ", ")
             )
