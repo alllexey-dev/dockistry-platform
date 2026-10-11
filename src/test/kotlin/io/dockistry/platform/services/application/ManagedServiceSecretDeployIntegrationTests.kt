@@ -24,6 +24,7 @@ import io.dockistry.platform.services.application.dto.ManagedServiceCreateComman
 import io.dockistry.platform.services.domain.ManagedServiceSecretReference
 import io.dockistry.platform.services.infrastructure.ManagedServiceDeploymentRepository
 import io.dockistry.platform.services.testsupport.managedServiceDraft
+import io.dockistry.platform.shared.exception.ForbiddenException
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import jakarta.persistence.EntityManager
 import org.junit.jupiter.api.BeforeEach
@@ -43,6 +44,7 @@ import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -174,9 +176,11 @@ class ManagedServiceSecretDeployIntegrationTests {
             )).id
         }
 
-        assertFailsWith<SecretWarningsConfirmationRequiredException> {
+        val error = assertFailsWith<SecretWarningsConfirmationRequiredException> {
             service.deploy(scenario.projectId, scenario.serviceId, scenario.owner, false)
         }
+        assertIs<ForbiddenException>(error)
+        assertEquals("secret_warnings_confirmation_required", error.code)
         Mockito.verifyNoInteractions(containerService)
         assertTrue(deploymentRepository.findAll().none { it.service.id == scenario.serviceId })
         assertEquals(null, warningRepository.findById(warningId).orElseThrow().resolvedAt)

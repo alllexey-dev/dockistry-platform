@@ -59,4 +59,4 @@ class EmptySecretValuesException(
 
 class SecretWarningsConfirmationRequiredException(
     message: String
-) : ConflictException(message, "secret_warnings_confirmation_required")
+) : ForbiddenException(message, "secret_warnings_confirmation_required")
