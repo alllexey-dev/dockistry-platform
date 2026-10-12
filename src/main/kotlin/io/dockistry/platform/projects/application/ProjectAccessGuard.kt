@@ -96,6 +96,18 @@ class ProjectAccessGuard(
         return project
     }
 
+    fun requireSecretsForceRevocable(projectId: UUID, principal: Principal): Project {
+        val project = requireReadable(projectId, principal)
+
+        if (!projectAccessService.hasSecretsForceRevokePermission(project.scope, principal)) {
+            throw InsufficientPermissionException(
+                "This principal is not allowed to force-revoke secrets of the specified project"
+            )
+        }
+
+        return project
+    }
+
     private fun notFound(): ProjectNotFoundException =
         ProjectNotFoundException("Project with provided ID couldn't be found")
 }

@@ -242,11 +242,17 @@ Rotation помечает latest references `OUTDATED`, revoke — `DELEGATION_R
 |-------|----------------------------------------------|-------------------------------------------|
 | `GET` | `/api/projects/{projectId}/secrets`          | Secrets, делегированные проекту           |
 | `GET` | `/api/projects/{projectId}/secrets/{secretId}` | один делегированный Secret              |
+| `DELETE` | `/api/projects/{projectId}/secrets/{secretId}/delegation` | force-revoke чужой delegation |
 
 `ProjectSecretDto` содержит `id`, `name`, `description`, `owner` (`PrincipalInfoDto`),
 `delegatedAt`, `versions` (новые первыми) и `usage` только внутри этого проекта.
 Нечитаемый проект возвращает `404 project_not_found`, не делегированный проекту
 Secret — `404 secret_not_found`.
+
+Force-revoke требует `project.secrets.force-revoke` (по умолчанию только у `project_admin`;
+без неё — `403 insufficient_permission_for_operation`, даже для владельца Secret). Последствия
+те же, что у owner revoke: `DELEGATION_REVOKED` warnings, references и Secret остаются,
+повторный запрос ничего не меняет.
 
 ## Managed Services API
 

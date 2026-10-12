@@ -430,6 +430,44 @@ class SecretControllerIntegrationTests {
     }
 
     @Test
+    fun `force revoke removes another owner's delegation with permission`() {
+        val admin = authenticatedUser("force-admin")
+        val project = project()
+        grantRead(admin.user.principal, project)
+        grantForceRevoke(admin.user.principal, project)
+        val delegation = delegate(principal(), project)
+
+        repeat(2) {
+            mockMvc.delete("/api/projects/${project.id}/secrets/${delegation.secret.id}/delegation") {
+                bearer(admin)
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data") { value("ok") }
+            }
+        }
+
+        assertEquals(0, count("project_secret_delegations", delegation.id))
+        assertEquals(1, count("secrets", delegation.secret.id))
+    }
+
+    @Test
+    fun `force revoke without permission is forbidden and without read is not found`() {
+        val reader = authenticatedUser("force-reader")
+        val stranger = authenticatedUser("force-stranger")
+        val project = project()
+        grantRead(reader.user.principal, project)
+        val delegation = delegate(reader.user.principal, project)
+        val path = "/api/projects/${project.id}/secrets/${delegation.secret.id}/delegation"
+
+        mockMvc.delete(path) { bearer(reader) }
+            .andExpect { expectApiError(403, "insufficient_permission_for_operation") }
+        mockMvc.delete(path) { bearer(stranger) }
+            .andExpect { expectApiError(404, "project_not_found") }
+
+        assertEquals(1, count("project_secret_delegations", delegation.id))
+    }
+
+    @Test
     fun `project secrets list is empty without delegations`() {
         val reader = authenticatedUser("project-empty")
         val project = project()
@@ -622,6 +660,14 @@ class SecretControllerIntegrationTests {
             reference<Principal>(principal.id),
             reference<Project>(project.id).scope,
             SystemPermissionNames.PROJECT_READ.key
+        )
+    }
+
+    private fun grantForceRevoke(principal: Principal, project: Project) = committed {
+        fixtures().grantSystemPermission(
+            reference<Principal>(principal.id),
+            reference<Project>(project.id).scope,
+            SystemPermissionNames.SECRETS_FORCE_REVOKE.key
         )
     }
 

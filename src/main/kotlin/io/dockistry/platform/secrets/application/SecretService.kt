@@ -158,39 +158,21 @@ class SecretService(
         }
     }
 
+    /**
+     * Owner revoke is authorized by ownership alone, so revoking `project.secrets.use` or any other
+     * project permission can't stop the owner from withdrawing their Secret.
+     */
     @Transactional
     fun revoke(secretId: String, projectId: UUID, principal: Principal) {
         secretAccessGuard.requireOwner(secretId, principal)
+        revokeDelegation(secretId, projectId)
+    }
 
-        projectSecretDelegationRepository.findByProjectAndSecretForNoKeyUpdateBatch(
-            projectId = projectId,
-            secretIds = listOf(secretId)
-        ).singleOrNull() ?: return
-
-        val now = clock.instant()
-
-        referenceRepository.findByProjectAndSecret(
-            projectId = projectId,
-            secretId = secretId
-        ).forEach { referenceEntity ->
-            serviceSecretWarningRepository.saveIdempotent(
-                ServiceSecretWarning(
-                    service = referenceEntity.service,
-                    secretId = secretId,
-                    secretKey = referenceEntity.secretKey,
-                    secretVersion = referenceEntity.secretVersion,
-                    warningType = SecretWarningType.DELEGATION_REVOKED,
-                    envName = referenceEntity.envName,
-                    createdAt = now,
-                    resolvedAt = null
-                )
-            )
-        }
-
-        projectSecretDelegationRepository.deleteByProjectAndSecret(
-            projectId = projectId,
-            secretId = secretId
-        )
+    /** Removes anyone's delegation with the same consequences as [revoke]; the Secret stays with its owner. */
+    @Transactional
+    fun forceRevoke(secretId: String, projectId: UUID, principal: Principal) {
+        projectAccessGuard.requireSecretsForceRevocable(projectId, principal)
+        revokeDelegation(secretId, projectId)
     }
 
     @Transactional
@@ -317,6 +299,28 @@ class SecretService(
         secretDelegationPermissionGuard.lockPrincipal(principal.id)
         secretAccessGuard.requireOwnerForUpdate(secretId, principal)
         projectSecretDelegationRepository.findBySecretIdForNoKeyUpdate(secretId)
+    }
+
+    /*
+     * The delegation row lock is the mutex shared with configuration replacement and deploy
+     * begin: they either commit references first and get a warning here, or see the delegation
+     * gone afterwards. A delegation that is already gone makes the revoke a no-op.
+     */
+    private fun revokeDelegation(secretId: String, projectId: UUID) {
+        projectSecretDelegationRepository.findByProjectAndSecretForNoKeyUpdateBatch(
+            projectId = projectId,
+            secretIds = listOf(secretId)
+        ).singleOrNull() ?: return
+
+        createWarnings(
+            referenceRepository.findByProjectAndSecret(projectId = projectId, secretId = secretId),
+            SecretWarningType.DELEGATION_REVOKED
+        )
+
+        projectSecretDelegationRepository.deleteByProjectAndSecret(
+            projectId = projectId,
+            secretId = secretId
+        )
     }
 
     private fun updateMetadata(

@@ -80,4 +80,12 @@ class ProjectAccessService(
             scopeId = scope.id
         )
     }
+
+    fun hasSecretsForceRevokePermission(scope: Scope, principal: Principal): Boolean {
+        return permissionCheckService.hasPermission(
+            key = SystemPermissionNames.SECRETS_FORCE_REVOKE.key,
+            principalId = principal.id,
+            scopeId = scope.id
+        )
+    }
 }
