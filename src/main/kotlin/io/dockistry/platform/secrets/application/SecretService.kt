@@ -7,7 +7,10 @@ import io.dockistry.platform.secrets.domain.ManagedServiceSecretReferenceEntity
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.domain.SecretVersion
+import io.dockistry.platform.secrets.domain.InvalidSecretDescriptionException
+import io.dockistry.platform.secrets.domain.InvalidSecretNameException
 import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
+import io.dockistry.platform.secrets.domain.SecretMetadataVersionConflictException
 import io.dockistry.platform.secrets.domain.SecretValidator
 import io.dockistry.platform.secrets.domain.SecretVersionNotFoundException
 import io.dockistry.platform.secrets.domain.SecretWarningType
@@ -18,6 +21,7 @@ import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepos
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
 import io.dockistry.platform.secrets.infrastructure.SecretVersionRepository
 import io.dockistry.platform.secrets.infrastructure.ServiceSecretWarningRepository
+import io.dockistry.platform.shared.domain.ResourceDescriptionNormalizer
 import io.dockistry.platform.shared.domain.ResourceNameNormalizer
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
@@ -71,10 +75,50 @@ class SecretService(
             if (isSameLogicalSecret(existing, secret) && hasSingleVersionWith(existing, values)) {
                 existing.id
             } else {
-                throw SecretAlreadyExistsException(
-                    "Secret with the same name already exists for this owner"
+                throw secretAlreadyExists()
+            }
+        }
+    }
+
+    /**
+     * Replaces name and description. A stale [expectedVersion] is accepted only when the
+     * Secret already has the requested metadata.
+     */
+    fun update(
+        secretId: String,
+        name: String,
+        description: String?,
+        expectedVersion: Long,
+        principal: Principal
+    ): SecretDto {
+        val normalizedName = ResourceNameNormalizer.normalizeAndValidate(
+            name,
+            ::InvalidSecretNameException
+        )
+        val normalizedDescription = ResourceDescriptionNormalizer.normalizeAndValidate(
+            description,
+            ::InvalidSecretDescriptionException
+        )
+
+        return try {
+            transactionTemplate.execute {
+                updateMetadata(
+                    secretId = secretId,
+                    name = normalizedName,
+                    description = normalizedDescription,
+                    expectedVersion = expectedVersion,
+                    principal = principal
                 )
             }
+        } catch (exception: DataIntegrityViolationException) {
+            // A concurrent rename can win the unique name after the pre-check. The failed
+            // transaction is already rolled back, so the recheck runs in a fresh one.
+            val nameTaken = transactionTemplate.execute {
+                isNameTakenByAnotherSecret(principal, normalizedName, secretId)
+            }
+            if (nameTaken) throw secretAlreadyExists()
+
+            throw exception
         }
     }
 
@@ -240,6 +284,46 @@ class SecretService(
         secretAccessGuard.requireOwnerForUpdate(secretId, principal)
         projectSecretDelegationRepository.findBySecretIdForNoKeyUpdate(secretId)
     }
+
+    private fun updateMetadata(
+        secretId: String,
+        name: String,
+        description: String?,
+        expectedVersion: Long,
+        principal: Principal
+    ): SecretDto {
+        val secret = secretAccessGuard.requireOwnerForUpdate(secretId, principal)
+
+        if (secret.name == name && secret.description == description) {
+            return toDto(secret)
+        }
+        if (secret.version != expectedVersion) {
+            throw SecretMetadataVersionConflictException(
+                "Secret $secretId has been modified concurrently"
+            )
+        }
+        if (isNameTakenByAnotherSecret(principal, name, secretId)) {
+            throw secretAlreadyExists()
+        }
+
+        secret.updateMetadata(name, description, clock.instant())
+        secretRepository.flush()
+
+        return toDto(secret)
+    }
+
+    private fun isNameTakenByAnotherSecret(
+        principal: Principal,
+        name: String,
+        secretId: String
+    ): Boolean = secretRepository.existsByOwnerPrincipalIdAndNameAndIdNot(
+        ownerPrincipalId = principal.id,
+        name = name,
+        id = secretId
+    )
+
+    private fun secretAlreadyExists() =
+        SecretAlreadyExistsException("Secret with the same name already exists for this owner")
 
     private fun createWarnings(
         references: List<ManagedServiceSecretReferenceEntity>,

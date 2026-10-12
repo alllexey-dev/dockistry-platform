@@ -17,6 +17,10 @@ class SecretAlreadyExistsException(
     message: String
 ) : ConflictException(message, "secret_already_exists")
 
+class SecretMetadataVersionConflictException(
+    message: String
+) : ConflictException(message, "secret_metadata_version_conflict")
+
 class SecretDelegationActiveException(
     message: String
 ) : ConflictException(message, "secret_delegation_active")

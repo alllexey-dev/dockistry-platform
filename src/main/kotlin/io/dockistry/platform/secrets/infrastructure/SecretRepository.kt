@@ -5,6 +5,7 @@ import io.dockistry.platform.secrets.domain.Secret
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
+import java.util.UUID
 
 interface SecretRepository : JpaRepository<Secret, String> {
     @Query("""
@@ -18,6 +19,12 @@ interface SecretRepository : JpaRepository<Secret, String> {
         ownerPrincipal: Principal,
         name: String
     ): Secret?
+
+    fun existsByOwnerPrincipalIdAndNameAndIdNot(
+        ownerPrincipalId: UUID,
+        name: String,
+        id: String
+    ): Boolean
 
     @Query("""
         SELECT DISTINCT secret

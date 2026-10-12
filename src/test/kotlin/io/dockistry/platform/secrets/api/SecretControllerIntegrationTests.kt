@@ -2,7 +2,13 @@ package io.dockistry.platform.secrets.api
 
 import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.auth.application.TokenManagementService
+import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.User
+import io.dockistry.platform.projects.domain.Project
+import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
+import io.dockistry.platform.secrets.domain.Secret
+import io.dockistry.platform.secrets.domain.dto.SecretDto
+import io.dockistry.platform.secrets.domain.dto.SecretUpdateRequest
 import io.dockistry.platform.secrets.domain.dto.SecretVersionCreateRequest
 import io.dockistry.platform.shared.api.ApiResponse
 import io.dockistry.platform.testsupport.IamProjectFixtures
@@ -22,11 +28,13 @@ import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.MockMvcResultMatchersDsl
 import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.post
-import org.springframework.transaction.annotation.Transactional
+import org.springframework.test.web.servlet.put
+import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
 import tools.jackson.databind.ObjectMapper
 import tools.jackson.module.kotlin.readValue
 import java.time.Instant
+import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
@@ -34,7 +42,6 @@ import kotlin.test.assertNotNull
 @AutoConfigureMockMvc
 @Import(TestcontainersConfig::class)
 @Testcontainers
-@Transactional
 class SecretControllerIntegrationTests {
     @Autowired
     private lateinit var mockMvc: MockMvc
@@ -45,14 +52,122 @@ class SecretControllerIntegrationTests {
     @Autowired
     private lateinit var tokenManagementService: TokenManagementService
 
+    // REQUIRES_NEW: Secret updates run in their own transactions, so fixtures are committed.
+    @Autowired
+    private lateinit var transactionTemplate: TransactionTemplate
+
     @PersistenceContext
     private lateinit var entityManager: EntityManager
 
     @Test
+    fun `update replaces name and description for owner`() {
+        val owner = authenticatedUser("update-owner")
+        val secret = secret(owner.user.principal)
+
+        val result = mockMvc.put("/api/secrets/${secret.id}") {
+            bearer(owner)
+            json(SecretUpdateRequest("  renamed   secret ", "  new description  ", 0))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.errorCode") { value(nullValue()) }
+        }.andReturn()
+
+        val updated = assertNotNull(
+            objectMapper.readValue<ApiResponse<SecretDto>>(result.response.contentAsString).data
+        )
+        assertEquals("renamed secret", updated.name)
+        assertEquals("new description", updated.description)
+        assertEquals(1, updated.version)
+        assertEquals(listOf(secret.versions.single().id), updated.versionsIds)
+    }
+
+    @Test
+    fun `stale update returns current secret when metadata already matches`() {
+        val owner = authenticatedUser("update-stale-same")
+        val secret = secret(owner.user.principal)
+        val request = SecretUpdateRequest("stale-same-${unique()}", null, 0)
+
+        repeat(2) {
+            mockMvc.put("/api/secrets/${secret.id}") {
+                bearer(owner)
+                json(request)
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.name") { value(request.name) }
+                jsonPath("$.data.version") { value(1) }
+            }
+        }
+    }
+
+    @Test
+    fun `stale update with different metadata returns version conflict`() {
+        val owner = authenticatedUser("update-stale")
+        val secret = secret(owner.user.principal)
+
+        mockMvc.put("/api/secrets/${secret.id}") {
+            bearer(owner)
+            json(SecretUpdateRequest("first-${unique()}", null, 0))
+        }.andExpect { status { isOk() } }
+
+        mockMvc.put("/api/secrets/${secret.id}") {
+            bearer(owner)
+            json(SecretUpdateRequest("second-${unique()}", null, 0))
+        }.andExpect { expectApiError(409, "secret_metadata_version_conflict") }
+    }
+
+    @Test
+    fun `update to name of another own secret returns conflict`() {
+        val owner = authenticatedUser("update-duplicate")
+        val secret = secret(owner.user.principal)
+        val other = secret(owner.user.principal)
+
+        mockMvc.put("/api/secrets/${secret.id}") {
+            bearer(owner)
+            json(SecretUpdateRequest(other.name, null, 0))
+        }.andExpect { expectApiError(409, "secret_already_exists") }
+    }
+
+    @Test
+    fun `update allows name used by another owner`() {
+        val owner = authenticatedUser("update-foreign-name")
+        val secret = secret(owner.user.principal)
+        val foreign = secret(principal())
+
+        mockMvc.put("/api/secrets/${secret.id}") {
+            bearer(owner)
+            json(SecretUpdateRequest(foreign.name, null, 0))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.name") { value(foreign.name) }
+        }
+    }
+
+    @Test
+    fun `update rejects invalid name`() {
+        val owner = authenticatedUser("update-invalid")
+        val secret = secret(owner.user.principal)
+
+        mockMvc.put("/api/secrets/${secret.id}") {
+            bearer(owner)
+            json(SecretUpdateRequest("   ", null, 0))
+        }.andExpect { expectApiError(400, "invalid_secret_name") }
+    }
+
+    @Test
+    fun `update of foreign secret returns secret not found`() {
+        val stranger = authenticatedUser("update-stranger")
+        val secret = secret(principal())
+
+        mockMvc.put("/api/secrets/${secret.id}") {
+            bearer(stranger)
+            json(SecretUpdateRequest("stolen-${unique()}", null, 0))
+        }.andExpect { expectApiError(404, "secret_not_found") }
+    }
+
+    @Test
     fun `rotate creates a new version for owner`() {
         val owner = authenticatedUser("rotate-owner")
-        val secret = secretFixtures().secret(owner.user.principal)
-        flushAndClear()
+        val secret = secret(owner.user.principal)
 
         val result = mockMvc.post("/api/secrets/${secret.id}/versions") {
             bearer(owner)
@@ -72,8 +187,7 @@ class SecretControllerIntegrationTests {
     @Test
     fun `rotate rejects empty values`() {
         val owner = authenticatedUser("rotate-empty")
-        val secret = secretFixtures().secret(owner.user.principal)
-        flushAndClear()
+        val secret = secret(owner.user.principal)
 
         mockMvc.post("/api/secrets/${secret.id}/versions") {
             bearer(owner)
@@ -86,8 +200,7 @@ class SecretControllerIntegrationTests {
     @Test
     fun `rotate of foreign secret returns secret not found`() {
         val stranger = authenticatedUser("rotate-stranger")
-        val secret = secretFixtures().secret(fixtures().principal())
-        flushAndClear()
+        val secret = secret(principal())
 
         mockMvc.post("/api/secrets/${secret.id}/versions") {
             bearer(stranger)
@@ -100,9 +213,8 @@ class SecretControllerIntegrationTests {
     @Test
     fun `delete version removes it for owner`() {
         val owner = authenticatedUser("version-owner")
-        val secret = secretFixtures().secret(owner.user.principal)
+        val secret = secret(owner.user.principal)
         val versionId = secret.versions.single().id
-        flushAndClear()
 
         mockMvc.delete("/api/secrets/${secret.id}/versions/$versionId") {
             bearer(owner)
@@ -118,10 +230,8 @@ class SecretControllerIntegrationTests {
     @Test
     fun `delete version of another secret returns version not found`() {
         val owner = authenticatedUser("version-mismatch")
-        val secretFixtures = secretFixtures()
-        val secret = secretFixtures.secret(owner.user.principal)
-        val otherVersionId = secretFixtures.secret(owner.user.principal).versions.single().id
-        flushAndClear()
+        val secret = secret(owner.user.principal)
+        val otherVersionId = secret(owner.user.principal).versions.single().id
 
         mockMvc.delete("/api/secrets/${secret.id}/versions/$otherVersionId") {
             bearer(owner)
@@ -133,10 +243,8 @@ class SecretControllerIntegrationTests {
     @Test
     fun `delete removes secret with versions and delegations for owner`() {
         val owner = authenticatedUser("delete-owner")
-        val secretFixtures = secretFixtures()
-        val secret = secretFixtures.secret(owner.user.principal)
-        val delegation = secretFixtures.delegate(secret, fixtures().project())
-        flushAndClear()
+        val secret = secret(owner.user.principal)
+        val delegation = delegate(secret, project())
 
         mockMvc.delete("/api/secrets/${secret.id}") {
             bearer(owner)
@@ -153,8 +261,7 @@ class SecretControllerIntegrationTests {
     @Test
     fun `delete of foreign secret returns secret not found`() {
         val stranger = authenticatedUser("delete-stranger")
-        val secret = secretFixtures().secret(fixtures().principal())
-        flushAndClear()
+        val secret = secret(principal())
 
         mockMvc.delete("/api/secrets/${secret.id}") {
             bearer(stranger)
@@ -166,10 +273,9 @@ class SecretControllerIntegrationTests {
     @Test
     fun `revoke removes delegation for owner`() {
         val owner = authenticatedUser("revoke-owner")
-        val project = fixtures().project()
-        val delegation = secretFixtures().delegate(owner.user.principal, project)
+        val project = project()
+        val delegation = delegate(owner.user.principal, project)
         val secretId = delegation.secret.id
-        flushAndClear()
 
         mockMvc.delete("/api/secrets/$secretId/delegations/${project.id}") {
             bearer(owner)
@@ -185,9 +291,8 @@ class SecretControllerIntegrationTests {
     @Test
     fun `revoke of foreign secret returns secret not found`() {
         val stranger = authenticatedUser("revoke-stranger")
-        val project = fixtures().project()
-        val delegation = secretFixtures().delegate(fixtures().principal(), project)
-        flushAndClear()
+        val project = project()
+        val delegation = delegate(principal(), project)
 
         mockMvc.delete("/api/secrets/${delegation.secret.id}/delegations/${project.id}") {
             bearer(stranger)
@@ -198,8 +303,7 @@ class SecretControllerIntegrationTests {
 
     @Test
     fun `secret mutations require authentication`() {
-        val secret = secretFixtures().secret(fixtures().principal())
-        flushAndClear()
+        val secret = secret(principal())
 
         mockMvc.delete("/api/secrets/${secret.id}")
             .andExpect { expectApiError(401, "authentication_required") }
@@ -207,22 +311,43 @@ class SecretControllerIntegrationTests {
         assertEquals(1, count("secrets", secret.id))
     }
 
+    private fun <T> committed(block: () -> T): T = transactionTemplate.execute { block() }
+
     private fun fixtures(): IamProjectFixtures = IamProjectFixtures(entityManager)
 
-    private fun secretFixtures(): SecretDelegationFixtures = SecretDelegationFixtures(entityManager)
+    private fun unique(): String = UUID.randomUUID().toString().replace("-", "").take(12)
 
-    private fun flushAndClear() = fixtures().flushAndClear()
+    private fun principal(): Principal = committed { fixtures().principal() }
+
+    private fun project(): Project = committed { fixtures().project() }
+
+    private fun secret(owner: Principal): Secret = committed {
+        SecretDelegationFixtures(entityManager).secret(reference<Principal>(owner.id))
+    }
+
+    private fun delegate(owner: Principal, project: Project): ProjectSecretDelegation =
+        delegate(secret(owner), project)
+
+    private fun delegate(secret: Secret, project: Project): ProjectSecretDelegation = committed {
+        SecretDelegationFixtures(entityManager).delegate(
+            reference<Secret>(secret.id),
+            reference<Project>(project.id)
+        )
+    }
+
+    private inline fun <reified T : Any> reference(id: Any): T =
+        entityManager.getReference(T::class.java, id)
 
     private fun authenticatedUser(prefix: String): AuthenticatedTestUser {
-        val fixtures = fixtures()
-        val suffix = fixtures.unique()
-        val user = fixtures.user(
-            username = "$prefix-$suffix",
-            email = "$prefix-$suffix@dockistry.io"
-        ).apply {
-            emailVerifiedAt = Instant.parse("2026-01-01T00:00:00Z")
+        val user = committed {
+            val suffix = unique()
+            fixtures().user(
+                username = "$prefix-$suffix",
+                email = "$prefix-$suffix@dockistry.io"
+            ).apply {
+                emailVerifiedAt = Instant.parse("2026-01-01T00:00:00Z")
+            }
         }
-        fixtures.flush()
 
         return AuthenticatedTestUser(
             user = user,

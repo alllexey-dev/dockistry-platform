@@ -79,6 +79,15 @@ class Secret(
         versions += version
     }
 
+    fun updateMetadata(name: String, description: String?, updatedAt: Instant) {
+        this.name = normalizeName(name)
+        this.description = ResourceDescriptionNormalizer.normalizeAndValidate(
+            description,
+            ::InvalidSecretDescriptionException
+        )
+        this.updatedAt = updatedAt
+    }
+
     private fun normalizeName(value: String): String =
         ResourceNameNormalizer.normalizeAndValidate(value, ::InvalidSecretNameException)
 }

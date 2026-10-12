@@ -22,7 +22,9 @@ import io.dockistry.platform.services.domain.ManagedServiceDesiredState
 import io.dockistry.platform.services.domain.ManagedServiceSecretReference
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import io.dockistry.platform.testsupport.MutableClock
+import io.dockistry.platform.testsupport.SecretDelegationFixtures
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_REFERENCE_FLUSH
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_SECRET_NAME_CHECK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_DELEGATION_ROW_LOCK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_DELEGATION_SAVE
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_PRINCIPAL_LOCK
@@ -171,6 +173,37 @@ class SecretServiceConcurrencyTests @Autowired constructor(
             assertEquals(ids.single(), stored.id)
             assertEquals(1, stored.versions.size)
         }
+    }
+
+    @Test
+    fun `concurrent rename to one name rechecks unique violation as a conflict`() {
+        val (owner, secretIds) = concurrency.inNewTransaction {
+            val owner = IamProjectFixtures(entityManager).principal()
+            val secrets = SecretDelegationFixtures(entityManager)
+            owner to List(2) { secrets.secret(owner).id }
+        }
+        val name = "renamed-${suffix()}"
+        val outcomes = concurrency.run {
+            // Both pre-checks pass before either flush, so the loser hits the unique constraint.
+            val afterCheck = pauseAt(AFTER_SECRET_NAME_CHECK, matching = name, participants = 2)
+            val updates = secretIds.map { secretId ->
+                start("rename $secretId") {
+                    secretService.update(secretId, name, null, 0, owner)
+                }
+            }
+            afterCheck.awaitReached()
+            afterCheck.release()
+            updates.map { it.outcome() }
+        }
+
+        val renamed = outcomes.mapNotNull { it.getOrNull() }.single()
+        assertEquals(name, renamed.name)
+        assertEquals(1, renamed.version)
+        val conflict = assertIs<SecretAlreadyExistsException>(
+            outcomes.mapNotNull { it.exceptionOrNull() }.single()
+        )
+        assertEquals("secret_already_exists", conflict.code)
+        assertEquals(renamed.id, secretRepository.findByOwnerAndName(owner, name)?.id)
     }
 
     @Test

@@ -15,6 +15,7 @@ import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.infrastructure.ManagedServiceRepository
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_BINDING_SNAPSHOT
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_REFERENCE_FLUSH
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_SECRET_NAME_CHECK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_BINDING_DELETE
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_DELEGATION_ROW_LOCK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_DELEGATION_SAVE
@@ -102,6 +103,13 @@ private open class CoordinatedSecretRepository(
         concurrency.checkpoint(BEFORE_SECRET_ROW_LOCK, secretId)
         return delegate.findByIdForNoKeyUpdate(secretId)
     }
+
+    override fun existsByOwnerPrincipalIdAndNameAndIdNot(
+        ownerPrincipalId: UUID,
+        name: String,
+        id: String
+    ): Boolean = delegate.existsByOwnerPrincipalIdAndNameAndIdNot(ownerPrincipalId, name, id)
+        .also { concurrency.checkpoint(AFTER_SECRET_NAME_CHECK, name) }
 }
 
 private open class CoordinatedProjectRepository(

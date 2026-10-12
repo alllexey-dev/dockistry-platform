@@ -202,11 +202,17 @@ access token и работают только с собственными Secret
 |----------|---------------------------------------------------|------------------------------------------------|
 | `GET`    | `/api/secrets`                                    | список собственных Secrets                     |
 | `POST`   | `/api/secrets`                                    | создать Secret с initial version, `201`        |
+| `PUT`    | `/api/secrets/{secretId}`                         | заменить `name` и `description`                |
 | `DELETE` | `/api/secrets/{secretId}`                         | удалить Secret с versions и delegations         |
 | `POST`   | `/api/secrets/{secretId}/versions`                | rotation: новая version из `values`, `201`     |
 | `DELETE` | `/api/secrets/{secretId}/versions/{versionId}`    | физически удалить version                      |
 | `POST`   | `/api/secrets/{secretId}/delegate`                | делегировать Secret проекту `projectId`, `201` |
 | `DELETE` | `/api/secrets/{secretId}/delegations/{projectId}` | отозвать delegation (идемпотентно)             |
+
+`PUT` принимает `name`, `description` и обязательный `expectedVersion` из последнего
+`SecretDto`. Устаревшая версия допускается, только если Secret уже имеет запрошенные
+metadata; иначе возвращается `409 secret_metadata_version_conflict`. Имя уникально
+среди Secrets владельца (`409 secret_already_exists`).
 
 Rotation помечает latest references `OUTDATED`, revoke — `DELEGATION_REVOKED`,
 удаление version или Secret — `DELETED`. Revoke и удаление не останавливают

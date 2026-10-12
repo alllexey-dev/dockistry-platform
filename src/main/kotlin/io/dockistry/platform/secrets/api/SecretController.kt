@@ -5,6 +5,7 @@ import io.dockistry.platform.secrets.application.SecretService
 import io.dockistry.platform.secrets.domain.dto.ProjectSecretDelegationRequest
 import io.dockistry.platform.secrets.domain.dto.SecretCreateRequest
 import io.dockistry.platform.secrets.domain.dto.SecretDto
+import io.dockistry.platform.secrets.domain.dto.SecretUpdateRequest
 import io.dockistry.platform.secrets.domain.dto.SecretVersionCreateRequest
 import io.dockistry.platform.shared.api.ApiResponse
 import org.springframework.http.HttpStatus
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
@@ -54,6 +56,22 @@ class SecretController(
         )
 
         return ApiResponse(secretId)
+    }
+
+    @PutMapping("/{secretId}")
+    fun update(
+        @PathVariable secretId: String,
+        @RequestBody request: SecretUpdateRequest
+    ): ApiResponse<SecretDto> {
+        val secret = secretService.update(
+            secretId = secretId,
+            name = request.name,
+            description = request.description,
+            expectedVersion = request.expectedVersion,
+            principal = currentUserProvider.getUser().principal
+        )
+
+        return ApiResponse(secret)
     }
 
     @DeleteMapping("/{secretId}")
