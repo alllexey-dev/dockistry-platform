@@ -314,6 +314,14 @@ start/stop. Во время Docker operation service показывает соо
 Каждое предупреждение содержит `id`, `warningType`, `secretId`, `secretKey`,
 `secretVersion`, `envName` и `createdAt`, без значений Secret.
 
+Deploy принимает query-параметр `ignoreWarnings`: без него при активных `DELETED`
+warnings возвращается `403 secret_warnings_confirmation_required`. Warnings, которые
+были активны в момент принятия deploy, закрываются только вместе с его успешным
+завершением (`FINISHED`). Неудачный или отменённый deploy оставляет их активными, и
+`DELETED` снова потребует подтверждения. Повтор того же события во время deploy
+(например, rotation) выдаёт warning новый `id`, поэтому такой warning остаётся
+активным.
+
 Имена volumes содержат от 2 до 30 символов и соответствуют Docker name rules:
 первый символ alphanumeric, оставшиеся символы — alphanumeric, `_`, `.` или `-`.
 DIRECT endpoints могут использовать одинаковый `externalPort` для разных

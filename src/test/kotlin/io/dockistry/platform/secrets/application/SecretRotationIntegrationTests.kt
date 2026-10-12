@@ -26,6 +26,7 @@ import org.springframework.context.annotation.Import
 import org.springframework.transaction.annotation.Transactional
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.time.Clock
+import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
@@ -129,9 +130,7 @@ class SecretRotationIntegrationTests {
         entityManager.clear()
 
         assertEquals(latestVersionId, versionRepository.findLatestBySecretId(secret.id).id)
-        assertTrue(warningRepository.findActiveByServiceAndType(
-            service.id, SecretWarningType.OUTDATED
-        ).isEmpty())
+        assertTrue(activeOutdatedWarnings(service.id).isEmpty())
     }
 
     @Test
@@ -161,9 +160,7 @@ class SecretRotationIntegrationTests {
         entityManager.flush()
         entityManager.clear()
 
-        val warning = warningRepository.findActiveByServiceAndType(
-            service.id, SecretWarningType.OUTDATED
-        ).single()
+        val warning = activeOutdatedWarnings(service.id).single()
         assertEquals(service.id, warning.service.id)
         assertEquals(secret.id, warning.secretId)
         assertEquals("password", warning.secretKey)
@@ -195,10 +192,12 @@ class SecretRotationIntegrationTests {
         entityManager.flush()
         entityManager.clear()
 
-        assertTrue(warningRepository.findActiveByServiceAndType(
-            service.id, SecretWarningType.OUTDATED
-        ).isEmpty())
+        assertTrue(activeOutdatedWarnings(service.id).isEmpty())
     }
+
+    private fun activeOutdatedWarnings(serviceId: UUID) =
+        warningRepository.findActiveByServiceIds(listOf(serviceId))
+            .filter { it.warningType == SecretWarningType.OUTDATED }
 
     private fun secretWithVersion(owner: Principal): Secret {
         val now = clock.instant().minusSeconds(1)

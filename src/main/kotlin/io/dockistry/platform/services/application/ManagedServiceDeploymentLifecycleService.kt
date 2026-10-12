@@ -3,6 +3,7 @@ package io.dockistry.platform.services.application
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.secrets.application.ManagedServiceSecretReferenceService
 import io.dockistry.platform.secrets.application.SecretWarningService
+import io.dockistry.platform.secrets.domain.SecretWarningType
 import io.dockistry.platform.secrets.domain.SecretWarningsConfirmationRequiredException
 import io.dockistry.platform.services.application.dto.ManagedServiceDeploymentPlan
 import io.dockistry.platform.services.domain.DeploymentNotFoundException
@@ -37,6 +38,12 @@ class ManagedServiceDeploymentLifecycleService(
         val service = managedServiceLifecycleGuard
             .requireActiveForMutationWithWait(serviceId)
 
+        /* Read before resolving latest versions: a rotation committed after this read gets
+        a warning outside the accepted set, so it stays open even if this deploy used the
+        new version. Reading after resolution could close a warning about a version this
+        deploy never saw. */
+        val acceptedWarnings = secretWarningService.getActiveWarningEntities(serviceId)
+
         val references = referenceService.getReferences(service.id)
         secretUsageGuard.requireSecretsUsable(
             project = service.project,
@@ -51,17 +58,13 @@ class ManagedServiceDeploymentLifecycleService(
 
         val payload = referenceService.validateAndFetchPayload(references)
 
-        val warnings = secretWarningService.getActiveDeletedWarnings(serviceId)
-        if (!warnings.isEmpty()) {
-            if (!ignoreWarnings) {
-                throw SecretWarningsConfirmationRequiredException(
-                    "Confirmation required for deploy service with following secrets DELETED warnings:" +
-                            warnings.joinToString(separator = ", ") { it.envName })
-            }
-
-            secretWarningService.resolveActiveDeletedWarnings(
-                warningIds = warnings.map { it.id }
-            )
+        val deletedWarnings = acceptedWarnings.filter {
+            it.warningType == SecretWarningType.DELETED
+        }
+        if (deletedWarnings.isNotEmpty() && !ignoreWarnings) {
+            throw SecretWarningsConfirmationRequiredException(
+                "Confirmation required for deploy service with following secrets DELETED warnings:" +
+                        deletedWarnings.joinToString(separator = ", ") { it.envName })
         }
 
         val snapshot = ManagedServiceConfiguration.validated(
@@ -70,8 +73,6 @@ class ManagedServiceDeploymentLifecycleService(
             )
         )
         val deployment = saveDeployment(service, snapshot)
-
-        secretWarningService.resolveOnSuccessfulDeployBegin(serviceId)
 
         service.updateDesiredState(ManagedServiceDesiredState.RUNNING, clock.instant())
 
@@ -82,14 +83,21 @@ class ManagedServiceDeploymentLifecycleService(
             projectSlug = service.project.slug,
             serviceName = service.name,
             snapshot = snapshot,
-            secretPayloads = payload
+            secretPayloads = payload,
+            acceptedWarningIds = acceptedWarnings.map { it.id }
         )
     }
 
+    /**
+     * Warnings accepted in [begin] are resolved only here, together with `FINISHED`: until the
+     * container actually runs the new configuration, the old runtime may still use the value
+     * the warning is about. A failed or canceled deploy leaves them open.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun finish(
         deploymentId: UUID,
-        containerId: String
+        containerId: String,
+        acceptedWarningIds: List<UUID>
     ): ManagedServiceDeploymentFinalizationResult {
         val updatedRows = deploymentRepository.markFinishedIfInProcess(
             deploymentId = deploymentId,
@@ -97,12 +105,16 @@ class ManagedServiceDeploymentLifecycleService(
             updatedAt = clock.instant()
         )
 
-        return resolveFinalization(
+        val result = resolveFinalization(
             deploymentId = deploymentId,
             operation = "finish",
             updatedRows = updatedRows,
             containerId = containerId
         )
+        if (result == ManagedServiceDeploymentFinalizationResult.APPLIED) {
+            secretWarningService.resolveAccepted(acceptedWarningIds)
+        }
+        return result
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

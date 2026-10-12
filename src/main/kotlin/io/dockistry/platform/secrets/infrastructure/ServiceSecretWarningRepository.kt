@@ -1,6 +1,5 @@
 package io.dockistry.platform.secrets.infrastructure
 
-import io.dockistry.platform.secrets.domain.SecretWarningType
 import io.dockistry.platform.secrets.domain.ServiceSecretWarning
 import io.dockistry.platform.services.domain.ManagedService
 import org.springframework.data.jpa.repository.JpaRepository
@@ -23,18 +22,11 @@ interface ServiceSecretWarningRepository : JpaRepository<ServiceSecretWarning, U
     """)
     fun findActiveByServiceIds(serviceIds: List<UUID>): List<ServiceSecretWarning>
 
-    @Query("""
-        SELECT warning
-        FROM ServiceSecretWarning warning
-        WHERE warning.resolvedAt IS NULL
-            AND warning.service.id = :serviceId
-            AND warning.warningType = :type
-    """)
-    fun findActiveByServiceAndType(
-        serviceId: UUID,
-        type: SecretWarningType
-    ): List<ServiceSecretWarning>
-
+    /**
+     * Keeps one active warning per target. A repeated event re-identifies the existing row
+     * instead of being dropped: a deploy resolves only the warning IDs it accepted in `begin`,
+     * so an event that arrives later must not hide behind an already accepted ID.
+     */
     @Query("""
         INSERT INTO service_secret_warnings
             (id, service_id, secret_id, secret_key, secret_version,
@@ -44,10 +36,10 @@ interface ServiceSecretWarningRepository : JpaRepository<ServiceSecretWarning, U
         ON CONFLICT (service_id, warning_type, secret_id, secret_key,
             secret_version, env_name)
             WHERE resolved_at IS NULL
-            DO NOTHING
+            DO UPDATE SET id = gen_random_uuid(), created_at = EXCLUDED.created_at
     """, nativeQuery = true)
     @Modifying
-    fun saveIdempotent(
+    fun saveOrRefreshActive(
         serviceId: UUID,
         warningType: String,
         secretId: String,
@@ -57,7 +49,7 @@ interface ServiceSecretWarningRepository : JpaRepository<ServiceSecretWarning, U
         createdAt: Instant
     ): Int
 
-    fun saveIdempotent(warning: ServiceSecretWarning): Int = saveIdempotent(
+    fun saveOrRefreshActive(warning: ServiceSecretWarning): Int = saveOrRefreshActive(
         serviceId = warning.service.id,
         warningType = warning.warningType.name,
         secretId = warning.secretId,
@@ -71,21 +63,8 @@ interface ServiceSecretWarningRepository : JpaRepository<ServiceSecretWarning, U
         UPDATE ServiceSecretWarning warning
         SET warning.resolvedAt = :now
         WHERE warning.id IN (:warningIds)
-    """)
-    @Modifying
-    fun saveResolvedBulk(warningIds: List<UUID>, now: Instant): Int
-
-    @Query("""
-        UPDATE ServiceSecretWarning warning
-        SET warning.resolvedAt = :now
-        WHERE warning.service.id = :serviceId
-            AND warning.warningType IN (:types)
             AND warning.resolvedAt IS NULL
     """)
     @Modifying
-    fun resolveActiveByServiceAndTypes(
-        serviceId: UUID,
-        types: Collection<SecretWarningType>,
-        now: Instant
-    ): Int
+    fun saveResolvedBulk(warningIds: List<UUID>, now: Instant): Int
 }

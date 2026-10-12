@@ -14,6 +14,7 @@ import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepos
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
 import io.dockistry.platform.secrets.infrastructure.SecretVersionRepository
 import io.dockistry.platform.secrets.infrastructure.ServiceSecretWarningRepository
+import io.dockistry.platform.services.application.ManagedServiceDeploymentLifecycleService
 import io.dockistry.platform.services.application.ManagedServiceService
 import io.dockistry.platform.services.application.dto.ManagedServiceCreateCommand
 import io.dockistry.platform.services.domain.ManagedService
@@ -43,6 +44,7 @@ import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
@@ -58,6 +60,7 @@ class SecretServiceConcurrencyTests @Autowired constructor(
     private val secretService: SecretService,
     private val managedServiceService: ManagedServiceService,
     private val serviceSecretWarningRepository: ServiceSecretWarningRepository,
+    private val deploymentLifecycleService: ManagedServiceDeploymentLifecycleService,
     private val concurrency: ConcurrencyTestSupport
 ) {
     @Autowired
@@ -270,6 +273,41 @@ class SecretServiceConcurrencyTests @Autowired constructor(
             setOf(SecretWarningType.DELETED, SecretWarningType.OUTDATED),
             activeWarnings(service).map { it.warningType }.toSet()
         )
+    }
+
+    @Test
+    fun `rotation committed during deploy begin keeps its warning after finish`() {
+        val data = prepareTestData()
+        val service = createService(data, secretVersion = null)
+        // Versions created at one instant would make latest depend on the ID tie-breaker.
+        clock.set(clock.instant().plusSeconds(1))
+        secretService.rotate(data.secretId, mapOf(data.secretKey to "second"), data.owner)
+        clock.set(clock.instant().plusSeconds(1))
+        val acceptedWarning = activeWarnings(service).single()
+
+        val (plan, rotatedVersionId) = concurrency.run {
+            // Begin has already read the warnings it accepts, but not the latest version.
+            val beforeDelegationLock = pauseAt(BEFORE_DELEGATION_ROW_LOCK, matching = data.project.id)
+            val begin = start("deploy begin") {
+                deploymentLifecycleService.begin(service.id, data.owner, false)
+            }
+            beforeDelegationLock.awaitReached()
+
+            // Rotation does not take delegation locks and commits while begin is paused.
+            val rotatedVersionId = start("rotate") {
+                secretService.rotate(data.secretId, mapOf(data.secretKey to "third"), data.owner)
+            }.await().version
+
+            beforeDelegationLock.release()
+            begin.await() to rotatedVersionId
+        }
+        deploymentLifecycleService.finish(plan.deploymentId, "fake-container", plan.acceptedWarningIds)
+
+        assertEquals(listOf(acceptedWarning.id), plan.acceptedWarningIds)
+        assertEquals(rotatedVersionId, plan.secretPayloads.single().context.versionId)
+        val remaining = activeWarnings(service).single()
+        assertEquals(SecretWarningType.OUTDATED, remaining.warningType)
+        assertNotEquals(acceptedWarning.id, remaining.id)
     }
 
     @Test

@@ -33,15 +33,15 @@ class ServiceSecretWarningRepositoryIntegrationTests {
         val service = service()
         val outdated = warning(service)
 
-        assertEquals(1, warningRepository.saveIdempotent(outdated))
-        assertEquals(0, warningRepository.saveIdempotent(outdated))
-        assertEquals(1, warningRepository.saveIdempotent(
+        assertEquals(1, warningRepository.saveOrRefreshActive(outdated))
+        assertEquals(1, warningRepository.saveOrRefreshActive(outdated))
+        assertEquals(1, warningRepository.saveOrRefreshActive(
             warning(service, secretId = "sec-BBBBBBBBBBBB")
         ))
-        assertEquals(1, warningRepository.saveIdempotent(
+        assertEquals(1, warningRepository.saveOrRefreshActive(
             warning(service, type = SecretWarningType.DELEGATION_REVOKED)
         ))
-        assertEquals(1, warningRepository.saveIdempotent(
+        assertEquals(1, warningRepository.saveOrRefreshActive(
             warning(service, type = SecretWarningType.DELETED)
         ))
 
@@ -65,17 +65,17 @@ class ServiceSecretWarningRepositoryIntegrationTests {
             secretVersion = "ver-AAAAAAAAAAAA"
         )
 
-        assertEquals(1, warningRepository.saveIdempotent(deleted))
-        assertEquals(0, warningRepository.saveIdempotent(deleted))
-        assertEquals(1, warningRepository.saveIdempotent(
+        assertEquals(1, warningRepository.saveOrRefreshActive(deleted))
+        assertEquals(1, warningRepository.saveOrRefreshActive(deleted))
+        assertEquals(1, warningRepository.saveOrRefreshActive(
             warning(service, SecretWarningType.DELETED,
                 secretVersion = "ver-BBBBBBBBBBBB")
         ))
-        assertEquals(1, warningRepository.saveIdempotent(
+        assertEquals(1, warningRepository.saveOrRefreshActive(
             warning(service, SecretWarningType.DELETED,
                 secretVersion = "ver-AAAAAAAAAAAA", secretKey = "username")
         ))
-        assertEquals(1, warningRepository.saveIdempotent(
+        assertEquals(1, warningRepository.saveOrRefreshActive(
             warning(service, SecretWarningType.DELETED,
                 secretVersion = "ver-AAAAAAAAAAAA", envName = "OTHER_PASSWORD")
         ))
@@ -85,17 +85,33 @@ class ServiceSecretWarningRepositoryIntegrationTests {
     }
 
     @Test
+    fun `repeated event re-identifies the active warning instead of adding a row`() {
+        val service = service()
+        warningRepository.saveOrRefreshActive(warning(service))
+        val first = warningRepository.findActiveByServiceIds(listOf(service.id)).single()
+        entityManager.clear()
+
+        warningRepository.saveOrRefreshActive(warning(service, createdAt = now.plusSeconds(5)))
+        entityManager.clear()
+
+        val refreshed = warningRepository.findActiveByServiceIds(listOf(service.id)).single()
+        assertNotEquals(first.id, refreshed.id)
+        assertEquals(now.plusSeconds(5), refreshed.createdAt)
+        assertEquals(0, warningRepository.saveResolvedBulk(listOf(first.id), now.plusSeconds(6)))
+    }
+
+    @Test
     fun `resolved warning allows the same reference to warn again`() {
         val service = service()
         val warning = warning(service)
-        assertEquals(1, warningRepository.saveIdempotent(warning))
+        assertEquals(1, warningRepository.saveOrRefreshActive(warning))
         val previous = warningRepository
             .findByServiceAndResolvedAtIsNullOrderByCreatedAtAsc(service).single()
 
         assertEquals(1, warningRepository.saveResolvedBulk(
             listOf(previous.id), now.plusSeconds(1)
         ))
-        assertEquals(1, warningRepository.saveIdempotent(warning))
+        assertEquals(1, warningRepository.saveOrRefreshActive(warning))
         entityManager.clear()
 
         val active = warningRepository
@@ -123,7 +139,8 @@ class ServiceSecretWarningRepositoryIntegrationTests {
         secretId: String = "sec-AAAAAAAAAAAA",
         secretKey: String = "password",
         secretVersion: String? = null,
-        envName: String = "PASSWORD"
+        envName: String = "PASSWORD",
+        createdAt: Instant = now
     ): ServiceSecretWarning = ServiceSecretWarning(
         service = service,
         secretId = secretId,
@@ -131,6 +148,6 @@ class ServiceSecretWarningRepositoryIntegrationTests {
         secretVersion = secretVersion,
         warningType = type,
         envName = envName,
-        createdAt = now
+        createdAt = createdAt
     )
 }

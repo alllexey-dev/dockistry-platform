@@ -49,6 +49,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @SpringBootTest
@@ -162,7 +163,7 @@ class ManagedServiceSecretDeployIntegrationTests {
     }
 
     @Test
-    fun `deleted warning needs confirmation and accepted warning stays resolved`() {
+    fun `deleted warning confirmation is consumed only by a finished deploy`() {
         val scenario = scenario()
         val warningId = transactionTemplate.execute {
             val managedService = entityManager.find(
@@ -198,13 +199,22 @@ class ManagedServiceSecretDeployIntegrationTests {
             service.deploy(scenario.projectId, scenario.serviceId, scenario.owner, true)
         }
         Mockito.verify(containerService).pullImage(DockerImageRef("nginx", "latest"))
-        assertNotNull(warningRepository.findById(warningId).orElseThrow().resolvedAt)
-
-        assertFailsWith<FakeDockerPullException> {
+        // The failed deploy did not replace the runtime, so the confirmation is not consumed.
+        assertNull(warningRepository.findById(warningId).orElseThrow().resolvedAt)
+        assertFailsWith<SecretWarningsConfirmationRequiredException> {
             service.deploy(scenario.projectId, scenario.serviceId, scenario.owner, false)
         }
-        Mockito.verify(containerService, Mockito.times(2))
+
+        Mockito.doNothing().`when`(containerService)
             .pullImage(DockerImageRef("nginx", "latest"))
+        Mockito.doReturn("fake-container")
+            .`when`(containerService)
+            .createContainer(
+                Mockito.any(DockerContainerCreateCommand::class.java)
+                    ?: placeholderCommand()
+            )
+        service.deploy(scenario.projectId, scenario.serviceId, scenario.owner, true)
+        assertNotNull(warningRepository.findById(warningId).orElseThrow().resolvedAt)
     }
 
     private fun stubNetwork(scenario: Scenario) {

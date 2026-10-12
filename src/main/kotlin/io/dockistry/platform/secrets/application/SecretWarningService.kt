@@ -1,6 +1,5 @@
 package io.dockistry.platform.secrets.application
 
-import io.dockistry.platform.secrets.domain.SecretWarningType
 import io.dockistry.platform.secrets.domain.ServiceSecretWarning
 import io.dockistry.platform.secrets.domain.dto.SecretWarningDto
 import io.dockistry.platform.secrets.infrastructure.ServiceSecretWarningRepository
@@ -37,24 +36,15 @@ class SecretWarningService(
             }
     }
 
-    fun getActiveDeletedWarnings(serviceId: UUID): List<ServiceSecretWarning> {
-        return warningRepository.findActiveByServiceAndType(
-            serviceId = serviceId,
-            type = SecretWarningType.DELETED
-        )
+    fun getActiveWarningEntities(serviceId: UUID): List<ServiceSecretWarning> {
+        return warningRepository.findActiveByServiceIds(listOf(serviceId))
     }
 
-    fun resolveActiveDeletedWarnings(warningIds: List<UUID>) {
+    fun resolveAccepted(warningIds: List<UUID>) {
+        if (warningIds.isEmpty()) return
+
         warningRepository.saveResolvedBulk(
             warningIds = warningIds,
-            now = clock.instant()
-        )
-    }
-
-    fun resolveOnSuccessfulDeployBegin(serviceId: UUID) {
-        warningRepository.resolveActiveByServiceAndTypes(
-            serviceId = serviceId,
-            types = setOf(SecretWarningType.OUTDATED, SecretWarningType.DELEGATION_REVOKED),
             now = clock.instant()
         )
     }

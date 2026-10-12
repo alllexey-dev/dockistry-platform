@@ -88,7 +88,8 @@ class ManagedServiceDeployExecutor(
                     when (
                         deploymentLifecycleService.finish(
                             deploymentId = plan.deploymentId,
-                            containerId = containerId
+                            containerId = containerId,
+                            acceptedWarningIds = plan.acceptedWarningIds
                         )
                     ) {
                         ManagedServiceDeploymentFinalizationResult.APPLIED ->

@@ -11,5 +11,6 @@ data class ManagedServiceDeploymentPlan(
     val projectSlug: String,
     val serviceName: String,
     val snapshot: ManagedServiceConfiguration,
-    val secretPayloads: List<SecretPayload>
+    val secretPayloads: List<SecretPayload>,
+    val acceptedWarningIds: List<UUID>
 )

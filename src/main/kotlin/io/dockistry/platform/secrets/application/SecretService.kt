@@ -375,7 +375,7 @@ class SecretService(
     ) {
         val now = clock.instant()
         references.forEach { reference ->
-            serviceSecretWarningRepository.saveIdempotent(
+            serviceSecretWarningRepository.saveOrRefreshActive(
                 ServiceSecretWarning(
                     service = reference.service,
                     secretId = reference.secret.id,

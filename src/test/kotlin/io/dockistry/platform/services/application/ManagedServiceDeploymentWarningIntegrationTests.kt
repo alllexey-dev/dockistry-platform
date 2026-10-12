@@ -29,6 +29,7 @@ import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -44,7 +45,7 @@ class ManagedServiceDeploymentWarningIntegrationTests {
     @Autowired private lateinit var entityManager: EntityManager
 
     @Test
-    fun `begin resolves revoked delegation and outdated warnings for usable secrets`() {
+    fun `begin accepts warnings and only finish resolves them`() {
         val scenario = scenario()
 
         val plan = lifecycleService.begin(scenario.serviceId, scenario.owner, false)
@@ -54,10 +55,51 @@ class ManagedServiceDeploymentWarningIntegrationTests {
             plan.snapshot.secretReferences.map { it.envName }.toSet())
         assertEquals(setOf("REVOKED", "OUTDATED"),
             plan.secretPayloads.map { it.envName }.toSet())
+        assertEquals(scenario.warningIds.toSet(), plan.acceptedWarningIds.toSet())
         assertTrue(deploymentRepository.existsById(plan.deploymentId))
+        assertActive(scenario.warningIds)
+
+        lifecycleService.finish(plan.deploymentId, "fake-container", plan.acceptedWarningIds)
+
         scenario.warningIds.forEach { warningId ->
             assertNotNull(warningRepository.findById(warningId).orElseThrow().resolvedAt)
         }
+    }
+
+    @Test
+    fun `failed deploy leaves accepted warnings active`() {
+        val scenario = scenario()
+        val plan = lifecycleService.begin(scenario.serviceId, scenario.owner, false)
+
+        lifecycleService.fail(plan.deploymentId, "fake failure")
+
+        assertActive(scenario.warningIds)
+    }
+
+    @Test
+    fun `finish keeps a warning repeated after begin active`() {
+        val scenario = scenario()
+        val plan = lifecycleService.begin(scenario.serviceId, scenario.owner, false)
+        val accepted = warningRepository.findAllById(plan.acceptedWarningIds)
+            .single { it.warningType == SecretWarningType.OUTDATED }
+        // Same target as the accepted warning, as a rotation committed after begin creates it.
+        transactionTemplate.execute {
+            warningRepository.saveOrRefreshActive(ServiceSecretWarning(
+                service = accepted.service,
+                secretId = accepted.secretId,
+                secretKey = accepted.secretKey,
+                secretVersion = accepted.secretVersion,
+                warningType = accepted.warningType,
+                envName = accepted.envName,
+                createdAt = Instant.parse("2026-01-02T00:00:00Z")
+            ))
+        }
+
+        lifecycleService.finish(plan.deploymentId, "fake-container", plan.acceptedWarningIds)
+
+        val active = warningRepository.findActiveByServiceIds(listOf(scenario.serviceId))
+        assertEquals(listOf(SecretWarningType.OUTDATED), active.map { it.warningType })
+        assertNotEquals(accepted.id, active.single().id)
     }
 
     @Test
@@ -133,10 +175,14 @@ class ManagedServiceDeploymentWarningIntegrationTests {
     }
 
     private fun assertWarningsStillActive(scenario: Scenario) {
-        scenario.warningIds.forEach { warningId ->
+        assertActive(scenario.warningIds)
+        assertTrue(deploymentRepository.findActiveByServiceId(scenario.serviceId).isEmpty())
+    }
+
+    private fun assertActive(warningIds: List<UUID>) {
+        warningIds.forEach { warningId ->
             assertNull(warningRepository.findById(warningId).orElseThrow().resolvedAt)
         }
-        assertTrue(deploymentRepository.findActiveByServiceId(scenario.serviceId).isEmpty())
     }
 
     private fun scenario(): Scenario = transactionTemplate.execute {

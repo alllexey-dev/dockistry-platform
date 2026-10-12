@@ -280,7 +280,10 @@ class ManagedServiceReaper(
 
                     val finishResult = deploymentLifecycleService.finish(
                         deploymentId = action.deploymentId,
-                        containerId = type.containerId
+                        containerId = type.containerId,
+                        // Accepted warnings lived only in the lost executor's memory;
+                        // leaving them open is the safe direction.
+                        acceptedWarningIds = emptyList()
                     )
 
                     if (finishResult ==
