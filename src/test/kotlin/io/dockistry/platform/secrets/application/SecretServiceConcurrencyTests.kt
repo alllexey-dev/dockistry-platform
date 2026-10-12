@@ -137,11 +137,9 @@ class SecretServiceConcurrencyTests @Autowired constructor(
         }
 
         assertEquals(1, ids.toSet().size)
-        concurrency.inNewTransaction {
-            val stored = assertNotNull(secretRepository.findByOwnerAndName(owner, name))
-            assertEquals(ids.first(), stored.id)
-            assertEquals(1, stored.versions.size)
-        }
+        val stored = assertNotNull(secretRepository.findByOwnerAndName(owner, name))
+        assertEquals(ids.first(), stored.id)
+        assertEquals(1, stored.versions.size)
     }
 
     @Test
@@ -168,11 +166,9 @@ class SecretServiceConcurrencyTests @Autowired constructor(
             outcomes.mapNotNull { it.exceptionOrNull() }.single()
         )
         assertEquals("secret_already_exists", conflict.code)
-        concurrency.inNewTransaction {
-            val stored = assertNotNull(secretRepository.findByOwnerAndName(owner, name))
-            assertEquals(ids.single(), stored.id)
-            assertEquals(1, stored.versions.size)
-        }
+        val stored = assertNotNull(secretRepository.findByOwnerAndName(owner, name))
+        assertEquals(ids.single(), stored.id)
+        assertEquals(1, stored.versions.size)
     }
 
     @Test

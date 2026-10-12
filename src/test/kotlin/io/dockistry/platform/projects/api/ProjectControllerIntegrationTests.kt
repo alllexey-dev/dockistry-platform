@@ -287,9 +287,7 @@ class ProjectControllerIntegrationTests {
                 jsonPath("$.errorCode") { value(nullValue()) }
             }
 
-            assertFalse(
-                inNewTransaction { projectRepository.existsById(context.projectId) }
-            )
+            assertFalse(projectRepository.existsById(context.projectId))
         } finally {
             cleanupCommittedProject(context.projectId)
         }

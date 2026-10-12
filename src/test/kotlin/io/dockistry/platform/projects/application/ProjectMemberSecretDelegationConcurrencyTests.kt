@@ -259,9 +259,7 @@ class ProjectMemberSecretDelegationConcurrencyTests {
     }
 
     private fun delegationExists(data: TestData): Boolean =
-        concurrency.inNewTransaction {
-            delegations.getByProjectAndSecret(data.projectId, data.secretId) != null
-        }
+        delegations.getByProjectAndSecret(data.projectId, data.secretId) != null
 
     private data class Source(val principalId: UUID, val bindingId: UUID)
 

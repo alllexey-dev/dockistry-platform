@@ -58,9 +58,7 @@ class RefreshTokenOptimisticLockingTests {
             }
         }
 
-        val savedToken = concurrency.inNewTransaction {
-            refreshTokenRepository.findRefreshTokenById(tokenId)!!
-        }
+        val savedToken = refreshTokenRepository.findRefreshTokenById(tokenId)!!
         assertNotNull(savedToken.revokedAt)
         assertEquals(1, savedToken.version)
     }

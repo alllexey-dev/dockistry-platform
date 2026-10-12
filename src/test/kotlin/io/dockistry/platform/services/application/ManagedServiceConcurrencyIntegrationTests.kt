@@ -284,31 +284,24 @@ class ManagedServiceConcurrencyIntegrationTests @Autowired constructor(
         createProjectContextInternal()
     }
 
-    private fun serviceSnapshot(serviceId: UUID): ManagedServiceSnapshot =
-        concurrency.inNewTransaction {
-            val service = managedServiceRepository.findById(serviceId).orElseThrow()
-            ManagedServiceSnapshot(
-                imageRef = service.imageRef.asString(),
-                version = service.version
-            )
-        }
+    private fun serviceSnapshot(serviceId: UUID): ManagedServiceSnapshot {
+        val service = managedServiceRepository.findById(serviceId).orElseThrow()
+        return ManagedServiceSnapshot(
+            imageRef = service.imageRef.asString(),
+            version = service.version
+        )
+    }
 
     private fun countServices(projectId: UUID, name: String): Long =
-        concurrency.inNewTransaction {
-            managedServiceRepository.findAllByProjectId(projectId)
-                .count { it.name == name }
-                .toLong()
-        }
+        managedServiceRepository.findAllByProjectId(projectId)
+            .count { it.name == name }
+            .toLong()
 
     private fun activeDeploymentIds(serviceId: UUID): List<UUID> =
-        concurrency.inNewTransaction {
-            deploymentRepository.findActiveIdsByServiceId(serviceId)
-        }
+        deploymentRepository.findActiveIdsByServiceId(serviceId)
 
     private fun deploymentStatus(deploymentId: UUID): ManagedServiceDeploymentStatus =
-        concurrency.inNewTransaction {
-            deploymentRepository.findById(deploymentId).orElseThrow().status
-        }
+        deploymentRepository.findById(deploymentId).orElseThrow().status
 
     private fun createProjectContextInternal(): ProjectContext {
         val fixtures = IamProjectFixtures(entityManager)

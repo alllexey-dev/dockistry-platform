@@ -322,7 +322,7 @@ class ProjectServiceIntegrationTests {
             val deleted = projectService.delete(context.projectId, context.principal)
 
             assertEquals(context.projectId, deleted.id)
-            assertFalse(inNewTransaction { projectRepository.existsById(context.projectId) })
+            assertFalse(projectRepository.existsById(context.projectId))
         } finally {
             cleanupCommittedProject(context.projectId)
         }
