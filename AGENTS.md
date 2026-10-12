@@ -325,10 +325,12 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   затем попасть под такое удаление.
 - `ProjectMemberService.requirePermissionRevocationAllowed` проверяет наличие
   собственных Secret delegations в проекте и сохранение effective
-  `project.secrets.delegate` после исключения удаляемых bindings. Для `GROUP`
-  используй один batch-поиск owner IDs с delegations, включая саму группу и её
-  пользователей, затем batch permission check через `PermissionCheckService`.
-  Состав группы переиспользуется из locking flow; per-member queries запрещены.
+  `project.secrets.delegate` после исключения удаляемых bindings. `USER` и `GROUP`
+  проходят один путь: batch-поиск owner IDs с delegations среди subject и
+  пользователей группы (для `USER` список пользователей пуст), затем batch
+  permission check через `PermissionCheckService`. Отдельной single-principal
+  версии правила нет. Состав группы переиспользуется из locking flow;
+  per-member queries запрещены.
   Потеря последнего источника permission возвращает HTTP 409
   `secret_delegation_active` с требованием force-revoke. Batch permission check
   отдельно проверяет существование всех входных principals одним запросом:

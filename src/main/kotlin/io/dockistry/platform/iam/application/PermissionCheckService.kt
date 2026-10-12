@@ -27,25 +27,6 @@ class PermissionCheckService(
     }
 
     @Transactional
-    fun hasPermissionExcludingBindings(
-        key: String,
-        principalId: UUID,
-        scopeId: UUID,
-        excludedBindingIds: Collection<UUID>
-    ): Boolean {
-        if (excludedBindingIds.isEmpty()) {
-            return hasPermission(key, principalId, scopeId)
-        }
-
-        return permissionQueryRepository.existsEffectivePermissionExcludingBindings(
-            principalId = principalId,
-            permissionKey = key,
-            scopeId = scopeId,
-            excludedBindingIds = excludedBindingIds
-        ).orElseThrow { missingPrincipalException(principalId) }
-    }
-
-    @Transactional
     fun findPrincipalIdsWithoutPermissionExcludingBindings(
         key: String,
         principalIds: Collection<UUID>,

@@ -33,32 +33,6 @@ interface PermissionQueryRepository : JpaRepository<RoleBinding, UUID> {
 
     @Query(
         """
-            SELECT EXISTS(SELECT 1
-              FROM RoleBinding rb
-                       JOIN Scope s ON s.id = rb.scope.id
-                       JOIN rb.role.permissions pm
-              WHERE (rb.subjectPrincipal.id = :principalId OR
-                     rb.subjectPrincipal.id IN (SELECT g.id
-                                                FROM Group g
-                                                         JOIN g.members m
-                                                WHERE :principalId = m.id)
-                  )
-                AND (s.id = :scopeId OR s.scopeType = ScopeType.GLOBAL)
-                AND pm.key = :permissionKey
-                AND rb.id NOT IN (:excludedBindingIds))
-            FROM Principal p
-            WHERE p.id = :principalId
-    """
-    )
-    fun existsEffectivePermissionExcludingBindings(
-        principalId: UUID,
-        permissionKey: String,
-        scopeId: UUID? = null,
-        excludedBindingIds: Collection<UUID>
-    ): Optional<Boolean>
-
-    @Query(
-        """
             SELECT p.id
             FROM Principal p
             WHERE p.id IN (:principalIds)

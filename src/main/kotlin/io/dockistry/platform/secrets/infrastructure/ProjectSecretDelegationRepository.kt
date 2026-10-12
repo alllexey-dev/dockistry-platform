@@ -8,19 +8,6 @@ import java.util.UUID
 
 interface ProjectSecretDelegationRepository : JpaRepository<ProjectSecretDelegation, UUID> {
     @Query("""
-        SELECT EXISTS (
-            SELECT 1
-            FROM ProjectSecretDelegation delegation
-            WHERE delegation.project.id = :projectId
-              AND delegation.secret.ownerPrincipal.id = :ownerPrincipalId
-        )
-    """)
-    fun existsByProjectAndOwnerPrincipalId(
-        projectId: UUID,
-        ownerPrincipalId: UUID
-    ): Boolean
-
-    @Query("""
         SELECT DISTINCT delegation.secret.ownerPrincipal.id
         FROM ProjectSecretDelegation delegation
         WHERE delegation.project.id = :projectId

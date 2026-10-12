@@ -193,46 +193,25 @@ class ProjectMemberService(
         removedBindingIds: List<UUID>,
         groupMemberIds: List<UUID>
     ) {
-        val principal = principalRepository.findPrincipalById(subjectPrincipalId)
-            ?: throw InternalDataIntegrityException(
-                "Subject principal $subjectPrincipalId couldn't be found"
+        // For USER groupMemberIds is empty and the check covers only the subject itself.
+        val delegatedOwnerIds = projectSecretDelegationRepository
+            .findDelegatedOwnerIdsByProjectAndOwnerPrincipalIds(
+                projectId = project.id,
+                ownerPrincipalIds = groupMemberIds + subjectPrincipalId
             )
 
-        if (principal.principalType == PrincipalType.USER) {
-            val hasDelegations = projectSecretDelegationRepository
-                .existsByProjectAndOwnerPrincipalId(project.id, subjectPrincipalId)
+        if (delegatedOwnerIds.isEmpty()) return
 
-            if (!hasDelegations) return
+        val conflictingOwnerIds = permissionCheckService
+            .findPrincipalIdsWithoutPermissionExcludingBindings(
+                key = SystemPermissionNames.SECRETS_DELEGATE.key,
+                principalIds = delegatedOwnerIds,
+                scopeId = project.scope.id,
+                excludedBindingIds = removedBindingIds
+            )
 
-            if (!permissionCheckService.hasPermissionExcludingBindings(
-                    key = SystemPermissionNames.SECRETS_DELEGATE.key,
-                    principalId = subjectPrincipalId,
-                    scopeId = project.scope.id,
-                    excludedBindingIds = removedBindingIds
-                )
-            ) {
-                throw activeDelegationException(project.id)
-            }
-        } else {
-            val delegatedOwnerIds = projectSecretDelegationRepository
-                .findDelegatedOwnerIdsByProjectAndOwnerPrincipalIds(
-                    projectId = project.id,
-                    ownerPrincipalIds = groupMemberIds + subjectPrincipalId
-                )
-
-            if (delegatedOwnerIds.isEmpty()) return
-
-            val conflictingOwnerIds = permissionCheckService
-                .findPrincipalIdsWithoutPermissionExcludingBindings(
-                    key = SystemPermissionNames.SECRETS_DELEGATE.key,
-                    principalIds = delegatedOwnerIds,
-                    scopeId = project.scope.id,
-                    excludedBindingIds = removedBindingIds
-                )
-
-            if (conflictingOwnerIds.isNotEmpty()) {
-                throw activeDelegationException(project.id)
-            }
+        if (conflictingOwnerIds.isNotEmpty()) {
+            throw activeDelegationException(project.id)
         }
     }
 

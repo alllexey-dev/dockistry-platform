@@ -160,7 +160,7 @@ class PermissionCheckServiceIntegrationTests {
         )
         assertEquals(
             expected,
-            permissionCheckService.hasPermissionExcludingBindings(
+            hasPermissionExcludingBindings(
                 key, user.id, fakeProjectScope.id, listOf(removed.id)
             )
         )
@@ -183,13 +183,13 @@ class PermissionCheckServiceIntegrationTests {
         }
         fixtures.flushAndClear()
 
-        assertTrue(permissionCheckService.hasPermissionExcludingBindings(
+        assertTrue(hasPermissionExcludingBindings(
             key, principal.id, scope.id, listOf(bindings.first().id)
         ))
-        assertTrue(permissionCheckService.hasPermissionExcludingBindings(
+        assertTrue(hasPermissionExcludingBindings(
             key, principal.id, scope.id, listOf(bindings.drop(1).first().id)
         ))
-        assertFalse(permissionCheckService.hasPermissionExcludingBindings(
+        assertFalse(hasPermissionExcludingBindings(
             key, principal.id, scope.id, bindings.map { it.id }
         ))
         assertEquals(listOf(principal.id),
@@ -243,10 +243,10 @@ class PermissionCheckServiceIntegrationTests {
         fixtures.grantSystemPermission(principal, scope, key)
         fixtures.flushAndClear()
 
-        assertTrue(permissionCheckService.hasPermissionExcludingBindings(
+        assertTrue(hasPermissionExcludingBindings(
             key, principal.id, scope.id, emptyList()
         ))
-        assertFalse(permissionCheckService.hasPermissionExcludingBindings(
+        assertFalse(hasPermissionExcludingBindings(
             key, noPermission.id, scope.id, emptyList()
         ))
         assertEquals(listOf(noPermission.id),
@@ -272,12 +272,12 @@ class PermissionCheckServiceIntegrationTests {
         val missing = UUID.randomUUID()
 
         assertFailsWith<InternalDataIntegrityException> {
-            permissionCheckService.hasPermissionExcludingBindings(
+            hasPermissionExcludingBindings(
                 key, missing, scope.id, listOf(binding.id)
             )
         }
         assertFailsWith<InternalDataIntegrityException> {
-            permissionCheckService.hasPermissionExcludingBindings(
+            hasPermissionExcludingBindings(
                 key, missing, scope.id, emptyList()
             )
         }
@@ -287,4 +287,13 @@ class PermissionCheckServiceIntegrationTests {
             )
         }
     }
+
+    private fun hasPermissionExcludingBindings(
+        key: String,
+        principalId: UUID,
+        scopeId: UUID,
+        excludedBindingIds: List<UUID>
+    ): Boolean = permissionCheckService.findPrincipalIdsWithoutPermissionExcludingBindings(
+        key, listOf(principalId), scopeId, excludedBindingIds
+    ).isEmpty()
 }
