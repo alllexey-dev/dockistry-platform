@@ -63,8 +63,12 @@ cp .env.example .env
 | `JWT_REFRESH_EXPIRATION` | время жизни refresh-токена, мс | `1209600000` (14 дней) |
 | `DOCKER_HOST`            | Docker endpoint для docker-java | локальный Docker socket |
 | `DOCKER_IMAGE_PULL_TIMEOUT` | timeout pull image операции, мс | `300000` (5 минут) |
+| `SECRETS_ENCRYPTION_KEY` | AES-256 ключ для Secret values, base64 32 байт | dev-ключ (заменить!) |
 
-> ⚠️ Для любого окружения, кроме чисто локального, обязательно задайте свой `JWT_SECRET`.
+> ⚠️ Для любого окружения, кроме чисто локального, обязательно задайте свои `JWT_SECRET`
+> и `SECRETS_ENCRYPTION_KEY` (`openssl rand -base64 32`). С профилем `prod` приложение не
+> стартует с дефолтными значениями. Смена `SECRETS_ENCRYPTION_KEY` делает уже сохранённые
+> Secret values нерасшифровываемыми: ротация ключа пока не поддерживается.
 
 ### 2. Запуск базы данных
 
@@ -234,6 +238,11 @@ Rotation помечает latest references `OUTDATED`, revoke — `DELEGATION_R
 удаление version или Secret — `DELETED`. Revoke и удаление не останавливают
 работающие containers. Отсутствующая version возвращает
 `404 secret_version_not_found`.
+
+Values хранятся зашифрованными AES-256-GCM: отдельный random nonce на каждое значение,
+ID Secret, version и key привязаны как associated data, поэтому ciphertext нельзя
+перенести в чужую ячейку БД. Расшифровка происходит только в deploy до любого Docker
+I/O; ошибка расшифровки возвращает `500 secret_decryption_failed`.
 
 Делегированные проекту Secrets доступны участникам проекта с `project.read`,
 независимо от владельца:

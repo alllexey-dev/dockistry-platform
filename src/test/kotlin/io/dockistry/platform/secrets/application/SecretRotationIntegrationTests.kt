@@ -9,6 +9,7 @@ import io.dockistry.platform.secrets.domain.InvalidSecretValuesException
 import io.dockistry.platform.secrets.domain.ManagedServiceSecretReferenceEntity
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
+import io.dockistry.platform.secrets.domain.SecretValueContext
 import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.domain.SecretWarningType
 import io.dockistry.platform.secrets.infrastructure.SecretVersionRepository
@@ -21,10 +22,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.boot.test.context.TestConfiguration
-import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
-import org.springframework.context.annotation.Primary
 import org.springframework.transaction.annotation.Transactional
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.time.Clock
@@ -37,8 +35,7 @@ import kotlin.test.assertTrue
 @SpringBootTest
 @Import(
     TestcontainersConfig::class,
-    TestClockConfig::class,
-    SecretRotationIntegrationTests.PrefixSecretEncryptorConfig::class
+    TestClockConfig::class
 )
 @Testcontainers
 @Transactional
@@ -54,6 +51,9 @@ class SecretRotationIntegrationTests {
 
     @Autowired
     private lateinit var clock: Clock
+
+    @Autowired
+    private lateinit var secretEncryptor: SecretEncryptor
 
     @PersistenceContext
     private lateinit var entityManager: EntityManager
@@ -89,8 +89,13 @@ class SecretRotationIntegrationTests {
         entityManager.flush()
         entityManager.clear()
 
-        val storedValues = versionRepository.findById(newVersionId).orElseThrow().encryptedValues
-        assertEquals(mapOf("password" to "enc:new-value"), storedValues)
+        val encrypted = versionRepository.findById(newVersionId).orElseThrow()
+            .encryptedValues.getValue("password")
+        assertNotEquals("new-value", encrypted)
+        assertEquals(
+            "new-value",
+            secretEncryptor.decrypt(encrypted, SecretValueContext(secret.id, newVersionId, "password"))
+        )
     }
 
     @Test
@@ -201,17 +206,5 @@ class SecretRotationIntegrationTests {
         secret.addVersion(SecretVersion(secret, mapOf("password" to "old-value"), now))
         entityManager.persist(secret)
         return secret
-    }
-
-    @TestConfiguration
-    class PrefixSecretEncryptorConfig {
-        @Bean
-        @Primary
-        fun prefixSecretEncryptor(): SecretEncryptor = object : SecretEncryptor {
-            override fun encrypt(plaintext: String): String = "enc:$plaintext"
-
-            override fun decrypt(encryptedPayload: String): String =
-                encryptedPayload.removePrefix("enc:")
-        }
     }
 }

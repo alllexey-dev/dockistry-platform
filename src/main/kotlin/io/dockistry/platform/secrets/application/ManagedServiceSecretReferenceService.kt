@@ -4,6 +4,7 @@ import io.dockistry.platform.secrets.domain.InvalidSecretReferenceException
 import io.dockistry.platform.secrets.domain.ManagedServiceSecretReferenceEntity
 import io.dockistry.platform.secrets.domain.SecretHasNoVersionsException
 import io.dockistry.platform.secrets.domain.SecretPayload
+import io.dockistry.platform.secrets.domain.SecretValueContext
 import io.dockistry.platform.secrets.domain.SecretReferenceNotDelegatedException
 import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.domain.SecretVersionNotFoundException
@@ -54,6 +55,7 @@ class ManagedServiceSecretReferenceService(
         return validateAndFetchVersions(references).map { (reference, version) ->
             SecretPayload(
                 envName = reference.envName,
+                context = SecretValueContext(version.secret.id, version.id, reference.key),
                 encryptedPayload = version.encryptedValues[reference.key]
                     ?: throw InternalDataIntegrityException(
                         "Key ${reference.key} was found " +

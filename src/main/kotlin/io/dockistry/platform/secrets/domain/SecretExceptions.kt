@@ -3,6 +3,7 @@ package io.dockistry.platform.secrets.domain
 import io.dockistry.platform.shared.exception.BadRequestException
 import io.dockistry.platform.shared.exception.ConflictException
 import io.dockistry.platform.shared.exception.ForbiddenException
+import io.dockistry.platform.shared.exception.InternalServerErrorException
 import io.dockistry.platform.shared.exception.NotFoundException
 
 class InvalidSecretNameException(
@@ -64,3 +65,8 @@ class EmptySecretValuesException(
 class SecretWarningsConfirmationRequiredException(
     message: String
 ) : ForbiddenException(message, "secret_warnings_confirmation_required")
+
+class SecretDecryptionFailedException : InternalServerErrorException(
+    "Secret value could not be decrypted; contact the administrator",
+    "secret_decryption_failed"
+)

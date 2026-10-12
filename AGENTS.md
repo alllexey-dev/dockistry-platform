@@ -93,6 +93,12 @@ Runtime/config:
   / `app.docker-agent.image-pull-timeout` в миллисекундах;
 - production profile защищен от дефолтного `jwt.secret=secret` через
   `ProductionSecretDefaultsGuard`.
+- Secret values шифруются `AesGcmSecretEncryptor` (AES-256-GCM, random nonce на
+  value, `SecretValueContext` secret/version/key как associated data). Ключ —
+  `SECRETS_ENCRYPTION_KEY` / `app.secrets.encryption.key` (base64, 32 байта);
+  development key отклоняется при `prod` profile. Dummy encryptor нет: тесты
+  используют реальный encryptor с ключом из test properties. Ротация master key
+  пока не поддерживается.
 
 CI:
 

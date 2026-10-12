@@ -213,8 +213,9 @@ class ManagedServiceDeployExecutor(
         plan: ManagedServiceDeploymentPlan
     ): DockerContainerCreateCommand {
         // Decrypt failure must stop the deploy before it creates any Docker resource.
-        val secretBackedEnv =
-            plan.secretPayloads.associate { it.envName to secretEncryptor.decrypt(it.encryptedPayload) }
+        val secretBackedEnv = plan.secretPayloads.associate {
+            it.envName to secretEncryptor.decrypt(it.encryptedPayload, it.context)
+        }
 
         val networkName = projectOperationGate.withLock(plan.projectId) {
             throwIfDeploymentCanceled(plan)

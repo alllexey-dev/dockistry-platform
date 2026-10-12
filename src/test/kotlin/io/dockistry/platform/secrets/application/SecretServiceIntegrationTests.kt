@@ -12,6 +12,7 @@ import io.dockistry.platform.secrets.domain.EmptySecretValuesException
 import io.dockistry.platform.secrets.domain.InvalidSecretDescriptionException
 import io.dockistry.platform.secrets.domain.InvalidSecretValuesException
 import io.dockistry.platform.secrets.domain.SecretValidator
+import io.dockistry.platform.secrets.domain.SecretValueContext
 import io.dockistry.platform.secrets.domain.SecretNotFoundException
 import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
@@ -25,10 +26,6 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
-import java.util.concurrent.atomic.AtomicLong
-import org.springframework.context.annotation.Primary
-import org.springframework.context.annotation.Bean
-import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.support.TransactionTemplate
@@ -36,12 +33,12 @@ import org.testcontainers.junit.jupiter.Testcontainers
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 @SpringBootTest
 @Import(
     TestcontainersConfig::class,
-    TestClockConfig::class,
-    SecretServiceIntegrationTests.RandomizedSecretEncryptorConfig::class
+    TestClockConfig::class
 )
 @Testcontainers
 @Transactional
@@ -88,7 +85,8 @@ class SecretServiceIntegrationTests {
         entityManager.clear()
 
         val persisted = secretService.list(owner).single()
-        val storedValues = secretVersionRepository.findLatestBySecretId(secretId).encryptedValues
+        val storedVersion = secretVersionRepository.findLatestBySecretId(secretId)
+        val storedValues = storedVersion.encryptedValues
 
         assertEquals(secretId, persisted.id)
         assertEquals("postgres-credentials", persisted.name)
@@ -98,8 +96,9 @@ class SecretServiceIntegrationTests {
             storedValues.keys
         )
 
-        val decryptedValues = storedValues.mapValues { (_, encryptedValue) ->
-            secretEncryptor.decrypt(encryptedValue)
+        assertTrue(storedValues.values.none { it in values.values })
+        val decryptedValues = storedValues.mapValues { (key, encryptedValue) ->
+            secretEncryptor.decrypt(encryptedValue, SecretValueContext(secretId, storedVersion.id, key))
         }
         assertEquals(values, decryptedValues)
         assertEquals(0L, persisted.version)
@@ -393,21 +392,5 @@ class SecretServiceIntegrationTests {
 
     private fun createOwner() = transactionTemplate.execute {
         IamProjectFixtures(entityManager).principal()
-    }
-
-    /** Like real AES-GCM: the same plaintext gets a different ciphertext on every call. */
-    @TestConfiguration
-    class RandomizedSecretEncryptorConfig {
-        @Bean
-        @Primary
-        fun randomizedSecretEncryptor(): SecretEncryptor = object : SecretEncryptor {
-            private val nonce = AtomicLong()
-
-            override fun encrypt(plaintext: String): String =
-                "enc:${nonce.incrementAndGet()}:$plaintext"
-
-            override fun decrypt(encryptedPayload: String): String =
-                encryptedPayload.substringAfter(':').substringAfter(':')
-        }
     }
 }

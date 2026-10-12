@@ -12,6 +12,8 @@ import io.dockistry.platform.secrets.domain.InvalidSecretNameException
 import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
 import io.dockistry.platform.secrets.domain.SecretMetadataVersionConflictException
 import io.dockistry.platform.secrets.domain.SecretValidator
+import io.dockistry.platform.secrets.domain.SecretValueContext
+import io.dockistry.platform.secrets.domain.SecretVersionIdGenerator
 import io.dockistry.platform.secrets.domain.SecretVersionNotFoundException
 import io.dockistry.platform.secrets.domain.SecretWarningType
 import io.dockistry.platform.secrets.domain.ServiceSecretWarning
@@ -53,7 +55,7 @@ class SecretService(
         values: Map<String, String>,
         ownerPrincipal: Principal
     ): String {
-        val payload = encryptPayload(values)
+        val validValues = SecretValidator.validateValues(values)
 
         val now = clock.instant()
         val secret = Secret(
@@ -63,10 +65,12 @@ class SecretService(
             createdAt = now,
             updatedAt = now
         )
+        val versionId = SecretVersionIdGenerator.generate()
         val version = SecretVersion(
             secret = secret,
-            encryptedValues = payload,
-            createdAt = now
+            encryptedValues = encryptValues(secret.id, versionId, validValues),
+            createdAt = now,
+            id = versionId
         )
         secret.addVersion(version)
 
@@ -181,7 +185,7 @@ class SecretService(
         newPayload: Map<String, String>,
         principal: Principal
     ): SecretVersionDto {
-        val payload = encryptPayload(newPayload)
+        val validValues = SecretValidator.validateValues(newPayload)
         // Serializes with version and logical Secret deletion that decide what is latest.
         val secret = secretAccessGuard.requireOwnerForUpdate(
             secretId = secretId,
@@ -197,10 +201,12 @@ class SecretService(
 
         createWarnings(secretReferences, SecretWarningType.OUTDATED)
 
+        val newVersionId = SecretVersionIdGenerator.generate()
         val newVersion = SecretVersion(
             secret = secret,
-            encryptedValues = payload,
-            createdAt = clock.instant()
+            encryptedValues = encryptValues(secretId, newVersionId, validValues),
+            createdAt = clock.instant(),
+            id = newVersionId
         )
         secret.addVersion(newVersion)
 
@@ -394,10 +400,11 @@ class SecretService(
      * decrypting the existing version in memory is cheap enough.
      */
     private fun hasSingleVersionWith(existing: Secret, values: Map<String, String>): Boolean {
-        val encryptedValues = existing.versions.singleOrNull()?.encryptedValues ?: return false
-        return encryptedValues.keys == values.keys &&
-            encryptedValues.all { (key, encrypted) ->
-                secretEncryptor.decrypt(encrypted) == values[key]
+        val version = existing.versions.singleOrNull() ?: return false
+        return version.encryptedValues.keys == values.keys &&
+            version.encryptedValues.all { (key, encrypted) ->
+                val context = SecretValueContext(existing.id, version.id, key)
+                secretEncryptor.decrypt(encrypted, context) == values[key]
             }
     }
 
@@ -411,7 +418,12 @@ class SecretService(
         versionsIds = secret.versions.map { it.id }
     )
 
-    private fun encryptPayload(values: Map<String, String>): Map<String, String> =
-        SecretValidator.validateValues(values)
-            .mapValues { (_, value) -> secretEncryptor.encrypt(value) }
+    private fun encryptValues(
+        secretId: String,
+        versionId: String,
+        values: Map<String, String>
+    ): Map<String, String> =
+        values.mapValues { (key, value) ->
+            secretEncryptor.encrypt(value, SecretValueContext(secretId, versionId, key))
+        }
 }

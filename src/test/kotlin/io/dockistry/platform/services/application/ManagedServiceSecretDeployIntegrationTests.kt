@@ -9,13 +9,16 @@ import io.dockistry.platform.docker.domain.model.DockerNetworkRef
 import io.dockistry.platform.docker.domain.model.DockerImageRef
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.SystemPermissionNames
+import io.dockistry.platform.secrets.application.ports.SecretEncryptor
 import io.dockistry.platform.secrets.application.SecretService
 import io.dockistry.platform.secrets.domain.SecretPermissionRequiredException
 import io.dockistry.platform.secrets.domain.SecretReferenceNotDelegatedException
 import io.dockistry.platform.secrets.domain.SecretHasNoVersionsException
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
+import io.dockistry.platform.secrets.domain.SecretValueContext
 import io.dockistry.platform.secrets.domain.SecretVersion
+import io.dockistry.platform.secrets.domain.SecretVersionIdGenerator
 import io.dockistry.platform.secrets.domain.SecretWarningType
 import io.dockistry.platform.secrets.domain.SecretWarningsConfirmationRequiredException
 import io.dockistry.platform.secrets.domain.ServiceSecretWarning
@@ -63,6 +66,7 @@ class ManagedServiceSecretDeployIntegrationTests {
     @Autowired private lateinit var warningRepository: ServiceSecretWarningRepository
     @Autowired private lateinit var transactionTemplate: TransactionTemplate
     @Autowired private lateinit var entityManager: EntityManager
+    @Autowired private lateinit var secretEncryptor: SecretEncryptor
 
     @BeforeEach
     fun resetContainer() {
@@ -239,11 +243,9 @@ class ManagedServiceSecretDeployIntegrationTests {
             val newTime = Instant.parse("2026-01-01T00:00:00Z")
             val secret = Secret("secret-${fixtures.unique()}", null, owner, oldTime, oldTime)
             entityManager.persist(secret)
-            val oldVersion = SecretVersion(secret, mapOf("password" to "old-value"), oldTime)
+            val oldVersion = encryptedVersion(secret, "old-value", oldTime)
             entityManager.persist(oldVersion)
-            entityManager.persist(SecretVersion(
-                secret, mapOf("password" to "new-value"), newTime
-            ))
+            entityManager.persist(encryptedVersion(secret, "new-value", newTime))
             entityManager.persist(ProjectSecretDelegation(secret, project, newTime, newTime))
             entityManager.flush()
             Setup(owner, manager, project.id, project.slug, secret.id, oldVersion.id)
@@ -289,6 +291,14 @@ class ManagedServiceSecretDeployIntegrationTests {
         val serviceId: UUID,
         val references: List<ManagedServiceSecretReference>
     )
+
+    private fun encryptedVersion(secret: Secret, password: String, createdAt: Instant): SecretVersion {
+        val versionId = SecretVersionIdGenerator.generate()
+        val encrypted = secretEncryptor.encrypt(
+            password, SecretValueContext(secret.id, versionId, "password")
+        )
+        return SecretVersion(secret, mapOf("password" to encrypted), createdAt, versionId)
+    }
 
     private class FakeDockerPullException : RuntimeException("fake pull stopped")
 

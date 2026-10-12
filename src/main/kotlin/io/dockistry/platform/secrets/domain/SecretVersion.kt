@@ -28,11 +28,13 @@ class SecretVersion(
     val secret: Secret,
 
     encryptedValues: Map<String, String>,
-    createdAt: Instant
-) {
+    createdAt: Instant,
+
+    // Assigned before construction: values are encrypted with the version ID as associated data.
     @Id
     @Column(name = "id", nullable = false, length = 16)
     val id: String = SecretVersionIdGenerator.generate()
+) {
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "encrypted_values", nullable = false, columnDefinition = "jsonb")
