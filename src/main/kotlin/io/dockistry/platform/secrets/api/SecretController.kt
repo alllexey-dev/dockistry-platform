@@ -5,8 +5,10 @@ import io.dockistry.platform.secrets.application.SecretService
 import io.dockistry.platform.secrets.domain.dto.ProjectSecretDelegationRequest
 import io.dockistry.platform.secrets.domain.dto.SecretCreateRequest
 import io.dockistry.platform.secrets.domain.dto.SecretDto
+import io.dockistry.platform.secrets.domain.dto.SecretVersionCreateRequest
 import io.dockistry.platform.shared.api.ApiResponse
 import org.springframework.http.HttpStatus
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -52,5 +54,52 @@ class SecretController(
         )
 
         return ApiResponse(secretId)
+    }
+
+    @DeleteMapping("/{secretId}")
+    fun delete(@PathVariable secretId: String): ApiResponse<String> {
+        secretService.delete(secretId, currentUserProvider.getUser().principal)
+        return ApiResponse("ok")
+    }
+
+    @PostMapping("/{secretId}/versions")
+    @ResponseStatus(HttpStatus.CREATED)
+    fun rotate(
+        @PathVariable secretId: String,
+        @RequestBody request: SecretVersionCreateRequest
+    ): ApiResponse<String> {
+        val versionId = secretService.rotate(
+            secretId = secretId,
+            newPayload = request.values,
+            principal = currentUserProvider.getUser().principal
+        )
+
+        return ApiResponse(versionId)
+    }
+
+    @DeleteMapping("/{secretId}/versions/{versionId}")
+    fun deleteVersion(
+        @PathVariable secretId: String,
+        @PathVariable versionId: String
+    ): ApiResponse<String> {
+        secretService.deleteVersion(
+            secretId = secretId,
+            versionId = versionId,
+            principal = currentUserProvider.getUser().principal
+        )
+        return ApiResponse("ok")
+    }
+
+    @DeleteMapping("/{secretId}/delegations/{projectId}")
+    fun revoke(
+        @PathVariable secretId: String,
+        @PathVariable projectId: UUID
+    ): ApiResponse<String> {
+        secretService.revoke(
+            secretId = secretId,
+            projectId = projectId,
+            principal = currentUserProvider.getUser().principal
+        )
+        return ApiResponse("ok")
     }
 }

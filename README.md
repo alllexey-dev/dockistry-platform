@@ -191,6 +191,28 @@ Slug задается при создании проекта, ограничен
 максимум 1000 символов, NUL и невалидный Unicode запрещены
 (`400 invalid_project_description`).
 
+## Secrets API
+
+Secret принадлежит текущему пользователю, а не проекту. Все endpoints требуют
+access token и работают только с собственными Secrets владельца: чужой или
+несуществующий Secret возвращает `404 secret_not_found`. Values никогда не
+возвращаются.
+
+| Метод    | Endpoint                                          | Назначение                                     |
+|----------|---------------------------------------------------|------------------------------------------------|
+| `GET`    | `/api/secrets`                                    | список собственных Secrets                     |
+| `POST`   | `/api/secrets`                                    | создать Secret с initial version, `201`        |
+| `DELETE` | `/api/secrets/{secretId}`                         | удалить Secret с versions и delegations         |
+| `POST`   | `/api/secrets/{secretId}/versions`                | rotation: новая version из `values`, `201`     |
+| `DELETE` | `/api/secrets/{secretId}/versions/{versionId}`    | физически удалить version                      |
+| `POST`   | `/api/secrets/{secretId}/delegate`                | делегировать Secret проекту `projectId`, `201` |
+| `DELETE` | `/api/secrets/{secretId}/delegations/{projectId}` | отозвать delegation (идемпотентно)             |
+
+Rotation помечает latest references `OUTDATED`, revoke — `DELEGATION_REVOKED`,
+удаление version или Secret — `DELETED`. Revoke и удаление не останавливают
+работающие containers. Отсутствующая version возвращает
+`404 secret_version_not_found`.
+
 ## Managed Services API
 
 Managed Service — сохраненная project-scoped конфигурация будущего контейнера:
