@@ -12,6 +12,7 @@ import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.domain.SecretVersion
 import io.dockistry.platform.secrets.domain.dto.ProjectSecretDto
+import io.dockistry.platform.secrets.domain.dto.SecretDelegationDto
 import io.dockistry.platform.secrets.domain.dto.SecretDto
 import io.dockistry.platform.secrets.domain.dto.SecretUpdateRequest
 import io.dockistry.platform.secrets.domain.dto.SecretUsageDto
@@ -239,6 +240,41 @@ class SecretControllerIntegrationTests {
         val secret = secret(principal())
 
         mockMvc.get("/api/secrets/${secret.id}/versions") {
+            bearer(stranger)
+        }.andExpect { expectApiError(404, "secret_not_found") }
+    }
+
+    @Test
+    fun `delegations list projects of own secret by name`() {
+        val owner = authenticatedUser("delegations-owner")
+        val secret = secret(owner.user.principal)
+        val projects = listOf(project(), project())
+        val delegations = projects.map { delegate(secret, it) }
+        delegate(secret(owner.user.principal), project())
+
+        val result = mockMvc.get("/api/secrets/${secret.id}/delegations") {
+            bearer(owner)
+        }.andExpect { status { isOk() } }.andReturn()
+
+        assertEquals(
+            projects.zip(delegations)
+                .map { (project, delegation) ->
+                    SecretDelegationDto(project.id, project.name, delegation.createdAt)
+                }
+                .sortedBy { it.projectName },
+            objectMapper.readValue<ApiResponse<List<SecretDelegationDto>>>(
+                result.response.contentAsString
+            ).data
+        )
+    }
+
+    @Test
+    fun `delegations of foreign secret return secret not found`() {
+        val stranger = authenticatedUser("delegate-stranger")
+        val secret = secret(principal())
+        delegate(secret, project())
+
+        mockMvc.get("/api/secrets/${secret.id}/delegations") {
             bearer(stranger)
         }.andExpect { expectApiError(404, "secret_not_found") }
     }

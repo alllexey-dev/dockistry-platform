@@ -209,6 +209,7 @@ access token и работают только с собственными Secret
 | `POST`   | `/api/secrets/{secretId}/versions`                | rotation: новая version из `values`, `201`     |
 | `DELETE` | `/api/secrets/{secretId}/versions/{versionId}`    | физически удалить version                      |
 | `GET`    | `/api/secrets/{secretId}/usage`                   | managed services, ссылающиеся на Secret        |
+| `GET`    | `/api/secrets/{secretId}/delegations`             | проекты, которым делегирован Secret            |
 | `POST`   | `/api/secrets/{secretId}/delegate`                | делегировать Secret проекту `projectId`, `201` |
 | `DELETE` | `/api/secrets/{secretId}/delegations/{projectId}` | отозвать delegation (идемпотентно)             |
 
@@ -220,6 +221,9 @@ metadata; иначе возвращается `409 secret_metadata_version_confl
 Version metadata (`SecretVersionDto`) содержит ID version (`version`), `createdAt` и
 отсортированные `keys`. Rotation возвращает такой же `SecretVersionDto` для новой
 version.
+
+Delegations (`SecretDelegationDto`) содержат `projectId`, `projectName` и `createdAt`,
+отсортированы по имени проекта.
 
 Usage (`SecretUsageDto`) — по одной записи на secret-backed environment variable:
 `projectId`, `projectName`, `serviceId`, `serviceName`, `secretId`, `key`, `envName` и

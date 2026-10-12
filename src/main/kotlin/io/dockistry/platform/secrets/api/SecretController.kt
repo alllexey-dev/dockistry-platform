@@ -4,6 +4,7 @@ import io.dockistry.platform.iam.application.CurrentUserProvider
 import io.dockistry.platform.secrets.application.SecretService
 import io.dockistry.platform.secrets.domain.dto.ProjectSecretDelegationRequest
 import io.dockistry.platform.secrets.domain.dto.SecretCreateRequest
+import io.dockistry.platform.secrets.domain.dto.SecretDelegationDto
 import io.dockistry.platform.secrets.domain.dto.SecretDto
 import io.dockistry.platform.secrets.domain.dto.SecretUpdateRequest
 import io.dockistry.platform.secrets.domain.dto.SecretUsageDto
@@ -45,6 +46,14 @@ class SecretController(
     @GetMapping("/{secretId}/usage")
     fun listUsage(@PathVariable secretId: String): ApiResponse<List<SecretUsageDto>> =
         ApiResponse(secretService.listUsage(secretId, currentUserProvider.getUser().principal))
+
+    @GetMapping("/{secretId}/delegations")
+    fun listDelegations(
+        @PathVariable secretId: String
+    ): ApiResponse<List<SecretDelegationDto>> =
+        ApiResponse(
+            secretService.listDelegations(secretId, currentUserProvider.getUser().principal)
+        )
 
     @PostMapping("/{secretId}/delegate")
     @ResponseStatus(HttpStatus.CREATED)

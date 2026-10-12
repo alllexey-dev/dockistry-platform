@@ -75,6 +75,15 @@ interface ProjectSecretDelegationRepository : JpaRepository<ProjectSecretDelegat
         secretId: String
     ): List<ProjectSecretDelegation>
 
+    @Query("""
+        SELECT delegation
+        FROM ProjectSecretDelegation delegation
+        JOIN FETCH delegation.project project
+        WHERE delegation.secret.id = :secretId
+        ORDER BY project.name, project.id
+    """)
+    fun findBySecretIdWithProject(secretId: String): List<ProjectSecretDelegation>
+
     /* Locks every project delegation of one Secret in a deterministic order. */
     @Query(
         """

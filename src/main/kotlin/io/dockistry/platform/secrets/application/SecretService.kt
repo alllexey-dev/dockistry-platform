@@ -15,6 +15,7 @@ import io.dockistry.platform.secrets.domain.SecretValidator
 import io.dockistry.platform.secrets.domain.SecretVersionNotFoundException
 import io.dockistry.platform.secrets.domain.SecretWarningType
 import io.dockistry.platform.secrets.domain.ServiceSecretWarning
+import io.dockistry.platform.secrets.domain.dto.SecretDelegationDto
 import io.dockistry.platform.secrets.domain.dto.SecretDto
 import io.dockistry.platform.secrets.domain.dto.SecretUsageDto
 import io.dockistry.platform.secrets.domain.dto.SecretVersionDto
@@ -278,6 +279,18 @@ class SecretService(
     fun listVersions(secretId: String, principal: Principal): List<SecretVersionDto> =
         secretAccessGuard.requireOwner(secretId, principal).versions
             .toVersionDtos()
+
+    @Transactional(readOnly = true)
+    fun listDelegations(secretId: String, principal: Principal): List<SecretDelegationDto> {
+        secretAccessGuard.requireOwner(secretId, principal)
+        return projectSecretDelegationRepository.findBySecretIdWithProject(secretId).map {
+            SecretDelegationDto(
+                projectId = it.project.id,
+                projectName = it.project.name,
+                createdAt = it.createdAt
+            )
+        }
+    }
 
     /**
      * Lists every current configuration dependency on the Secret, including references left in
