@@ -45,8 +45,7 @@ class ServiceSecretWarningRepositoryIntegrationTests {
             warning(service, type = SecretWarningType.DELETED)
         ))
 
-        val warnings = warningRepository
-            .findByServiceAndResolvedAtIsNullOrderByCreatedAtAsc(service)
+        val warnings = warningRepository.findActiveByServiceIds(listOf(service.id))
         assertEquals(4, warnings.size)
         assertEquals(setOf(
             "sec-AAAAAAAAAAAA" to SecretWarningType.OUTDATED,
@@ -80,8 +79,7 @@ class ServiceSecretWarningRepositoryIntegrationTests {
                 secretVersion = "ver-AAAAAAAAAAAA", envName = "OTHER_PASSWORD")
         ))
 
-        assertEquals(4, warningRepository
-            .findByServiceAndResolvedAtIsNullOrderByCreatedAtAsc(service).size)
+        assertEquals(4, warningRepository.findActiveByServiceIds(listOf(service.id)).size)
     }
 
     @Test
@@ -105,8 +103,7 @@ class ServiceSecretWarningRepositoryIntegrationTests {
         val service = service()
         val warning = warning(service)
         assertEquals(1, warningRepository.saveOrRefreshActive(warning))
-        val previous = warningRepository
-            .findByServiceAndResolvedAtIsNullOrderByCreatedAtAsc(service).single()
+        val previous = warningRepository.findActiveByServiceIds(listOf(service.id)).single()
 
         assertEquals(1, warningRepository.saveResolvedBulk(
             listOf(previous.id), now.plusSeconds(1)
@@ -114,8 +111,7 @@ class ServiceSecretWarningRepositoryIntegrationTests {
         assertEquals(1, warningRepository.saveOrRefreshActive(warning))
         entityManager.clear()
 
-        val active = warningRepository
-            .findByServiceAndResolvedAtIsNullOrderByCreatedAtAsc(service).single()
+        val active = warningRepository.findActiveByServiceIds(listOf(service.id)).single()
         assertNotEquals(previous.id, active.id)
         val history = warningRepository.findAll().filter { it.service.id == service.id }
         assertEquals(2, history.size)

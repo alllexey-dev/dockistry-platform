@@ -33,7 +33,7 @@ CREATE TABLE secret_versions
 );
 
 CREATE INDEX secret_versions_secret_id_created_at_idx
-    ON secret_versions (secret_id, created_at DESC, id DESC);
+    ON secret_versions (secret_id, created_at DESC, id);
 
 CREATE TABLE project_secret_delegations
 (

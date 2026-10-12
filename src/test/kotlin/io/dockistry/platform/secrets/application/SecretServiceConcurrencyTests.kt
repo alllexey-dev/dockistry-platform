@@ -414,7 +414,7 @@ class SecretServiceConcurrencyTests @Autowired constructor(
         versionRepository.findLatestBySecretId(secretId).id
 
     private fun activeWarnings(service: ManagedService) =
-        serviceSecretWarningRepository.findByServiceAndResolvedAtIsNullOrderByCreatedAtAsc(service)
+        serviceSecretWarningRepository.findActiveByServiceIds(listOf(service.id))
 
     private fun prepareTestData(): ConcurrencyTestData {
         val fixtures = IamProjectFixtures(entityManager)

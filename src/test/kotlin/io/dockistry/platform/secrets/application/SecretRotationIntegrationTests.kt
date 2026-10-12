@@ -152,9 +152,7 @@ class SecretRotationIntegrationTests {
         ))
         entityManager.flush()
 
-        assertTrue(warningRepository.findByServiceAndResolvedAtIsNullOrderByCreatedAtAsc(
-            service
-        ).isEmpty())
+        assertTrue(warningRepository.findActiveByServiceIds(listOf(service.id)).isEmpty())
 
         secretService.rotate(secret.id, mapOf("password" to "new-value"), owner)
         entityManager.flush()

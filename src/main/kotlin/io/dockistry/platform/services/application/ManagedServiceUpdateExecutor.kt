@@ -2,8 +2,6 @@ package io.dockistry.platform.services.application
 
 import io.dockistry.platform.projects.application.ProjectAccessGuard
 import io.dockistry.platform.secrets.application.ManagedServiceSecretReferenceService
-import io.dockistry.platform.secrets.domain.toDto
-import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
 import io.dockistry.platform.services.application.dto.ManagedServiceUpdateCommand
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceVersionConflictException
@@ -20,7 +18,6 @@ class ManagedServiceUpdateExecutor(
     private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard,
     private val managedServiceSecretReferenceService: ManagedServiceSecretReferenceService,
     private val managedServiceRepository: ManagedServiceRepository,
-    private val referenceRepository: ManagedServiceSecretReferenceRepository,
     private val managedServiceSecretUsageGuard: ManagedServiceSecretUsageGuard
 ) {
     @Transactional
@@ -46,18 +43,15 @@ class ManagedServiceUpdateExecutor(
 
         val configuration = commandValidator.validate(command)
 
-        val existingReferences =
-            referenceRepository.findByServiceId(service.id).map { it.toDto() }
-
         if (service.version != command.expectedVersion) {
-            if (service.matches(configuration, existingReferences)) {
+            if (service.matches(configuration, currentReferences)) {
                 return service
             }
 
             throw versionConflict(service)
         }
 
-        if (service.matches(configuration, existingReferences)) {
+        if (service.matches(configuration, currentReferences)) {
             return service
         }
 

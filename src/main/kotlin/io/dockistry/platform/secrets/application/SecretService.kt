@@ -138,9 +138,8 @@ class SecretService(
             transactionTemplate.execute {
                 secretDelegationPermissionGuard.lockPrincipal(ownerPrincipal.id)
 
-                secretAccessGuard.requireOwner(secretId, ownerPrincipal)
+                val secret = secretAccessGuard.requireOwner(secretId, ownerPrincipal)
                 val project = projectAccessGuard.requireSecretsDelegable(projectId, ownerPrincipal)
-                val secret = secretRepository.findById(secretId).orElseThrow()
                 val now = clock.instant()
 
                 projectSecretDelegationRepository.saveAndFlush(

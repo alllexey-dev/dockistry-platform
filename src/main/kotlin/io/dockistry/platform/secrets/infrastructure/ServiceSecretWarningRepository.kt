@@ -1,7 +1,6 @@
 package io.dockistry.platform.secrets.infrastructure
 
 import io.dockistry.platform.secrets.domain.ServiceSecretWarning
-import io.dockistry.platform.services.domain.ManagedService
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
@@ -9,10 +8,6 @@ import java.time.Instant
 import java.util.UUID
 
 interface ServiceSecretWarningRepository : JpaRepository<ServiceSecretWarning, UUID> {
-    fun findByServiceAndResolvedAtIsNullOrderByCreatedAtAsc(
-        service: ManagedService
-    ): List<ServiceSecretWarning>
-
     @Query("""
         SELECT warning
         FROM ServiceSecretWarning warning
