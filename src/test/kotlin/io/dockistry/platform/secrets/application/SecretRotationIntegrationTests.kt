@@ -69,7 +69,7 @@ class SecretRotationIntegrationTests {
 
         val newVersionId = secretService.rotate(
             secret.id, mapOf("password" to "new-value"), owner
-        )
+        ).version
         entityManager.flush()
         entityManager.clear()
 
@@ -85,7 +85,7 @@ class SecretRotationIntegrationTests {
 
         val newVersionId = secretService.rotate(
             secret.id, mapOf("password" to "new-value"), owner
-        )
+        ).version
         entityManager.flush()
         entityManager.clear()
 

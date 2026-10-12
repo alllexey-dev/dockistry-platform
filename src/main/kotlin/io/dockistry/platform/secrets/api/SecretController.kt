@@ -7,6 +7,7 @@ import io.dockistry.platform.secrets.domain.dto.SecretCreateRequest
 import io.dockistry.platform.secrets.domain.dto.SecretDto
 import io.dockistry.platform.secrets.domain.dto.SecretUpdateRequest
 import io.dockistry.platform.secrets.domain.dto.SecretVersionCreateRequest
+import io.dockistry.platform.secrets.domain.dto.SecretVersionDto
 import io.dockistry.platform.shared.api.ApiResponse
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -29,6 +30,16 @@ class SecretController(
     @GetMapping
     fun list(): ApiResponse<List<SecretDto>> =
         ApiResponse(secretService.list(currentUserProvider.getUser().principal))
+
+    @GetMapping("/{secretId}")
+    fun get(@PathVariable secretId: String): ApiResponse<SecretDto> =
+        ApiResponse(secretService.get(secretId, currentUserProvider.getUser().principal))
+
+    @GetMapping("/{secretId}/versions")
+    fun listVersions(@PathVariable secretId: String): ApiResponse<List<SecretVersionDto>> =
+        ApiResponse(
+            secretService.listVersions(secretId, currentUserProvider.getUser().principal)
+        )
 
     @PostMapping("/{secretId}/delegate")
     @ResponseStatus(HttpStatus.CREATED)
@@ -85,14 +96,14 @@ class SecretController(
     fun rotate(
         @PathVariable secretId: String,
         @RequestBody request: SecretVersionCreateRequest
-    ): ApiResponse<String> {
-        val versionId = secretService.rotate(
+    ): ApiResponse<SecretVersionDto> {
+        val version = secretService.rotate(
             secretId = secretId,
             newPayload = request.values,
             principal = currentUserProvider.getUser().principal
         )
 
-        return ApiResponse(versionId)
+        return ApiResponse(version)
     }
 
     @DeleteMapping("/{secretId}/versions/{versionId}")

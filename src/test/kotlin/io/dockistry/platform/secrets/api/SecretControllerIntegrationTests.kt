@@ -10,11 +10,14 @@ import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.domain.dto.SecretDto
 import io.dockistry.platform.secrets.domain.dto.SecretUpdateRequest
 import io.dockistry.platform.secrets.domain.dto.SecretVersionCreateRequest
+import io.dockistry.platform.secrets.domain.dto.SecretVersionDto
 import io.dockistry.platform.shared.api.ApiResponse
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import io.dockistry.platform.testsupport.SecretDelegationFixtures
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
+import org.hamcrest.Matchers.containsString
+import org.hamcrest.Matchers.not
 import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -27,6 +30,7 @@ import org.springframework.test.web.servlet.MockHttpServletRequestDsl
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.MockMvcResultMatchersDsl
 import org.springframework.test.web.servlet.delete
+import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import org.springframework.test.web.servlet.put
 import org.springframework.transaction.support.TransactionTemplate
@@ -165,22 +169,92 @@ class SecretControllerIntegrationTests {
     }
 
     @Test
+    fun `get returns own secret metadata without values`() {
+        val owner = authenticatedUser("get-owner")
+        val secret = secret(owner.user.principal)
+
+        mockMvc.get("/api/secrets/${secret.id}") {
+            bearer(owner)
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.id") { value(secret.id) }
+            jsonPath("$.data.name") { value(secret.name) }
+            jsonPath("$.data.versionsIds[0]") { value(secret.versions.single().id) }
+            content { string(not(
+                containsString("ciphertext")
+            )) }
+        }
+    }
+
+    @Test
+    fun `get of foreign secret returns secret not found`() {
+        val stranger = authenticatedUser("get-stranger")
+        val secret = secret(principal())
+
+        mockMvc.get("/api/secrets/${secret.id}") {
+            bearer(stranger)
+        }.andExpect { expectApiError(404, "secret_not_found") }
+    }
+
+    @Test
+    fun `versions returns metadata newest first without values`() {
+        val owner = authenticatedUser("versions-owner")
+        val secret = secret(owner.user.principal)
+        mockMvc.post("/api/secrets/${secret.id}/versions") {
+            bearer(owner)
+            json(SecretVersionCreateRequest(mapOf("token" to "rotated", "password" to "x")))
+        }.andExpect { status { isCreated() } }
+
+        val result = mockMvc.get("/api/secrets/${secret.id}/versions") {
+            bearer(owner)
+        }.andExpect {
+            status { isOk() }
+            content { string(not(
+                containsString("ciphertext")
+            )) }
+        }.andReturn()
+
+        val versions = assertNotNull(
+            objectMapper.readValue<ApiResponse<List<SecretVersionDto>>>(
+                result.response.contentAsString
+            ).data
+        )
+        assertEquals(2, versions.size)
+        assertEquals(listOf("password", "token"), versions.first().keys.toList())
+        assertEquals(secret.versions.single().id, versions.last().version)
+        assertEquals(setOf("password"), versions.last().keys)
+    }
+
+    @Test
+    fun `versions of foreign secret return secret not found`() {
+        val stranger = authenticatedUser("versions-stranger")
+        val secret = secret(principal())
+
+        mockMvc.get("/api/secrets/${secret.id}/versions") {
+            bearer(stranger)
+        }.andExpect { expectApiError(404, "secret_not_found") }
+    }
+
+    @Test
     fun `rotate creates a new version for owner`() {
         val owner = authenticatedUser("rotate-owner")
         val secret = secret(owner.user.principal)
 
         val result = mockMvc.post("/api/secrets/${secret.id}/versions") {
             bearer(owner)
-            json(SecretVersionCreateRequest(mapOf("password" to "rotated")))
+            json(SecretVersionCreateRequest(mapOf("password" to "rotated", "user" to "app")))
         }.andExpect {
             status { isCreated() }
             jsonPath("$.errorCode") { value(nullValue()) }
         }.andReturn()
 
-        val versionId = assertNotNull(
-            objectMapper.readValue<ApiResponse<String>>(result.response.contentAsString).data
+        val version = assertNotNull(
+            objectMapper.readValue<ApiResponse<SecretVersionDto>>(
+                result.response.contentAsString
+            ).data
         )
-        assertEquals(1, count("secret_versions", versionId))
+        assertEquals(setOf("password", "user"), version.keys)
+        assertEquals(1, count("secret_versions", version.version))
         assertEquals(2, versionCount(secret.id))
     }
 

@@ -265,7 +265,7 @@ class SecretServiceConcurrencyTests @Autowired constructor(
             assertBlocked(secretLock, by = deletionLocks)
             deletionLocks.release()
             deletion.await()
-            rotation.await()
+            rotation.await().version
         }
 
         assertEquals(rotatedVersionId, latestVersionId(data.secretId))

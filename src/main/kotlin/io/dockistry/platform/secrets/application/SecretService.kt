@@ -16,6 +16,7 @@ import io.dockistry.platform.secrets.domain.SecretVersionNotFoundException
 import io.dockistry.platform.secrets.domain.SecretWarningType
 import io.dockistry.platform.secrets.domain.ServiceSecretWarning
 import io.dockistry.platform.secrets.domain.dto.SecretDto
+import io.dockistry.platform.secrets.domain.dto.SecretVersionDto
 import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
@@ -195,7 +196,7 @@ class SecretService(
         secretId: String,
         newPayload: Map<String, String>,
         principal: Principal
-    ): String {
+    ): SecretVersionDto {
         val payload = encryptPayload(newPayload)
         // Serializes with version and logical Secret deletion that decide what is latest.
         val secret = secretAccessGuard.requireOwnerForUpdate(
@@ -219,7 +220,7 @@ class SecretService(
         )
         secret.addVersion(newVersion)
 
-        return newVersion.id
+        return toVersionDto(newVersion)
     }
 
     /**
@@ -267,6 +268,16 @@ class SecretService(
     @Transactional(readOnly = true)
     fun list(ownerPrincipal: Principal): List<SecretDto> =
         secretRepository.listByOwnerPrincipal(ownerPrincipal).map(::toDto)
+
+    @Transactional(readOnly = true)
+    fun get(secretId: String, principal: Principal): SecretDto =
+        toDto(secretAccessGuard.requireOwner(secretId, principal))
+
+    @Transactional(readOnly = true)
+    fun listVersions(secretId: String, principal: Principal): List<SecretVersionDto> =
+        secretAccessGuard.requireOwner(secretId, principal).versions
+            .sortedWith(NEWEST_VERSION_FIRST)
+            .map(::toVersionDto)
 
     /*
      * The FK cascade must not remove a reference that got no DELETED warning, so the set of
@@ -373,7 +384,19 @@ class SecretService(
         versionsIds = secret.versions.map { it.id }
     )
 
+    private fun toVersionDto(version: SecretVersion): SecretVersionDto = SecretVersionDto(
+        version = version.id,
+        createdAt = version.createdAt,
+        keys = version.encryptedValues.keys.toSortedSet()
+    )
+
     private fun encryptPayload(values: Map<String, String>): Map<String, String> =
         SecretValidator.validateValues(values)
             .mapValues { (_, value) -> secretEncryptor.encrypt(value) }
+
+    private companion object {
+        // Same order as latest resolution: created_at DESC with the version ID as tie-breaker.
+        val NEWEST_VERSION_FIRST: Comparator<SecretVersion> =
+            compareByDescending<SecretVersion> { it.createdAt }.thenBy { it.id }
+    }
 }
