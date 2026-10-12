@@ -69,4 +69,18 @@ interface ManagedServiceSecretReferenceRepository :
         ORDER BY project.name, service.name, reference.envName
     """)
     fun findUsageBySecretIds(secretIds: Collection<String>): List<ManagedServiceSecretReferenceEntity>
+
+    @Query("""
+        SELECT reference
+        FROM ManagedServiceSecretReferenceEntity reference
+        JOIN FETCH reference.service service
+        JOIN FETCH service.project project
+        WHERE project.id = :projectId
+            AND reference.secret.id IN (:secretIds)
+        ORDER BY service.name, reference.envName
+    """)
+    fun findUsageByProjectAndSecretIds(
+        projectId: UUID,
+        secretIds: Collection<String>
+    ): List<ManagedServiceSecretReferenceEntity>
 }

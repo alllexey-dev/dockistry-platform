@@ -231,6 +231,19 @@ Rotation помечает latest references `OUTDATED`, revoke — `DELEGATION_R
 работающие containers. Отсутствующая version возвращает
 `404 secret_version_not_found`.
 
+Делегированные проекту Secrets доступны участникам проекта с `project.read`,
+независимо от владельца:
+
+| Метод | Endpoint                                     | Назначение                                |
+|-------|----------------------------------------------|-------------------------------------------|
+| `GET` | `/api/projects/{projectId}/secrets`          | Secrets, делегированные проекту           |
+| `GET` | `/api/projects/{projectId}/secrets/{secretId}` | один делегированный Secret              |
+
+`ProjectSecretDto` содержит `id`, `name`, `description`, `owner` (`PrincipalInfoDto`),
+`delegatedAt`, `versions` (новые первыми) и `usage` только внутри этого проекта.
+Нечитаемый проект возвращает `404 project_not_found`, не делегированный проекту
+Secret — `404 secret_not_found`.
+
 ## Managed Services API
 
 Managed Service — сохраненная project-scoped конфигурация будущего контейнера:

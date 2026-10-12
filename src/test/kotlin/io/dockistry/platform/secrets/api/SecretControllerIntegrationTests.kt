@@ -3,11 +3,15 @@ package io.dockistry.platform.secrets.api
 import io.dockistry.platform.TestcontainersConfig
 import io.dockistry.platform.auth.application.TokenManagementService
 import io.dockistry.platform.iam.domain.Principal
+import io.dockistry.platform.iam.domain.PrincipalType
+import io.dockistry.platform.iam.domain.SystemPermissionNames
 import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.secrets.domain.ManagedServiceSecretReferenceEntity
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
+import io.dockistry.platform.secrets.domain.SecretVersion
+import io.dockistry.platform.secrets.domain.dto.ProjectSecretDto
 import io.dockistry.platform.secrets.domain.dto.SecretDto
 import io.dockistry.platform.secrets.domain.dto.SecretUpdateRequest
 import io.dockistry.platform.secrets.domain.dto.SecretUsageDto
@@ -296,6 +300,114 @@ class SecretControllerIntegrationTests {
     }
 
     @Test
+    fun `project secrets list delegated secrets of all owners with versions and usage`() {
+        val reader = authenticatedUser("project-reader")
+        val ownerUser = authenticatedUser("project-owner")
+        val project = project()
+        val otherProject = project()
+        grantRead(reader.user.principal, project)
+        val secret = secret(ownerUser.user.principal)
+        val newerVersionId = version(secret, Instant.parse("2026-02-01T00:00:00Z"))
+        val otherOwnerSecret = secret(principal())
+        val notDelegated = secret(ownerUser.user.principal)
+        delegate(secret, project)
+        delegate(otherOwnerSecret, project)
+        delegate(notDelegated, otherProject)
+        val service = service(project)
+        secretReference(service, secret, "DB_PASSWORD", version = null)
+        secretReference(service(otherProject), secret, "ELSEWHERE", version = null)
+
+        val result = mockMvc.get("/api/projects/${project.id}/secrets") {
+            bearer(reader)
+        }.andExpect {
+            status { isOk() }
+            content { string(not(containsString("ciphertext"))) }
+        }.andReturn()
+
+        val secrets = assertNotNull(
+            objectMapper.readValue<ApiResponse<List<ProjectSecretDto>>>(
+                result.response.contentAsString
+            ).data
+        ).associateBy { it.id }
+        assertEquals(setOf(secret.id, otherOwnerSecret.id), secrets.keys)
+
+        val dto = assertNotNull(secrets[secret.id])
+        assertEquals(secret.name, dto.name)
+        assertEquals(ownerUser.user.id, dto.owner.id)
+        assertEquals(PrincipalType.USER, dto.owner.type)
+        assertEquals(ownerUser.user.username, dto.owner.name)
+        assertEquals(
+            listOf(newerVersionId, secret.versions.single().id),
+            dto.versions.map { it.version }
+        )
+        assertEquals(setOf("token"), dto.versions.first().keys)
+        assertEquals(listOf("DB_PASSWORD"), dto.usage.map { it.envName })
+        assertEquals(service.id, dto.usage.single().serviceId)
+        assertEquals(emptyList(), assertNotNull(secrets[otherOwnerSecret.id]).usage)
+    }
+
+    @Test
+    fun `project secret get returns delegated secret`() {
+        val reader = authenticatedUser("project-get")
+        val project = project()
+        grantRead(reader.user.principal, project)
+        val secret = secret(principal())
+        delegate(secret, project)
+
+        mockMvc.get("/api/projects/${project.id}/secrets/${secret.id}") {
+            bearer(reader)
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.id") { value(secret.id) }
+            jsonPath("$.data.versions[0].version") { value(secret.versions.single().id) }
+            jsonPath("$.data.versions[0].keys[0]") { value("password") }
+            jsonPath("$.data.usage") { isEmpty() }
+        }
+    }
+
+    @Test
+    fun `project secret get of not delegated secret returns secret not found`() {
+        val reader = authenticatedUser("project-undelegated")
+        val project = project()
+        grantRead(reader.user.principal, project)
+        val secret = secret(reader.user.principal)
+        delegate(secret, project())
+
+        mockMvc.get("/api/projects/${project.id}/secrets/${secret.id}") {
+            bearer(reader)
+        }.andExpect { expectApiError(404, "secret_not_found") }
+    }
+
+    @Test
+    fun `project secrets require project read`() {
+        val stranger = authenticatedUser("project-stranger")
+        val project = project()
+        val secret = secret(stranger.user.principal)
+        delegate(secret, project)
+
+        mockMvc.get("/api/projects/${project.id}/secrets") {
+            bearer(stranger)
+        }.andExpect { expectApiError(404, "project_not_found") }
+        mockMvc.get("/api/projects/${project.id}/secrets/${secret.id}") {
+            bearer(stranger)
+        }.andExpect { expectApiError(404, "project_not_found") }
+    }
+
+    @Test
+    fun `project secrets list is empty without delegations`() {
+        val reader = authenticatedUser("project-empty")
+        val project = project()
+        grantRead(reader.user.principal, project)
+
+        mockMvc.get("/api/projects/${project.id}/secrets") {
+            bearer(reader)
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data") { isEmpty() }
+        }
+    }
+
+    @Test
     fun `rotate creates a new version for owner`() {
         val owner = authenticatedUser("rotate-owner")
         val secret = secret(owner.user.principal)
@@ -467,6 +579,20 @@ class SecretControllerIntegrationTests {
             reference<Secret>(secret.id),
             reference<Project>(project.id)
         )
+    }
+
+    private fun grantRead(principal: Principal, project: Project) = committed {
+        fixtures().grantSystemPermission(
+            reference<Principal>(principal.id),
+            reference<Project>(project.id).scope,
+            SystemPermissionNames.PROJECT_READ.key
+        )
+    }
+
+    private fun version(secret: Secret, createdAt: Instant): String = committed {
+        SecretVersion(reference<Secret>(secret.id), mapOf("token" to "ciphertext"), createdAt)
+            .also(entityManager::persist)
+            .id
     }
 
     private fun service(project: Project): ManagedService = committed {

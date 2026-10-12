@@ -221,7 +221,7 @@ class SecretService(
         )
         secret.addVersion(newVersion)
 
-        return toVersionDto(newVersion)
+        return newVersion.toVersionDto()
     }
 
     /**
@@ -277,8 +277,7 @@ class SecretService(
     @Transactional(readOnly = true)
     fun listVersions(secretId: String, principal: Principal): List<SecretVersionDto> =
         secretAccessGuard.requireOwner(secretId, principal).versions
-            .sortedWith(NEWEST_VERSION_FIRST)
-            .map(::toVersionDto)
+            .toVersionDtos()
 
     /**
      * Lists every current configuration dependency on the Secret, including references left in
@@ -395,19 +394,7 @@ class SecretService(
         versionsIds = secret.versions.map { it.id }
     )
 
-    private fun toVersionDto(version: SecretVersion): SecretVersionDto = SecretVersionDto(
-        version = version.id,
-        createdAt = version.createdAt,
-        keys = version.encryptedValues.keys.toSortedSet()
-    )
-
     private fun encryptPayload(values: Map<String, String>): Map<String, String> =
         SecretValidator.validateValues(values)
             .mapValues { (_, value) -> secretEncryptor.encrypt(value) }
-
-    private companion object {
-        // Same order as latest resolution: created_at DESC with the version ID as tie-breaker.
-        val NEWEST_VERSION_FIRST: Comparator<SecretVersion> =
-            compareByDescending<SecretVersion> { it.createdAt }.thenBy { it.id }
-    }
 }

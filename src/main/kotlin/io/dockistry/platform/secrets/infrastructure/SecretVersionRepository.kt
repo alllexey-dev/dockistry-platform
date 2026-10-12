@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.Query
 interface SecretVersionRepository : JpaRepository<SecretVersion, String> {
     fun findByIdIn(versionIds: Collection<String>): List<SecretVersion>
 
+    fun findBySecretIdIn(secretIds: Collection<String>): List<SecretVersion>
+
     // Ordering by version as a deterministic tie-braker.
     @Query(
         """

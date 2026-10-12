@@ -42,6 +42,15 @@ interface ProjectSecretDelegationRepository : JpaRepository<ProjectSecretDelegat
         secretId: String
     ): ProjectSecretDelegation?
 
+    @Query("""
+        SELECT delegation
+        FROM ProjectSecretDelegation delegation
+        JOIN FETCH delegation.secret secret
+        WHERE delegation.project.id = :projectId
+        ORDER BY secret.name, secret.id
+    """)
+    fun findByProjectIdWithSecret(projectId: UUID): List<ProjectSecretDelegation>
+
     @Query(
         """
         SELECT delegation.*
