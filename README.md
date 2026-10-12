@@ -208,6 +208,7 @@ access token и работают только с собственными Secret
 | `GET`    | `/api/secrets/{secretId}/versions`                | metadata versions, новые первыми               |
 | `POST`   | `/api/secrets/{secretId}/versions`                | rotation: новая version из `values`, `201`     |
 | `DELETE` | `/api/secrets/{secretId}/versions/{versionId}`    | физически удалить version                      |
+| `GET`    | `/api/secrets/{secretId}/usage`                   | managed services, ссылающиеся на Secret        |
 | `POST`   | `/api/secrets/{secretId}/delegate`                | делегировать Secret проекту `projectId`, `201` |
 | `DELETE` | `/api/secrets/{secretId}/delegations/{projectId}` | отозвать delegation (идемпотентно)             |
 
@@ -219,6 +220,11 @@ metadata; иначе возвращается `409 secret_metadata_version_confl
 Version metadata (`SecretVersionDto`) содержит ID version (`version`), `createdAt` и
 отсортированные `keys`. Rotation возвращает такой же `SecretVersionDto` для новой
 version.
+
+Usage (`SecretUsageDto`) — по одной записи на secret-backed environment variable:
+`projectId`, `projectName`, `serviceId`, `serviceName`, `secretId`, `key`, `envName` и
+`secretVersion` (`null` для latest). Сюда входят и references в проектах с уже
+отозванной delegation: они остаются в configuration и блокируют следующий deploy.
 
 Rotation помечает latest references `OUTDATED`, revoke — `DELEGATION_REVOKED`,
 удаление version или Secret — `DELETED`. Revoke и удаление не останавливают

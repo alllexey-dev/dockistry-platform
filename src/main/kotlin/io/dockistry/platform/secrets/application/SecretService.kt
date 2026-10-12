@@ -16,6 +16,7 @@ import io.dockistry.platform.secrets.domain.SecretVersionNotFoundException
 import io.dockistry.platform.secrets.domain.SecretWarningType
 import io.dockistry.platform.secrets.domain.ServiceSecretWarning
 import io.dockistry.platform.secrets.domain.dto.SecretDto
+import io.dockistry.platform.secrets.domain.dto.SecretUsageDto
 import io.dockistry.platform.secrets.domain.dto.SecretVersionDto
 import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
@@ -278,6 +279,16 @@ class SecretService(
         secretAccessGuard.requireOwner(secretId, principal).versions
             .sortedWith(NEWEST_VERSION_FIRST)
             .map(::toVersionDto)
+
+    /**
+     * Lists every current configuration dependency on the Secret, including references left in
+     * projects whose delegation was revoked: they still block the next deploy there.
+     */
+    @Transactional(readOnly = true)
+    fun listUsage(secretId: String, principal: Principal): List<SecretUsageDto> {
+        secretAccessGuard.requireOwner(secretId, principal)
+        return referenceRepository.findUsageBySecretIds(listOf(secretId)).map { it.toUsageDto() }
+    }
 
     /*
      * The FK cascade must not remove a reference that got no DELETED warning, so the set of

@@ -5,12 +5,16 @@ import io.dockistry.platform.auth.application.TokenManagementService
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.User
 import io.dockistry.platform.projects.domain.Project
+import io.dockistry.platform.secrets.domain.ManagedServiceSecretReferenceEntity
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
 import io.dockistry.platform.secrets.domain.dto.SecretDto
 import io.dockistry.platform.secrets.domain.dto.SecretUpdateRequest
+import io.dockistry.platform.secrets.domain.dto.SecretUsageDto
 import io.dockistry.platform.secrets.domain.dto.SecretVersionCreateRequest
 import io.dockistry.platform.secrets.domain.dto.SecretVersionDto
+import io.dockistry.platform.services.domain.ManagedService
+import io.dockistry.platform.services.testsupport.managedService
 import io.dockistry.platform.shared.api.ApiResponse
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import io.dockistry.platform.testsupport.SecretDelegationFixtures
@@ -236,6 +240,62 @@ class SecretControllerIntegrationTests {
     }
 
     @Test
+    fun `usage lists every reference to own secret across projects`() {
+        val owner = authenticatedUser("usage-owner")
+        val secret = secret(owner.user.principal)
+        val versionId = secret.versions.single().id
+        val firstProject = project()
+        val secondProject = project()
+        val firstService = service(firstProject)
+        val secondService = service(secondProject)
+        secretReference(firstService, secret, "DB_PASSWORD", version = null)
+        secretReference(firstService, secret, "DB_PASSWORD_COPY", version = versionId)
+        secretReference(secondService, secret, "PASSWORD", version = null)
+        secretReference(secondService, secret(owner.user.principal), "OTHER", version = null)
+
+        val result = mockMvc.get("/api/secrets/${secret.id}/usage") {
+            bearer(owner)
+        }.andExpect {
+            status { isOk() }
+            content { string(not(containsString("ciphertext"))) }
+        }.andReturn()
+
+        val usage = assertNotNull(
+            objectMapper.readValue<ApiResponse<List<SecretUsageDto>>>(
+                result.response.contentAsString
+            ).data
+        )
+        assertEquals(
+            setOf(
+                SecretUsageDto(
+                    firstProject.id, firstProject.name, firstService.id, firstService.name,
+                    secret.id, "password", "DB_PASSWORD", null
+                ),
+                SecretUsageDto(
+                    firstProject.id, firstProject.name, firstService.id, firstService.name,
+                    secret.id, "password", "DB_PASSWORD_COPY", versionId
+                ),
+                SecretUsageDto(
+                    secondProject.id, secondProject.name, secondService.id, secondService.name,
+                    secret.id, "password", "PASSWORD", null
+                )
+            ),
+            usage.toSet()
+        )
+        assertEquals(3, usage.size)
+    }
+
+    @Test
+    fun `usage of foreign secret returns secret not found`() {
+        val stranger = authenticatedUser("usage-stranger")
+        val secret = secret(principal())
+
+        mockMvc.get("/api/secrets/${secret.id}/usage") {
+            bearer(stranger)
+        }.andExpect { expectApiError(404, "secret_not_found") }
+    }
+
+    @Test
     fun `rotate creates a new version for owner`() {
         val owner = authenticatedUser("rotate-owner")
         val secret = secret(owner.user.principal)
@@ -406,6 +466,28 @@ class SecretControllerIntegrationTests {
         SecretDelegationFixtures(entityManager).delegate(
             reference<Secret>(secret.id),
             reference<Project>(project.id)
+        )
+    }
+
+    private fun service(project: Project): ManagedService = committed {
+        managedService(reference<Project>(project.id), "service-${unique()}")
+            .also(entityManager::persist)
+    }
+
+    private fun secretReference(
+        service: ManagedService,
+        secret: Secret,
+        envName: String,
+        version: String?
+    ) = committed {
+        entityManager.persist(
+            ManagedServiceSecretReferenceEntity(
+                service = reference<ManagedService>(service.id),
+                secret = reference<Secret>(secret.id),
+                secretKey = "password",
+                secretVersion = version,
+                envName = envName
+            )
         )
     }
 

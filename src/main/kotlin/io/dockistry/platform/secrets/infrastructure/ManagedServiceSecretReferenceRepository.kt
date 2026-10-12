@@ -58,4 +58,15 @@ interface ManagedServiceSecretReferenceRepository :
         WHERE reference.secret.id = :secretId
     """)
     fun findBySecretId(secretId: String): List<ManagedServiceSecretReferenceEntity>
+
+    /* Service and project FETCH JOINs keep usage listings free of N+1 queries. */
+    @Query("""
+        SELECT reference
+        FROM ManagedServiceSecretReferenceEntity reference
+        JOIN FETCH reference.service service
+        JOIN FETCH service.project project
+        WHERE reference.secret.id IN (:secretIds)
+        ORDER BY project.name, service.name, reference.envName
+    """)
+    fun findUsageBySecretIds(secretIds: Collection<String>): List<ManagedServiceSecretReferenceEntity>
 }
