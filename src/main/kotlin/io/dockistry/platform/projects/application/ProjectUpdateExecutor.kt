@@ -2,13 +2,14 @@ package io.dockistry.platform.projects.application
 
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.domain.Project
-import io.dockistry.platform.projects.domain.ProjectAlreadyExistsException
-import io.dockistry.platform.projects.domain.ProjectNameNormalizer
+import io.dockistry.platform.projects.domain.InvalidProjectDescriptionException
+import io.dockistry.platform.projects.domain.InvalidProjectNameException
 import io.dockistry.platform.projects.domain.ProjectNotFoundException
 import io.dockistry.platform.projects.domain.ProjectVersionConflictException
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
+import io.dockistry.platform.shared.domain.ResourceDescriptionNormalizer
+import io.dockistry.platform.shared.domain.ResourceNameNormalizer
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
-import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
@@ -29,18 +30,18 @@ class ProjectUpdateExecutor(
     ): Project {
         projectAccessGuard.requireUpdatable(projectId, principal)
 
-        val normalizedName = ProjectNameNormalizer.normalizeAndValidate(name)
+        val normalizedName = ResourceNameNormalizer.normalizeAndValidate(
+            name,
+            ::InvalidProjectNameException
+        )
+        val normalizedDescription = normalizeDescription(description)
 
-        val updatedRows = try {
-            projectRepository.updateWithExpectedVersion(
-                projectId = projectId,
-                name = normalizedName,
-                description = description,
-                expectedVersion = expectedVersion
-            )
-        } catch (_: DataIntegrityViolationException) {
-            throw ProjectAlreadyExistsException("Project with such name already exists")
-        }
+        val updatedRows = projectRepository.updateWithExpectedVersion(
+            projectId = projectId,
+            name = normalizedName,
+            description = normalizedDescription,
+            expectedVersion = expectedVersion
+        )
 
         if (updatedRows == 0) {
             return resolveConflict(
@@ -59,13 +60,17 @@ class ProjectUpdateExecutor(
         name: String,
         description: String?
     ): Project {
-        val normalizedName = ProjectNameNormalizer.normalizeAndValidate(name)
+        val normalizedName = ResourceNameNormalizer.normalizeAndValidate(
+            name,
+            ::InvalidProjectNameException
+        )
+        val normalizedDescription = normalizeDescription(description)
         val project = projectRepository.findProjectById(projectId)
             ?: throw ProjectNotFoundException("Project with provided ID couldn't be found")
 
         if (
             project.name == normalizedName &&
-            project.description == description
+            project.description == normalizedDescription
         ) {
             return project
         }
@@ -74,6 +79,12 @@ class ProjectUpdateExecutor(
             "Project $projectId has been modified concurrently"
         )
     }
+
+    private fun normalizeDescription(description: String?): String? =
+        ResourceDescriptionNormalizer.normalizeAndValidate(
+            description,
+            ::InvalidProjectDescriptionException
+        )
 
     private fun reloadUpdated(projectId: UUID): Project {
         return projectRepository.findProjectById(projectId)

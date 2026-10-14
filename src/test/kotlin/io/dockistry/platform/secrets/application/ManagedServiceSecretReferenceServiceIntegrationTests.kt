@@ -1,0 +1,243 @@
+package io.dockistry.platform.secrets.application
+
+import io.dockistry.platform.TestClockConfig
+import io.dockistry.platform.TestcontainersConfig
+import io.dockistry.platform.projects.domain.Project
+import io.dockistry.platform.secrets.domain.InvalidSecretReferenceException
+import io.dockistry.platform.secrets.domain.SecretHasNoVersionsException
+import io.dockistry.platform.secrets.domain.SecretReferenceNotDelegatedException
+import io.dockistry.platform.secrets.domain.SecretVersionNotFoundException
+import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
+import io.dockistry.platform.secrets.domain.Secret
+import io.dockistry.platform.secrets.domain.SecretVersion
+import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
+import io.dockistry.platform.services.domain.ManagedService
+import io.dockistry.platform.services.domain.ManagedServiceConfiguration
+import io.dockistry.platform.services.domain.ManagedServiceSecretReference
+import io.dockistry.platform.services.testsupport.managedService
+import io.dockistry.platform.services.testsupport.managedServiceDraft
+import io.dockistry.platform.testsupport.IamProjectFixtures
+import jakarta.persistence.EntityManager
+import jakarta.persistence.PersistenceContext
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.context.annotation.Import
+import org.springframework.transaction.annotation.Transactional
+import org.testcontainers.junit.jupiter.Testcontainers
+import java.time.Instant
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+
+@SpringBootTest
+@Import(TestcontainersConfig::class, TestClockConfig::class)
+@Testcontainers
+@Transactional
+class ManagedServiceSecretReferenceServiceIntegrationTests {
+    @Autowired
+    private lateinit var referenceService: ManagedServiceSecretReferenceService
+
+    @Autowired
+    private lateinit var referenceRepository: ManagedServiceSecretReferenceRepository
+
+    @PersistenceContext
+    private lateinit var entityManager: EntityManager
+
+    @Test
+    fun `delegated latest and pinned references persist and round trip`() {
+        val (project, service) = projectAndService()
+        val secret = secret(project)
+        val oldVersion = version(secret, mapOf("password" to "old"), EARLIER)
+        version(secret, mapOf("password" to "new"), LATER)
+        delegate(project, secret)
+        entityManager.flush()
+
+        val references = listOf(
+            reference(secret, "password", "LATEST_PASSWORD"),
+            reference(secret, "password", "PINNED_PASSWORD", oldVersion.id)
+        )
+        referenceService.replace(service, configuration(references))
+        entityManager.flush()
+        entityManager.clear()
+
+        assertEquals(references.toSet(), referenceService.getReferences(service.id).toSet())
+        assertEquals(2, referenceRepository.findByServiceId(service.id).size)
+    }
+
+    @Test
+    fun `reference without project delegation is rejected`() {
+        val (project, service) = projectAndService()
+        val secret = secret(project)
+        version(secret, mapOf("password" to "value"), LATER)
+        entityManager.flush()
+
+        val error = assertFailsWith<SecretReferenceNotDelegatedException> {
+            referenceService.replace(
+                service,
+                configuration(listOf(reference(secret, "password", "PASSWORD")))
+            )
+        }
+
+        assertEquals("secret_reference_not_delegated", error.code)
+        assertEquals(0, referenceRepository.findByServiceId(service.id).size)
+    }
+
+    @Test
+    fun `missing key returns invalid secret reference`() {
+        val (project, service) = projectAndService()
+        val secret = secret(project)
+        version(secret, mapOf("password" to "value"), LATER)
+        delegate(project, secret)
+        entityManager.flush()
+
+        val error = assertFailsWith<InvalidSecretReferenceException> {
+            referenceService.replace(
+                service,
+                configuration(listOf(reference(secret, "missing", "PASSWORD")))
+            )
+        }
+
+        assertEquals("invalid_secret_reference", error.code)
+    }
+
+    @Test
+    fun `missing pinned version returns secret version not found`() {
+        val (project, service) = projectAndService()
+        val secret = secret(project)
+        version(secret, mapOf("password" to "value"), LATER)
+        delegate(project, secret)
+        entityManager.flush()
+
+        val error = assertFailsWith<SecretVersionNotFoundException> {
+            referenceService.replace(
+                service,
+                configuration(
+                    listOf(reference(secret, "password", "PASSWORD", "ver-AAAAAAAAAAAA"))
+                )
+            )
+        }
+
+        assertEquals("secret_version_not_found", error.code)
+    }
+
+    @Test
+    fun `latest reference to secret without versions returns secret has no versions`() {
+        val (project, service) = projectAndService()
+        val secret = secret(project)
+        delegate(project, secret)
+        entityManager.flush()
+
+        val error = assertFailsWith<SecretHasNoVersionsException> {
+            referenceService.replace(
+                service,
+                configuration(listOf(reference(secret, "password", "PASSWORD")))
+            )
+        }
+
+        assertEquals("secret_has_no_versions", error.code)
+        assertEquals(0, referenceRepository.findByServiceId(service.id).size)
+    }
+
+    @Test
+    fun `null version resolves latest by created at instead of insertion order`() {
+        val (project, service) = projectAndService()
+        val secret = secret(project)
+        val latest = version(secret, mapOf("latest_only" to "new"), LATER)
+        version(secret, mapOf("older_only" to "old"), EARLIER)
+        version(secret, mapOf("middle_only" to "middle"), MIDDLE)
+        delegate(project, secret)
+        entityManager.flush()
+        entityManager.clear()
+
+        val currentService = entityManager.find(ManagedService::class.java, service.id)
+        referenceService.replace(
+            currentService,
+            configuration(listOf(reference(secret, "latest_only", "LATEST")))
+        )
+        entityManager.flush()
+
+        assertEquals(null, referenceRepository.findByServiceId(service.id).single().secretVersion)
+        assertEquals(
+            latest.id,
+            entityManager.createNativeQuery(
+                """
+                    SELECT id FROM secret_versions
+                    WHERE secret_id = :secretId
+                    ORDER BY created_at DESC, id
+                    LIMIT 1
+                """.trimIndent()
+            ).setParameter("secretId", secret.id).singleResult
+        )
+    }
+
+    @Test
+    fun `pinned version belonging to another secret is not found`() {
+        val (project, service) = projectAndService()
+        val requestedSecret = secret(project)
+        val otherSecret = secret(project)
+        version(requestedSecret, mapOf("password" to "requested"), EARLIER)
+        val otherVersion = version(otherSecret, mapOf("password" to "other"), LATER)
+        delegate(project, requestedSecret)
+        delegate(project, otherSecret)
+        entityManager.flush()
+
+        val error = assertFailsWith<SecretVersionNotFoundException> {
+            referenceService.replace(
+                service,
+                configuration(
+                    listOf(reference(requestedSecret, "password", "PASSWORD", otherVersion.id))
+                )
+            )
+        }
+
+        assertEquals("secret_version_not_found", error.code)
+        assertEquals(0, referenceRepository.findByServiceId(service.id).size)
+    }
+
+    private fun projectAndService(): Pair<Project, ManagedService> {
+        val fixtures = IamProjectFixtures(entityManager)
+        val project = fixtures.project()
+        val service = managedService(project, "service-${fixtures.unique()}")
+        entityManager.persist(service)
+        return project to service
+    }
+
+    private fun secret(project: Project): Secret {
+        val secret = Secret(
+            name = "secret-${IamProjectFixtures(entityManager).unique()}",
+            ownerPrincipal = project.ownerPrincipal,
+            createdAt = EARLIER,
+            updatedAt = EARLIER
+        )
+        entityManager.persist(secret)
+        return secret
+    }
+
+    private fun version(secret: Secret, values: Map<String, String>, createdAt: Instant): SecretVersion {
+        val version = SecretVersion(secret, values, createdAt)
+        entityManager.persist(version)
+        return version
+    }
+
+    private fun delegate(project: Project, secret: Secret) {
+        entityManager.persist(ProjectSecretDelegation(secret, project, EARLIER, EARLIER))
+    }
+
+    private fun reference(
+        secret: Secret,
+        key: String,
+        envName: String,
+        version: String? = null
+    ) = ManagedServiceSecretReference(secret.id, key, envName, version)
+
+    private fun configuration(references: List<ManagedServiceSecretReference>) =
+        ManagedServiceConfiguration.validated(
+            managedServiceDraft().copy(secretReferences = references)
+        )
+
+    companion object {
+        private val EARLIER = Instant.parse("2025-01-01T00:00:00Z")
+        private val MIDDLE = Instant.parse("2025-06-01T00:00:00Z")
+        private val LATER = Instant.parse("2026-01-01T00:00:00Z")
+    }
+}

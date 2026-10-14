@@ -66,7 +66,7 @@ class ProjectServiceIntegrationTests {
     fun `create persists project and owner admin binding`() {
         val fixtures = fixtures()
         val owner = fixtures.principal()
-        fixtures.grantSystemPermission(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE.key)
         fixtures.flush()
 
         val project = projectService.create(
@@ -115,8 +115,8 @@ class ProjectServiceIntegrationTests {
     fun `create throws internal data integrity exception when project admin role is missing`() {
         val fixtures = fixtures()
         val owner = fixtures.principal()
-        fixtures.grantSystemPermission(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
-        val projectAdmin = roleRepository.findByNameAndIsSystemTrue(SystemRoleNames.PROJECT_ADMIN)
+        fixtures.grantSystemPermission(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE.key)
+        val projectAdmin = roleRepository.findByNameAndIsSystemTrue(SystemRoleNames.PROJECT_ADMIN.key)
             ?: throw AssertionError("Expected project admin role to be bootstrapped")
         projectAdmin.permissions.clear()
         roleRepository.delete(projectAdmin)
@@ -135,7 +135,7 @@ class ProjectServiceIntegrationTests {
     fun `create converts invalid slug validation failure to invalid project slug exception`() {
         val fixtures = fixtures()
         val owner = fixtures.principal()
-        fixtures.grantSystemPermission(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE.key)
         fixtures.flush()
 
         assertFailsWith<InvalidProjectSlugException> {
@@ -151,7 +151,7 @@ class ProjectServiceIntegrationTests {
     fun `create converts duplicate name or slug to project already exists exception`() {
         val fixtures = fixtures()
         val owner = fixtures.principal()
-        fixtures.grantSystemPermission(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE)
+        fixtures.grantSystemPermission(owner, fixtures.globalScope(), SystemPermissionNames.PROJECT_CREATE.key)
         fixtures.flush()
         projectService.create(
             name = "Duplicate Project",
@@ -172,8 +172,8 @@ class ProjectServiceIntegrationTests {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update changes project fields when principal has read and update permission`() {
         val context = committedUpdateContext(
-            SystemPermissionNames.PROJECT_READ,
-            SystemPermissionNames.PROJECT_UPDATE,
+            SystemPermissionNames.PROJECT_READ.key,
+            SystemPermissionNames.PROJECT_UPDATE.key,
             name = "Old Name",
             slug = "old-name"
         )
@@ -232,7 +232,7 @@ class ProjectServiceIntegrationTests {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update throws insufficient permission when principal can read but cannot update`() {
-        val context = committedUpdateContext(SystemPermissionNames.PROJECT_READ)
+        val context = committedUpdateContext(SystemPermissionNames.PROJECT_READ.key)
 
         try {
             assertFailsWith<InsufficientPermissionException> {
@@ -272,7 +272,7 @@ class ProjectServiceIntegrationTests {
         val fixtures = fixtures()
         val project = fixtures.project()
         val principal = fixtures.principal()
-        fixtures.grant(projectReader = principal, project = project, SystemPermissionNames.PROJECT_ARCHIVE)
+        fixtures.grant(projectReader = principal, project = project, SystemPermissionNames.PROJECT_ARCHIVE.key)
         fixtures.flush()
 
         val archived = projectService.archive(project.id, principal)
@@ -316,13 +316,13 @@ class ProjectServiceIntegrationTests {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete removes project when principal has read and delete permission`() {
-        val context = committedDeleteContext(SystemPermissionNames.PROJECT_DELETE)
+        val context = committedDeleteContext(SystemPermissionNames.PROJECT_DELETE.key)
 
         try {
             val deleted = projectService.delete(context.projectId, context.principal)
 
             assertEquals(context.projectId, deleted.id)
-            assertFalse(inNewTransaction { projectRepository.existsById(context.projectId) })
+            assertFalse(projectRepository.existsById(context.projectId))
         } finally {
             cleanupCommittedProject(context.projectId)
         }
@@ -355,7 +355,7 @@ class ProjectServiceIntegrationTests {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete throws insufficient permission when principal can read but cannot delete`() {
-        val context = committedDeleteContext(SystemPermissionNames.PROJECT_READ)
+        val context = committedDeleteContext(SystemPermissionNames.PROJECT_READ.key)
 
         try {
             assertFailsWith<InsufficientPermissionException> {
@@ -405,7 +405,7 @@ class ProjectServiceIntegrationTests {
         val firstProject = fixtures.project(name = "First ${fixtures.unique()}", slug = "first-${fixtures.unique()}")
         val secondProject = fixtures.project(name = "Second ${fixtures.unique()}", slug = "second-${fixtures.unique()}")
         val principal = fixtures.principal()
-        fixtures.grantSystemPermission(principal, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(principal, fixtures.globalScope(), SystemPermissionNames.PROJECT_READ.key)
         fixtures.flush()
 
         val projects = projectService.list(principal)
@@ -433,7 +433,7 @@ class ProjectServiceIntegrationTests {
     fun `list ignores readable project scope ids that do not belong to projects`() {
         val fixtures = fixtures()
         val principal = fixtures.principal()
-        fixtures.grantSystemPermission(principal, fixtures.scope(ScopeType.PROJECT), SystemPermissionNames.PROJECT_READ)
+        fixtures.grantSystemPermission(principal, fixtures.scope(ScopeType.PROJECT), SystemPermissionNames.PROJECT_READ.key)
         fixtures.flush()
 
         assertEquals(listOf(), projectService.list(principal))
@@ -465,7 +465,7 @@ class ProjectServiceIntegrationTests {
         project: Project,
         vararg extraPermissionKeys: String
     ): RoleBinding {
-        val permissionKeys = listOf(SystemPermissionNames.PROJECT_READ) + extraPermissionKeys
+        val permissionKeys = listOf(SystemPermissionNames.PROJECT_READ.key) + extraPermissionKeys
         return grantSystemPermission(projectReader, project.scope, *permissionKeys.toTypedArray())
     }
 
@@ -512,7 +512,7 @@ class ProjectServiceIntegrationTests {
             fixtures.grant(
                 projectReader = principal,
                 project = edited,
-                SystemPermissionNames.PROJECT_UPDATE
+                SystemPermissionNames.PROJECT_UPDATE.key
             )
             fixtures.flush()
 
@@ -533,7 +533,7 @@ class ProjectServiceIntegrationTests {
         val principal = fixtures.principal()
         if (permissionKeys.isNotEmpty()) {
             val grantedPermissionKeys =
-                (listOf(SystemPermissionNames.PROJECT_READ) + permissionKeys).distinct()
+                (listOf(SystemPermissionNames.PROJECT_READ.key) + permissionKeys).distinct()
             fixtures.grantSystemPermission(
                 principal,
                 project.scope,
@@ -594,7 +594,7 @@ class ProjectServiceIntegrationTests {
             )
             .setParameter("ownerPrincipalId", ownerPrincipalId)
             .setParameter("scopeId", scopeId)
-            .setParameter("roleName", SystemRoleNames.PROJECT_ADMIN)
+            .setParameter("roleName", SystemRoleNames.PROJECT_ADMIN.key)
             .singleResult
             .toLong()
     }

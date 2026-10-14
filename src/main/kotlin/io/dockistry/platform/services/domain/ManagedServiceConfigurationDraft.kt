@@ -7,6 +7,7 @@ data class ManagedServiceConfigurationDraft(
     val command: List<String>?,
     val args: List<String>?,
     val env: Map<String, String>,
+    val secretReferences: List<ManagedServiceSecretReference> = emptyList(),
     val endpoints: List<ServiceEndpoint>,
     val volumes: List<ServiceVolumeMount>,
     val restartPolicy: DockerRestartPolicyType,

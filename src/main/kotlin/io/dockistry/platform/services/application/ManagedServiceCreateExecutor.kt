@@ -1,6 +1,7 @@
 package io.dockistry.platform.services.application
 
 import io.dockistry.platform.projects.application.ProjectAccessGuard
+import io.dockistry.platform.secrets.application.ManagedServiceSecretReferenceService
 import io.dockistry.platform.services.application.dto.ManagedServiceCreateCommand
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceAlreadyExistsException
@@ -15,13 +16,20 @@ class ManagedServiceCreateExecutor(
     private val clock: Clock,
     private val projectAccessGuard: ProjectAccessGuard,
     private val commandValidator: ManagedServiceCommandValidator,
-    private val managedServiceRepository: ManagedServiceRepository
+    private val managedServiceSecretReferenceService: ManagedServiceSecretReferenceService,
+    private val managedServiceRepository: ManagedServiceRepository,
+    private val managedServiceSecretUsageGuard: ManagedServiceSecretUsageGuard
 ) {
     @Transactional
     fun execute(command: ManagedServiceCreateCommand): ManagedService {
         val project = projectAccessGuard.requireServicesManageable(
             command.projectId,
             command.principal
+        )
+        managedServiceSecretUsageGuard.requireSecretsUsable(
+            project = project,
+            principal = command.principal,
+            resultingReferences = command.configuration.secretReferences
         )
         val configuration = commandValidator.validate(command)
 
@@ -38,7 +46,9 @@ class ManagedServiceCreateExecutor(
             updatedAt = now
         )
 
-        return managedServiceRepository.saveAndFlush(service)
+        managedServiceRepository.saveAndFlush(service)
+        managedServiceSecretReferenceService.replace(service, configuration)
+        return service
     }
 
     @Transactional(readOnly = true)

@@ -4,7 +4,6 @@ import io.dockistry.platform.services.domain.ManagedServiceDeployment
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
-import org.springframework.data.repository.query.Param
 import java.time.Instant
 import java.util.UUID
 
@@ -21,7 +20,7 @@ interface ManagedServiceDeploymentRepository :
           )
     """)
     fun findActiveByServiceId(
-        @Param("serviceId") serviceId: UUID
+        serviceId: UUID
     ): List<ManagedServiceDeployment>
 
     @Query("""
@@ -34,7 +33,7 @@ interface ManagedServiceDeploymentRepository :
           )
     """)
     fun findActiveIdsByServiceId(
-        @Param("serviceId") serviceId: UUID
+        serviceId: UUID
     ): List<UUID>
 
     @Query("""
@@ -48,7 +47,7 @@ interface ManagedServiceDeploymentRepository :
               )
         )
     """)
-    fun hasActiveDeployments(@Param("serviceId") serviceId: UUID): Boolean
+    fun hasActiveDeployments(serviceId: UUID): Boolean
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -59,8 +58,8 @@ interface ManagedServiceDeploymentRepository :
           AND deployment.status = ManagedServiceDeploymentStatus.IN_PROCESS
     """)
     fun markCancelingIfInProcess(
-        @Param("deploymentId") deploymentId: UUID,
-        @Param("updatedAt") updatedAt: Instant
+        deploymentId: UUID,
+        updatedAt: Instant
     ): Int
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
@@ -73,9 +72,9 @@ interface ManagedServiceDeploymentRepository :
           AND deployment.status = ManagedServiceDeploymentStatus.IN_PROCESS
     """)
     fun markFinishedIfInProcess(
-        @Param("deploymentId") deploymentId: UUID,
-        @Param("containerId") containerId: String,
-        @Param("updatedAt") updatedAt: Instant
+        deploymentId: UUID,
+        containerId: String,
+        updatedAt: Instant
     ): Int
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
@@ -88,9 +87,9 @@ interface ManagedServiceDeploymentRepository :
           AND deployment.status = ManagedServiceDeploymentStatus.IN_PROCESS
     """)
     fun markFailedIfInProcess(
-        @Param("deploymentId") deploymentId: UUID,
-        @Param("errorMessage") errorMessage: String?,
-        @Param("updatedAt") updatedAt: Instant
+        deploymentId: UUID,
+        errorMessage: String?,
+        updatedAt: Instant
     ): Int
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
@@ -104,8 +103,8 @@ interface ManagedServiceDeploymentRepository :
           AND deployment.status = ManagedServiceDeploymentStatus.CANCELING
     """)
     fun markCanceledIfCanceling(
-        @Param("deploymentId") deploymentId: UUID,
-        @Param("updatedAt") updatedAt: Instant
+        deploymentId: UUID,
+        updatedAt: Instant
     ): Int
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
@@ -118,9 +117,9 @@ interface ManagedServiceDeploymentRepository :
           AND deployment.status = ManagedServiceDeploymentStatus.CANCELING
     """)
     fun markCleanupFailedIfCanceling(
-        @Param("deploymentId") deploymentId: UUID,
-        @Param("errorMessage") errorMessage: String?,
-        @Param("attemptedAt") attemptedAt: Instant
+        deploymentId: UUID,
+        errorMessage: String?,
+        attemptedAt: Instant
     ): Int
 
     @Query("""
@@ -134,7 +133,7 @@ interface ManagedServiceDeploymentRepository :
         LIMIT :batchLimit
     """)
     fun findStuckDeploymentsWithProjectId(
-        @Param("updatedBefore") updatedBefore: Instant,
-        @Param("batchLimit") batchLimit: Long
+        updatedBefore: Instant,
+        batchLimit: Long
     ): List<ManagedServiceDeployment>
 }

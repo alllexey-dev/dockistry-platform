@@ -1,29 +1,14 @@
 package io.dockistry.platform.services.application
 
-import com.zaxxer.hikari.HikariDataSource
 import io.dockistry.platform.TestClockConfig
 import io.dockistry.platform.TestcontainersConfig
-import io.dockistry.platform.docker.application.ports.DockerAgentClient
-import io.dockistry.platform.docker.domain.DockerContainerNotFoundException
 import io.dockistry.platform.docker.domain.DockerLabels
-import io.dockistry.platform.docker.domain.DockerVolumeNotFoundException
-import io.dockistry.platform.docker.domain.model.DockerAgentInfo
-import io.dockistry.platform.docker.domain.model.DockerContainerCreateCommand
-import io.dockistry.platform.docker.domain.model.DockerContainerDetails
-import io.dockistry.platform.docker.domain.model.DockerContainerLogs
-import io.dockistry.platform.docker.domain.model.DockerContainerLogsRequest
 import io.dockistry.platform.docker.domain.model.DockerContainerState
-import io.dockistry.platform.docker.domain.model.DockerContainerStats
 import io.dockistry.platform.docker.domain.model.DockerContainerSummary
-import io.dockistry.platform.docker.domain.model.DockerImageInfo
-import io.dockistry.platform.docker.domain.model.DockerImageRef
-import io.dockistry.platform.docker.domain.model.DockerImageSummary
 import io.dockistry.platform.docker.domain.model.DockerLabelsFilter
-import io.dockistry.platform.docker.domain.model.DockerNetworkRef
-import io.dockistry.platform.docker.domain.model.DockerVolumeRef
+import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.projects.domain.ProjectExecutionCapacityExhaustedException
 import io.dockistry.platform.projects.domain.ProjectOperationConcurrencyCheckFailureException
-import io.dockistry.platform.services.application.ports.ExecutionGate
 import io.dockistry.platform.services.application.ports.ExecutionGateLockFailureException
 import io.dockistry.platform.services.application.ports.ExecutionGateLockTimeoutException
 import io.dockistry.platform.services.domain.DeploymentExecutionCapacityExhaustedException
@@ -40,33 +25,34 @@ import io.dockistry.platform.services.testsupport.ManagedServiceFixtures
 import io.dockistry.platform.services.testsupport.managedServiceDraft
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import io.dockistry.platform.testsupport.MutableClock
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_CONTAINER_CREATE
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_NETWORK_CREATE
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_VOLUME_CREATE
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_CONTAINER_CREATE
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_CONTAINER_START
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_EXECUTION_GATE_LOCK
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_NETWORK_CREATE
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_VOLUME_CREATE
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyTestSupport
+import io.dockistry.platform.testsupport.concurrency.ControllableExecutionGate
+import io.dockistry.platform.testsupport.concurrency.DeploymentConcurrencyTestConfiguration
+import io.dockistry.platform.testsupport.concurrency.ExecutionGateTestSupport
+import io.dockistry.platform.testsupport.concurrency.FakeDockerAgentClient
+import io.dockistry.platform.testsupport.concurrency.SimulatedContainerStartFailure
+import io.dockistry.platform.testsupport.concurrency.SimulatedDeployExecutorDeath
+import io.dockistry.platform.testsupport.concurrency.holdExecutionGateConnections
+import io.dockistry.platform.testsupport.concurrency.holdExecutionGateLock
+import io.dockistry.platform.testsupport.concurrency.holdExecutionGateLockAt
 import jakarta.persistence.EntityManager
 import org.junit.jupiter.api.BeforeEach
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.boot.test.context.TestConfiguration
-import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
-import org.springframework.context.annotation.Primary
-import org.springframework.core.env.Environment
-import org.springframework.core.env.getRequiredProperty
-import org.springframework.transaction.PlatformTransactionManager
-import org.springframework.transaction.TransactionDefinition
-import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.sql.SQLException
 import java.time.Duration
 import java.time.Instant
-import java.util.ArrayDeque
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.ExecutionException
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
-import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -77,7 +63,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-private const val TIMEOUT_SECONDS = 15L
 private val TEST_TIME: Instant = Instant.parse("2026-01-01T00:00:00Z")
 private val TEST_EXECUTION_GATE_TIMEOUT: Duration = Duration.ofMillis(100)
 
@@ -91,8 +76,7 @@ private val TEST_EXECUTION_GATE_TIMEOUT: Duration = Duration.ofMillis(100)
 @Import(
     TestcontainersConfig::class,
     TestClockConfig::class,
-    DeploymentCleanupGateIntegrationTests.FakeDockerAgentClientConfig::class,
-    DeploymentCleanupGateIntegrationTests.ControllableExecutionGateConfig::class
+    DeploymentConcurrencyTestConfiguration::class
 )
 class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     private val dockerAgentClient: FakeDockerAgentClient,
@@ -103,19 +87,13 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     private val reaper: ManagedServiceReaper,
     private val clock: MutableClock,
     private val entityManager: EntityManager,
-    private val environment: Environment,
+    private val executionGateSupport: ExecutionGateTestSupport,
     private val deploymentOperationGate: ManagedServiceDeploymentOperationGate,
     private val postgresExecutionGate: PostgresExecutionGate,
     private val controllableExecutionGate: ControllableExecutionGate,
-    @Qualifier("executionGateDataSource")
-    private val executionGateDataSource: HikariDataSource,
-    transactionManager: PlatformTransactionManager,
-    @Autowired private val managedServiceReaperProperties: ManagedServiceReaperProperties
+    private val concurrency: ConcurrencyTestSupport,
+    private val managedServiceReaperProperties: ManagedServiceReaperProperties
 ) {
-    private val newTransactionTemplate = TransactionTemplate(transactionManager).apply {
-        propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
-    }
-
     @BeforeEach
     fun resetDockerAgent() {
         dockerAgentClient.reset()
@@ -125,31 +103,24 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
     @Test
     fun `cleanup cannot pass container creation and executor removes late container`() {
         val context = createServiceContext()
-        val createContainerEntered = CountDownLatch(1)
-        val containerCreationAllowed = CountDownLatch(1)
-        val afterCreateContainer = CountDownLatch(1)
-        val afterCreateContainerContinueAllowed = CountDownLatch(1)
-        dockerAgentClient.createContainerEntered = createContainerEntered
-        dockerAgentClient.containerCreationAllowed = containerCreationAllowed
-        dockerAgentClient.afterCreateContainer = afterCreateContainer
-        dockerAgentClient.afterCreateContainerContinueAllowed =
-            afterCreateContainerContinueAllowed
 
-        val pool = Executors.newSingleThreadExecutor()
-        val deployment = pool.submit<Result<Unit>> {
-            runCatching {
-                deployExecutor.deploy(context.serviceId)
-                Unit
+        concurrency.run {
+            val beforeCreate = pauseAt(BEFORE_CONTAINER_CREATE)
+            val afterCreate = pauseAt(AFTER_CONTAINER_CREATE)
+            val deployment = start("deploy service") {
+                deployExecutor.deploy(
+                    context.serviceId,
+                    context.principal,
+                    ignoreWarnings = false
+                )
             }
-        }
 
-        try {
-            await(createContainerEntered, "Container creation wasn't entered")
+            beforeCreate.awaitReached()
             val deploymentId = requestCancellation(context.serviceId)
 
             assertCleanupBlocked(context, deploymentId)
-            containerCreationAllowed.countDown()
-            await(afterCreateContainer, "Container wasn't created")
+            beforeCreate.release()
+            afterCreate.awaitReached()
 
             val createdContainer = dockerAgentClient.createdContainerCommands
                 .entries
@@ -162,9 +133,9 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 "Created deployment container wasn't observable before cleanup"
             )
 
-            afterCreateContainerContinueAllowed.countDown()
+            afterCreate.release()
             assertFailsWith<ManagedServiceDeploymentCanceled> {
-                deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).getOrThrow()
+                deployment.await()
             }
 
             assertFalse(
@@ -179,10 +150,6 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 deploymentId,
                 ManagedServiceDeploymentStatus.CANCELED
             )
-        } finally {
-            containerCreationAllowed.countDown()
-            afterCreateContainerContinueAllowed.countDown()
-            terminate(pool, "Container deployment executor didn't terminate")
         }
     }
 
@@ -195,31 +162,24 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 mountPath = "/data/$volumeName"
             )
         )
-        val createVolumeEntered = CountDownLatch(1)
-        val volumeCreationAllowed = CountDownLatch(1)
-        val afterCreateVolume = CountDownLatch(1)
-        val afterCreateVolumeContinueAllowed = CountDownLatch(1)
-        dockerAgentClient.createVolumeEntered = createVolumeEntered
-        dockerAgentClient.volumeCreationAllowed = volumeCreationAllowed
-        dockerAgentClient.afterCreateVolume = afterCreateVolume
-        dockerAgentClient.afterCreateVolumeContinueAllowed =
-            afterCreateVolumeContinueAllowed
 
-        val pool = Executors.newSingleThreadExecutor()
-        val deployment = pool.submit<Result<Unit>> {
-            runCatching {
-                deployExecutor.deploy(context.serviceId)
-                Unit
+        concurrency.run {
+            val beforeCreate = pauseAt(BEFORE_VOLUME_CREATE)
+            val afterCreate = pauseAt(AFTER_VOLUME_CREATE)
+            val deployment = start("deploy service") {
+                deployExecutor.deploy(
+                    context.serviceId,
+                    context.principal,
+                    ignoreWarnings = false
+                )
             }
-        }
 
-        try {
-            await(createVolumeEntered, "Volume creation wasn't entered")
+            beforeCreate.awaitReached()
             val deploymentId = requestCancellation(context.serviceId)
 
             assertCleanupBlocked(context, deploymentId)
-            volumeCreationAllowed.countDown()
-            await(afterCreateVolume, "Volume wasn't created")
+            beforeCreate.release()
+            afterCreate.awaitReached()
 
             val createdVolume = dockerAgentClient.createdVolumes.values.single {
                 it.labels[DockerLabels.DEPLOYMENT_ID] == deploymentId.toString()
@@ -229,9 +189,9 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 "Created deployment volume wasn't observable before cleanup"
             )
 
-            afterCreateVolumeContinueAllowed.countDown()
+            afterCreate.release()
             assertFailsWith<ManagedServiceDeploymentCanceled> {
-                deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).getOrThrow()
+                deployment.await()
             }
 
             assertFalse(
@@ -246,10 +206,6 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 deploymentId,
                 ManagedServiceDeploymentStatus.CANCELED
             )
-        } finally {
-            volumeCreationAllowed.countDown()
-            afterCreateVolumeContinueAllowed.countDown()
-            terminate(pool, "Volume deployment executor didn't terminate")
         }
     }
 
@@ -262,26 +218,19 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 mountPath = "/data/$volumeName"
             )
         )
-        val createNetworkEntered = CountDownLatch(1)
-        val networkCreationAllowed = CountDownLatch(1)
-        val afterCreateNetwork = CountDownLatch(1)
-        val afterCreateNetworkContinueAllowed = CountDownLatch(1)
-        dockerAgentClient.createNetworkEntered = createNetworkEntered
-        dockerAgentClient.networkCreationAllowed = networkCreationAllowed
-        dockerAgentClient.afterCreateNetwork = afterCreateNetwork
-        dockerAgentClient.afterCreateNetworkContinueAllowed =
-            afterCreateNetworkContinueAllowed
 
-        val pool = Executors.newSingleThreadExecutor()
-        val deployment = pool.submit<Result<Unit>> {
-            runCatching {
-                deployExecutor.deploy(context.serviceId)
-                Unit
+        concurrency.run {
+            val beforeCreate = pauseAt(BEFORE_NETWORK_CREATE)
+            val afterCreate = pauseAt(AFTER_NETWORK_CREATE)
+            val deployment = start("deploy service") {
+                deployExecutor.deploy(
+                    context.serviceId,
+                    context.principal,
+                    ignoreWarnings = false
+                )
             }
-        }
 
-        try {
-            await(createNetworkEntered, "Network creation wasn't entered")
+            beforeCreate.awaitReached()
             val deploymentId = requestCancellation(context.serviceId)
 
             cleanupService.cleanup(
@@ -293,8 +242,8 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 deploymentId,
                 ManagedServiceDeploymentStatus.CANCELED
             )
-            networkCreationAllowed.countDown()
-            await(afterCreateNetwork, "Network wasn't created")
+            beforeCreate.release()
+            afterCreate.awaitReached()
 
             val createdNetwork = dockerAgentClient.createdNetworks.values.single {
                 it.labels[DockerLabels.PROJECT_ID] == context.projectId.toString()
@@ -305,9 +254,9 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 "Created project network wasn't observable before cancellation continued"
             )
 
-            afterCreateNetworkContinueAllowed.countDown()
+            afterCreate.release()
             assertFailsWith<ManagedServiceDeploymentCanceled> {
-                deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).getOrThrow()
+                deployment.await()
             }
 
             assertTrue(
@@ -327,29 +276,24 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 deploymentId,
                 ManagedServiceDeploymentStatus.CANCELED
             )
-        } finally {
-            networkCreationAllowed.countDown()
-            afterCreateNetworkContinueAllowed.countDown()
-            terminate(pool, "Network deployment executor didn't terminate")
         }
     }
 
     @Test
     fun `reaper cannot enter while deploy executor is starting container`() {
         val context = createServiceContext()
-        val startContainerEntered = CountDownLatch(1)
-        val startContainerContinueAllowed = CountDownLatch(1)
-        dockerAgentClient.startContainerEntered = startContainerEntered
-        dockerAgentClient.startContainerContinueAllowed =
-            startContainerContinueAllowed
 
-        val pool = Executors.newSingleThreadExecutor()
-        val deployment = pool.submit<Unit> {
-            deployExecutor.deploy(context.serviceId)
-        }
+        concurrency.run {
+            val beforeStart = pauseAt(BEFORE_CONTAINER_START)
+            val deployment = start("deploy service") {
+                deployExecutor.deploy(
+                    context.serviceId,
+                    context.principal,
+                    ignoreWarnings = false
+                )
+            }
 
-        try {
-            await(startContainerEntered, "Container start wasn't entered")
+            beforeStart.awaitReached()
             val deploymentId = activeDeploymentId(context.serviceId)
             val container = deploymentContainer(context, deploymentId)
             assertEquals(DockerContainerState.CREATED, container.state)
@@ -362,16 +306,13 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 ManagedServiceDeploymentStatus.IN_PROCESS
             )
 
-            startContainerContinueAllowed.countDown()
-            deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            beforeStart.release()
+            deployment.await()
 
             assertDeploymentStatus(
                 deploymentId,
                 ManagedServiceDeploymentStatus.FINISHED
             )
-        } finally {
-            startContainerContinueAllowed.countDown()
-            terminate(pool, "Deployment executor didn't terminate after container start")
         }
     }
 
@@ -381,16 +322,16 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         dockerAgentClient.executorDeathPoint =
             FakeDockerAgentClient.ExecutorDeathPoint.AFTER_CONTAINER_CREATION
 
-        val pool = Executors.newSingleThreadExecutor()
-        val deployment = pool.submit<Unit> {
-            deployExecutor.deploy(context.serviceId)
-        }
-
-        try {
-            val failure = assertFailsWith<ExecutionException> {
-                deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        concurrency.run {
+            val deployment = start("deploy service") {
+                deployExecutor.deploy(
+                    context.serviceId,
+                    context.principal,
+                    ignoreWarnings = false
+                )
             }
-            val executorDeath = assertIs<SimulatedDeployExecutorDeath>(failure.cause)
+
+            val executorDeath = assertIs<SimulatedDeployExecutorDeath>(deployment.failure())
             assertEquals(
                 FakeDockerAgentClient.ExecutorDeathPoint.AFTER_CONTAINER_CREATION,
                 executorDeath.deathPoint
@@ -419,8 +360,6 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 dockerAgentClient.deletedContainerIds.contains(container.id),
                 "Container cleanup wasn't observed"
             )
-        } finally {
-            terminate(pool, "Dead deployment executor didn't terminate")
         }
     }
 
@@ -430,16 +369,16 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         dockerAgentClient.executorDeathPoint =
             FakeDockerAgentClient.ExecutorDeathPoint.AFTER_CONTAINER_START
 
-        val pool = Executors.newSingleThreadExecutor()
-        val deployment = pool.submit<Unit> {
-            deployExecutor.deploy(context.serviceId)
-        }
-
-        try {
-            val failure = assertFailsWith<ExecutionException> {
-                deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        concurrency.run {
+            val deployment = start("deploy service") {
+                deployExecutor.deploy(
+                    context.serviceId,
+                    context.principal,
+                    ignoreWarnings = false
+                )
             }
-            val executorDeath = assertIs<SimulatedDeployExecutorDeath>(failure.cause)
+
+            val executorDeath = assertIs<SimulatedDeployExecutorDeath>(deployment.failure())
             assertEquals(
                 FakeDockerAgentClient.ExecutorDeathPoint.AFTER_CONTAINER_START,
                 executorDeath.deathPoint
@@ -467,29 +406,26 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 dockerAgentClient.activeContainerIds.contains(container.id),
                 "Running deployment container should remain available"
             )
-        } finally {
-            terminate(pool, "Dead deployment executor didn't terminate")
         }
     }
 
     @Test
     fun `start failure is recorded while reaper is fenced`() {
         val context = createServiceContext()
-        val startContainerEntered = CountDownLatch(1)
-        val startContainerContinueAllowed = CountDownLatch(1)
         val startFailure = SimulatedContainerStartFailure()
-        dockerAgentClient.startContainerEntered = startContainerEntered
-        dockerAgentClient.startContainerContinueAllowed =
-            startContainerContinueAllowed
         dockerAgentClient.startContainerFailure = startFailure
 
-        val pool = Executors.newSingleThreadExecutor()
-        val deployment = pool.submit<Unit> {
-            deployExecutor.deploy(context.serviceId)
-        }
+        concurrency.run {
+            val beforeStart = pauseAt(BEFORE_CONTAINER_START)
+            val deployment = start("deploy service") {
+                deployExecutor.deploy(
+                    context.serviceId,
+                    context.principal,
+                    ignoreWarnings = false
+                )
+            }
 
-        try {
-            await(startContainerEntered, "Container start wasn't entered")
+            beforeStart.awaitReached()
             val deploymentId = activeDeploymentId(context.serviceId)
 
             advanceTimeToGetDeploymentMarkedAsStuck()
@@ -500,11 +436,8 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 ManagedServiceDeploymentStatus.IN_PROCESS
             )
 
-            startContainerContinueAllowed.countDown()
-            val failure = assertFailsWith<ExecutionException> {
-                deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            }
-            assertSame(startFailure, failure.cause)
+            beforeStart.release()
+            assertSame(startFailure, deployment.failure())
 
             val failedDeployment =
                 deploymentRepository.findById(deploymentId).orElseThrow()
@@ -517,196 +450,105 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                 DockerContainerState.CREATED,
                 deploymentContainer(context, deploymentId).state
             )
-        } finally {
-            startContainerContinueAllowed.countDown()
-            terminate(pool, "Failing deployment executor didn't terminate")
         }
     }
 
     @Test
     fun `execution gate rejects work when its connection pool is exhausted`() {
-        val poolSize = executionGatePoolSize()
-        val holdersEntered = CountDownLatch(poolSize)
-        val holdersRelease = CountDownLatch(1)
-        val pool = Executors.newFixedThreadPool(poolSize)
-        val holders = submitExecutionGateHolders(
-            poolSize = poolSize,
-            pool = pool,
-            holdersEntered = holdersEntered,
-            holdersRelease = holdersRelease
-        )
-
-        try {
-            await(holdersEntered, "Execution gate pool wasn't exhausted")
+        val poolSize = executionGateSupport.poolCapacity
+        concurrency.run(workers = poolSize) {
+            holdExecutionGateConnections(
+                postgresExecutionGate, poolSize, TEST_EXECUTION_GATE_TIMEOUT
+            )
 
             assertFailsWith<DeploymentExecutionCapacityExhaustedException> {
                 deploymentOperationGate.withLock(UUID.randomUUID()) {}
             }
-        } finally {
-            holdersRelease.countDown()
-            awaitSuccessful(holders)
-            terminate(pool, "Execution gate pool holders didn't terminate")
         }
     }
 
     @Test
     fun `same lock waiters do not retain execution gate connections`() {
-        val poolSize = executionGatePoolSize()
-        assertTrue(
-            poolSize > 1,
-            "Execution gate pool must have more than one connection"
-        )
-
+        val poolSize = executionGateSupport.poolCapacity
+        assertTrue(poolSize > 1, "Execution gate pool must have more than one connection")
         val advisoryLockKey = UUID.randomUUID().mostSignificantBits
-        val holderEntered = CountDownLatch(1)
-        val holderRelease = CountDownLatch(1)
-        val pool = Executors.newFixedThreadPool(poolSize)
-        val holder = pool.submit {
-            postgresExecutionGate.withLock(
-                advisoryLockKey = advisoryLockKey,
-                timeout = TEST_EXECUTION_GATE_TIMEOUT
-            ) {
-                holderEntered.countDown()
-                await(holderRelease, "Execution gate holder wasn't released")
-            }
-        }
 
-        try {
-            await(holderEntered, "Execution gate holder didn't acquire its lock")
-            val poolMxBean = executionGateDataSource.hikariPoolMXBean
-            val totalConnectionsBeforeWaiters = poolMxBean.totalConnections
-
-            val waiters = (1 until poolSize).map {
-                pool.submit {
+        concurrency.run(workers = poolSize) {
+            holdExecutionGateLock(
+                postgresExecutionGate, advisoryLockKey, TEST_EXECUTION_GATE_TIMEOUT
+            )
+            val beforeWaiters = executionGateSupport.capturePoolState()
+            val waiters = List(poolSize - 1) {
+                start("wait for occupied execution gate") {
                     postgresExecutionGate.withLock(
                         advisoryLockKey = advisoryLockKey,
                         timeout = TEST_EXECUTION_GATE_TIMEOUT
                     ) {}
                 }
             }
-
-            waiters.forEach { waiter ->
-                val failure = assertFailsWith<ExecutionException> {
-                    waiter.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                }
-                assertIs<ExecutionGateLockTimeoutException>(failure.cause)
-            }
-
-            assertEquals(1, poolMxBean.activeConnections)
-            assertEquals(
-                totalConnectionsBeforeWaiters,
-                poolMxBean.totalConnections
-            )
-        } finally {
-            holderRelease.countDown()
-            holder.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            terminate(pool, "Execution gate lock waiters didn't terminate")
+            waiters.forEach { assertIs<ExecutionGateLockTimeoutException>(it.failure()) }
+            executionGateSupport.assertOnlyHolderConnectionRemains(beforeWaiters)
         }
     }
 
     @Test
     fun `main database transactions work while execution gate pool is exhausted`() {
-        val poolSize = executionGatePoolSize()
-        val holdersEntered = CountDownLatch(poolSize)
-        val holdersRelease = CountDownLatch(1)
-        val pool = Executors.newFixedThreadPool(poolSize)
-        val holders = submitExecutionGateHolders(
-            poolSize = poolSize,
-            pool = pool,
-            holdersEntered = holdersEntered,
-            holdersRelease = holdersRelease
-        )
+        val poolSize = executionGateSupport.poolCapacity
+        concurrency.run(workers = poolSize) {
+            holdExecutionGateConnections(
+                postgresExecutionGate, poolSize, TEST_EXECUTION_GATE_TIMEOUT
+            )
 
-        try {
-            await(holdersEntered, "Execution gate pool wasn't exhausted")
-
-            val queryResult = inNewTransaction {
-                entityManager.createNativeQuery("SELECT 1").singleResult as Number
-            }
-
-            assertEquals(1, queryResult.toInt())
-        } finally {
-            holdersRelease.countDown()
-            awaitSuccessful(holders)
-            terminate(pool, "Execution gate pool holders didn't terminate")
+            concurrency.assertDatabaseTransactionAvailable()
         }
     }
 
     @Test
     fun `pool exhaustion leaves deployment in process when failure cannot be recorded`() {
         val context = createServiceContext()
-        val poolSize = executionGatePoolSize()
-        val holdersEntered = CountDownLatch(poolSize)
-        val holdersRelease = CountDownLatch(1)
-        val pool = Executors.newFixedThreadPool(poolSize)
-        val holders = submitExecutionGateHolders(
-            poolSize = poolSize,
-            pool = pool,
-            holdersEntered = holdersEntered,
-            holdersRelease = holdersRelease
-        )
-
-        try {
-            await(holdersEntered, "Execution gate pool wasn't exhausted")
+        val poolSize = executionGateSupport.poolCapacity
+        concurrency.run(workers = poolSize) {
+            holdExecutionGateConnections(
+                postgresExecutionGate, poolSize, TEST_EXECUTION_GATE_TIMEOUT
+            )
 
             val failure = assertFailsWith<DeploymentExecutionCapacityExhaustedException> {
-                deployExecutor.deploy(context.serviceId)
+                deployExecutor.deploy(
+                    context.serviceId,
+                    context.principal,
+                    ignoreWarnings = false
+                )
             }
 
             assertIs<ProjectExecutionCapacityExhaustedException>(
                 failure.suppressed.single()
             )
             assertDeploymentRemainsInProcess(context.serviceId)
-        } finally {
-            holdersRelease.countDown()
-            awaitSuccessful(holders)
-            terminate(pool, "Execution gate pool holders didn't terminate")
         }
     }
 
     @Test
     fun `same deployment timeout leaves deployment in process when failure cannot be recorded`() {
         val context = createServiceContext()
-        val deploymentPublished =
-            controllableExecutionGate.armForPublication(publicationsToSkip = 1)
-        val holderEntered = CountDownLatch(1)
-        val holderRelease = CountDownLatch(1)
-        val pool = Executors.newFixedThreadPool(2)
-        val deployment = pool.submit<String> {
-            deployExecutor.deploy(context.serviceId)
-        }
-
-        try {
-            await(deploymentPublished, "Advisory lock key wasn't published by the gate")
-            val advisoryLockKey = assertNotNull(
-                controllableExecutionGate.publishedAdvisoryLockKey
-            )
-
-            pool.submit {
-                postgresExecutionGate.withLock(
-                    advisoryLockKey = advisoryLockKey,
-                    timeout = TEST_EXECUTION_GATE_TIMEOUT
-                ) {
-                    holderEntered.countDown()
-                    await(holderRelease, "Deployment gate holder wasn't released")
-                }
+        concurrency.run {
+            // Skip the project gate; pause when the deployment gate key is published.
+            val deploymentGate = pauseAt(BEFORE_EXECUTION_GATE_LOCK, skip = 1)
+            val deployment = start("deploy service") {
+                deployExecutor.deploy(
+                    context.serviceId,
+                    context.principal,
+                    ignoreWarnings = false
+                )
             }
-            await(holderEntered, "Deployment gate holder didn't acquire the lock")
-
-            controllableExecutionGate.disarmForPublication()
-
-            val failure = assertFailsWith<ExecutionException> {
-                deployment.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            }
-            val timeout = assertIs<DeploymentOperationInProgressException>(failure.cause)
-            assertIs<DeploymentOperationInProgressException>(
-                timeout.suppressed.single()
+            deploymentGate.awaitReached()
+            holdExecutionGateLockAt(
+                postgresExecutionGate, deploymentGate, TEST_EXECUTION_GATE_TIMEOUT
             )
+            deploymentGate.release()
+
+            val timeout = assertIs<DeploymentOperationInProgressException>(deployment.failure())
+            assertIs<DeploymentOperationInProgressException>(timeout.suppressed.single())
             assertDeploymentRemainsInProcess(context.serviceId)
-        } finally {
-            controllableExecutionGate.disarmForPublication()
-            holderRelease.countDown()
-            terminate(pool, "Same-deployment timeout workers didn't terminate")
         }
     }
 
@@ -720,7 +562,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                     count = 2,
                     failureFactory = ::simulatedExecutionGateLockFailure
                 ) {
-                    deployExecutor.deploy(context.serviceId)
+                    deployExecutor.deploy(
+                        context.serviceId,
+                        context.principal,
+                        ignoreWarnings = false
+                    )
                 }
             }
 
@@ -740,7 +586,11 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
                     count = 1,
                     failureFactory = ::simulatedExecutionGateLockFailure
                 ) {
-                    deployExecutor.deploy(context.serviceId)
+                    deployExecutor.deploy(
+                        context.serviceId,
+                        context.principal,
+                        ignoreWarnings = false
+                    )
                 }
             }
 
@@ -748,40 +598,6 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
             .single { it.service.id == context.serviceId }
         assertEquals(ManagedServiceDeploymentStatus.FAILED, deployment.status)
         assertEquals(failure.message, deployment.errorMessage)
-    }
-
-    private fun executionGatePoolSize(): Int {
-        return environment.getRequiredProperty<Int>(
-            "app.datasource.execution-gate.hikari.maximum-pool-size"
-        )
-    }
-
-    private fun submitExecutionGateHolders(
-        poolSize: Int,
-        pool: ExecutorService,
-        holdersEntered: CountDownLatch,
-        holdersRelease: CountDownLatch
-    ): List<Future<*>> {
-        return (1..poolSize).map {
-            pool.submit {
-                postgresExecutionGate.withLock(
-                    advisoryLockKey = UUID.randomUUID().mostSignificantBits,
-                    timeout = TEST_EXECUTION_GATE_TIMEOUT
-                ) {
-                    holdersEntered.countDown()
-                    await(
-                        holdersRelease,
-                        "Execution gate pool holder wasn't released"
-                    )
-                }
-            }
-        }
-    }
-
-    private fun awaitSuccessful(futures: Collection<Future<*>>) {
-        futures.forEach { future ->
-            future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        }
     }
 
     private fun assertDeploymentRemainsInProcess(serviceId: UUID) {
@@ -798,7 +614,7 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
     private fun createServiceContext(
         volume: ServiceVolumeMount? = null
-    ): ServiceContext = inNewTransaction {
+    ): ServiceContext = concurrency.inNewTransaction {
         val suffix = randomResourceName("gate")
         val project = IamProjectFixtures(entityManager).project(
             name = "Gate Project $suffix",
@@ -816,7 +632,8 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
 
         ServiceContext(
             projectId = project.id,
-            serviceId = service.id
+            serviceId = service.id,
+            principal = project.ownerPrincipal
         )
     }
 
@@ -883,499 +700,12 @@ class DeploymentCleanupGateIntegrationTests @Autowired constructor(
         )
     }
 
-    private fun <T : Any> inNewTransaction(block: () -> T): T {
-        return newTransactionTemplate.execute { block() }
-    }
-
-    private fun await(latch: CountDownLatch, failureMessage: String) {
-        assertTrue(
-            latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS),
-            failureMessage
-        )
-    }
-
-    private fun terminate(
-        pool: ExecutorService,
-        failureMessage: String
-    ) {
-        pool.shutdownNow()
-        assertTrue(
-            pool.awaitTermination(TIMEOUT_SECONDS, TimeUnit.SECONDS),
-            failureMessage
-        )
-    }
-
     private fun randomResourceName(prefix: String): String =
         "$prefix-${UUID.randomUUID().toString().replace("-", "").take(8)}"
 
     private data class ServiceContext(
         val projectId: UUID,
-        val serviceId: UUID
+        val serviceId: UUID,
+        val principal: Principal
     )
-
-    class SimulatedDeployExecutorDeath(
-        val deathPoint: FakeDockerAgentClient.ExecutorDeathPoint
-    ) : Error("Simulated deploy executor death at $deathPoint")
-
-    class SimulatedContainerStartFailure :
-        RuntimeException("Simulated container start failure")
-
-    @TestConfiguration
-    class FakeDockerAgentClientConfig {
-        @Bean
-        @Primary
-        fun fakeDockerAgentClient() = FakeDockerAgentClient()
-    }
-
-    @TestConfiguration
-    class ControllableExecutionGateConfig {
-        @Bean
-        @Primary
-        fun controllableExecutionGate(
-            postgresExecutionGate: PostgresExecutionGate
-        ): ControllableExecutionGate {
-            return ControllableExecutionGate(
-                postgresExecutionGate
-            )
-        }
-    }
-
-    class ControllableExecutionGate(
-        private val delegate: ExecutionGate
-    ) : ExecutionGate {
-        private val failures =
-            ThreadLocal<ArrayDeque<() -> RuntimeException>>()
-
-        @Volatile
-        private var deploymentPublished: CountDownLatch? = null
-
-        @Volatile
-        private var afterPublicationAllowContinue: CountDownLatch? = null
-
-        @Volatile
-        var publishedAdvisoryLockKey: Long? = null
-            private set
-
-        @Volatile
-        private var publicationsToSkip: Int = 0
-
-        @Synchronized
-        fun armForPublication(publicationsToSkip: Int = 0): CountDownLatch {
-            check(deploymentPublished == null) {
-                "Deployment publication is already armed"
-            }
-
-            val deploymentPublished = CountDownLatch(1)
-            this.deploymentPublished = deploymentPublished
-            afterPublicationAllowContinue = CountDownLatch(1)
-            publishedAdvisoryLockKey = null
-            this.publicationsToSkip = publicationsToSkip
-
-            return deploymentPublished
-        }
-
-        @Synchronized
-        fun disarmForPublication() {
-            afterPublicationAllowContinue?.countDown()
-            deploymentPublished = null
-            afterPublicationAllowContinue = null
-            publicationsToSkip = 0
-        }
-
-        fun <T> failNext(
-            count: Int,
-            failureFactory: () -> RuntimeException,
-            block: () -> T
-        ): T {
-            check(failures.get() == null) {
-                "Execution gate failures are already configured for this thread"
-            }
-
-            failures.set(
-                ArrayDeque(
-                    List(count) { failureFactory }
-                )
-            )
-            return try {
-                block()
-            } finally {
-                failures.remove()
-            }
-        }
-
-        override fun <T> withLock(
-            advisoryLockKey: Long,
-            timeout: Duration,
-            block: () -> T
-        ): T {
-            publishAdvisoryLockKeyIfArmed(advisoryLockKey)
-            throwNextFailureIfConfigured()
-            return delegate.withLock(advisoryLockKey, timeout, block)
-        }
-
-        private fun publishAdvisoryLockKeyIfArmed(advisoryLockKey: Long) {
-            val deploymentPublished = deploymentPublished ?: return
-            val afterPublicationAllowContinue =
-                afterPublicationAllowContinue ?: return
-
-            if (publicationsToSkip > 0) {
-                publicationsToSkip -= 1
-                return
-            }
-
-            publishedAdvisoryLockKey = advisoryLockKey
-            deploymentPublished.countDown()
-            assertTrue(
-                afterPublicationAllowContinue.await(
-                    TIMEOUT_SECONDS,
-                    TimeUnit.SECONDS
-                ),
-                "Deployment execution wasn't allowed to continue after publication"
-            )
-        }
-
-        private fun throwNextFailureIfConfigured() {
-            val configuredFailures = failures.get() ?: return
-            if (configuredFailures.isNotEmpty()) {
-                throw configuredFailures.removeFirst().invoke()
-            }
-        }
-    }
-
-    class FakeDockerAgentClient : DockerAgentClient {
-        val pulledImages: MutableSet<DockerImageRef> = ConcurrentHashMap.newKeySet()
-        val createdNetworks = ConcurrentHashMap<String, DockerNetworkRef>()
-        val networksByName = ConcurrentHashMap<String, DockerNetworkRef>()
-        val createdVolumes = ConcurrentHashMap<String, DockerVolumeRef>()
-        val activeVolumeNames: MutableSet<String> = ConcurrentHashMap.newKeySet()
-        val removedVolumeNames: MutableSet<String> = ConcurrentHashMap.newKeySet()
-        val createdContainerCommands =
-            ConcurrentHashMap<String, DockerContainerCreateCommand>()
-        val activeContainerIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
-        val deletedContainerIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
-        private val containerStates =
-            ConcurrentHashMap<String, DockerContainerState>()
-
-        @Volatile
-        var createContainerEntered: CountDownLatch? = null
-
-        @Volatile
-        var containerCreationAllowed: CountDownLatch? = null
-
-        @Volatile
-        var afterCreateContainer: CountDownLatch? = null
-
-        @Volatile
-        var afterCreateContainerContinueAllowed: CountDownLatch? = null
-
-        @Volatile
-        var startContainerEntered: CountDownLatch? = null
-
-        @Volatile
-        var startContainerContinueAllowed: CountDownLatch? = null
-
-        @Volatile
-        var startContainerFailure: RuntimeException? = null
-
-        @Volatile
-        var executorDeathPoint: ExecutorDeathPoint? = null
-
-        @Volatile
-        var createVolumeEntered: CountDownLatch? = null
-
-        @Volatile
-        var volumeCreationAllowed: CountDownLatch? = null
-
-        @Volatile
-        var afterCreateVolume: CountDownLatch? = null
-
-        @Volatile
-        var afterCreateVolumeContinueAllowed: CountDownLatch? = null
-
-        @Volatile
-        var createNetworkEntered: CountDownLatch? = null
-
-        @Volatile
-        var networkCreationAllowed: CountDownLatch? = null
-
-        @Volatile
-        var afterCreateNetwork: CountDownLatch? = null
-
-        @Volatile
-        var afterCreateNetworkContinueAllowed: CountDownLatch? = null
-
-        fun reset() {
-            pulledImages.clear()
-            createdNetworks.clear()
-            networksByName.clear()
-            createdVolumes.clear()
-            activeVolumeNames.clear()
-            removedVolumeNames.clear()
-            createdContainerCommands.clear()
-            activeContainerIds.clear()
-            deletedContainerIds.clear()
-            containerStates.clear()
-            createContainerEntered = null
-            containerCreationAllowed = null
-            afterCreateContainer = null
-            afterCreateContainerContinueAllowed = null
-            startContainerEntered = null
-            startContainerContinueAllowed = null
-            startContainerFailure = null
-            executorDeathPoint = null
-            createVolumeEntered = null
-            volumeCreationAllowed = null
-            afterCreateVolume = null
-            afterCreateVolumeContinueAllowed = null
-            createNetworkEntered = null
-            networkCreationAllowed = null
-            afterCreateNetwork = null
-            afterCreateNetworkContinueAllowed = null
-        }
-
-        override fun status(): DockerAgentInfo {
-            error("Docker agent status flow not used in this test")
-        }
-
-        override fun listImages(): List<DockerImageSummary> {
-            error("Docker image listing flow not used in this test")
-        }
-
-        override fun inspectImage(imageId: String): DockerImageInfo {
-            error("Docker image inspection flow not used in this test")
-        }
-
-        override fun pullImage(imageRef: DockerImageRef) {
-            pulledImages.add(imageRef)
-        }
-
-        override fun removeImage(imageId: String, force: Boolean) {
-            error("Docker image removal flow not used in this test")
-        }
-
-        override fun findNetworkByName(name: String): DockerNetworkRef? {
-            return networksByName[name]
-        }
-
-        override fun createNetwork(
-            name: String,
-            labels: Map<String, String>
-        ): DockerNetworkRef {
-            createNetworkEntered?.countDown()
-            awaitPermission(
-                networkCreationAllowed,
-                "Network creation allowed latch wasn't released"
-            )
-
-            val network = DockerNetworkRef(
-                id = UUID.randomUUID().toString(),
-                name = name,
-                labels = labels.toMap()
-            )
-            createdNetworks[network.id] = network
-            networksByName[name] = network
-            afterCreateNetwork?.countDown()
-            awaitPermission(
-                afterCreateNetworkContinueAllowed,
-                "Network creation continuation latch wasn't released"
-            )
-            return network
-        }
-
-        override fun removeNetwork(networkId: String) {
-            error("Docker network removal flow not used in this test")
-        }
-
-        override fun createVolume(
-            name: String,
-            labels: Map<String, String>
-        ) {
-            createVolumeEntered?.countDown()
-            awaitPermission(
-                volumeCreationAllowed,
-                "Volume creation allowed latch wasn't released"
-            )
-
-            val volume = DockerVolumeRef(
-                name = name,
-                labels = labels.toMap()
-            )
-            createdVolumes[name] = volume
-            activeVolumeNames.add(name)
-            afterCreateVolume?.countDown()
-            awaitPermission(
-                afterCreateVolumeContinueAllowed,
-                "Volume creation continuation latch wasn't released"
-            )
-        }
-
-        override fun findVolumeByName(name: String): DockerVolumeRef? {
-            if (!activeVolumeNames.contains(name)) {
-                return null
-            }
-            return createdVolumes[name]
-        }
-
-        override fun listVolumes(filter: DockerLabelsFilter): List<DockerVolumeRef> {
-            return activeVolumeNames.mapNotNull { name ->
-                createdVolumes[name]?.takeIf { it.labels.matches(filter) }
-            }
-        }
-
-        override fun removeVolume(name: String) {
-            if (!activeVolumeNames.remove(name)) {
-                throw DockerVolumeNotFoundException("Docker volume $name wasn't found")
-            }
-            removedVolumeNames.add(name)
-        }
-
-        override fun createContainer(command: DockerContainerCreateCommand): String {
-            createContainerEntered?.countDown()
-            awaitPermission(
-                containerCreationAllowed,
-                "Container creation allowed latch wasn't released"
-            )
-
-            val containerId = UUID.randomUUID().toString()
-            createdContainerCommands[containerId] = command.copy(
-                env = command.env.toMap(),
-                labels = command.labels.toMap(),
-                command = command.command?.toList(),
-                args = command.args?.toList(),
-                networkAliases = command.networkAliases.toList(),
-                portBindings = command.portBindings.toList(),
-                volumeBindings = command.volumeBindings.toList()
-            )
-            activeContainerIds.add(containerId)
-            containerStates[containerId] = DockerContainerState.CREATED
-            afterCreateContainer?.countDown()
-            awaitPermission(
-                afterCreateContainerContinueAllowed,
-                "Container creation continuation latch wasn't released"
-            )
-            throwIfExecutorDiesAt(
-                ExecutorDeathPoint.AFTER_CONTAINER_CREATION
-            )
-            return containerId
-        }
-
-        override fun listContainers(
-            filter: DockerLabelsFilter
-        ): List<DockerContainerSummary> {
-            return activeContainerIds.mapNotNull { containerId ->
-                val command = createdContainerCommands[containerId]
-                    ?: return@mapNotNull null
-                if (!command.labels.matches(filter)) {
-                    return@mapNotNull null
-                }
-
-                DockerContainerSummary(
-                    id = containerId,
-                    name = command.name,
-                    names = listOf(command.name),
-                    image = "${command.image.repository}:${command.image.tag}",
-                    imageId = null,
-                    command = command.command?.joinToString(" "),
-                    createdEpochSeconds = null,
-                    state = containerStates[containerId]
-                        ?: DockerContainerState.UNKNOWN,
-                    status = null,
-                    ports = emptyList(),
-                    labels = command.labels,
-                    sizeRwBytes = null,
-                    sizeRootFsBytes = null,
-                    networkMode = command.networkName,
-                    networks = emptyMap(),
-                    mounts = emptyList()
-                )
-            }
-        }
-
-        override fun inspectContainer(containerId: String): DockerContainerDetails {
-            error("Docker container inspection flow not used in this test")
-        }
-
-        override fun getContainerStats(containerId: String): DockerContainerStats {
-            error("Docker container stats flow not used in this test")
-        }
-
-        override fun getLogs(
-            containerId: String,
-            request: DockerContainerLogsRequest
-        ): DockerContainerLogs {
-            error("Docker container logs flow not used in this test")
-        }
-
-        override fun startContainer(containerId: String) {
-            if (!activeContainerIds.contains(containerId)) {
-                throw DockerContainerNotFoundException(
-                    "Docker container $containerId wasn't found"
-                )
-            }
-            startContainerEntered?.countDown()
-            awaitPermission(
-                startContainerContinueAllowed,
-                "Container start continuation latch wasn't released"
-            )
-            startContainerFailure?.let { throw it }
-            containerStates[containerId] = DockerContainerState.RUNNING
-            throwIfExecutorDiesAt(ExecutorDeathPoint.AFTER_CONTAINER_START)
-        }
-
-        override fun stopContainer(containerId: String) {
-            error("Docker container stop flow not used in this test")
-        }
-
-        override fun restartContainer(containerId: String) {
-            error("Docker container restart flow not used in this test")
-        }
-
-        override fun pauseContainer(containerId: String) {
-            error("Docker container pause flow not used in this test")
-        }
-
-        override fun unpauseContainer(containerId: String) {
-            error("Docker container unpause flow not used in this test")
-        }
-
-        override fun deleteContainer(containerId: String) {
-            if (!activeContainerIds.remove(containerId)) {
-                throw DockerContainerNotFoundException(
-                    "Docker container $containerId wasn't found"
-                )
-            }
-            containerStates.remove(containerId)
-            deletedContainerIds.add(containerId)
-        }
-
-        private fun throwIfExecutorDiesAt(deathPoint: ExecutorDeathPoint) {
-            if (executorDeathPoint == deathPoint) {
-                throw SimulatedDeployExecutorDeath(deathPoint)
-            }
-        }
-
-        private fun awaitPermission(
-            latch: CountDownLatch?,
-            failureMessage: String
-        ) {
-            if (latch == null) {
-                return
-            }
-            assertTrue(
-                latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS),
-                failureMessage
-            )
-        }
-
-        private fun Map<String, String>.matches(
-            filter: DockerLabelsFilter
-        ): Boolean {
-            return filter.labels.all { (name, value) -> this[name] == value }
-        }
-
-        enum class ExecutorDeathPoint {
-            AFTER_CONTAINER_CREATION,
-            AFTER_CONTAINER_START
-        }
-    }
 }

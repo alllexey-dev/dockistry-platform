@@ -63,8 +63,12 @@ cp .env.example .env
 | `JWT_REFRESH_EXPIRATION` | время жизни refresh-токена, мс | `1209600000` (14 дней) |
 | `DOCKER_HOST`            | Docker endpoint для docker-java | локальный Docker socket |
 | `DOCKER_IMAGE_PULL_TIMEOUT` | timeout pull image операции, мс | `300000` (5 минут) |
+| `SECRETS_ENCRYPTION_KEY` | AES-256 ключ для Secret values, base64 32 байт | dev-ключ (заменить!) |
 
-> ⚠️ Для любого окружения, кроме чисто локального, обязательно задайте свой `JWT_SECRET`.
+> ⚠️ Для любого окружения, кроме чисто локального, обязательно задайте свои `JWT_SECRET`
+> и `SECRETS_ENCRYPTION_KEY` (`openssl rand -base64 32`). С профилем `prod` приложение не
+> стартует с дефолтными значениями. Смена `SECRETS_ENCRYPTION_KEY` делает уже сохранённые
+> Secret values нерасшифровываемыми: ротация ключа пока не поддерживается.
 
 ### 2. Запуск базы данных
 
@@ -172,6 +176,13 @@ Project endpoints требуют access token и возвращают JSON в en
 permission `project.read`. Mutating member endpoints требуют permission
 `project.members.manage`.
 
+Удаление binding или участника блокируется с `409 secret_delegation_active`,
+если оно лишит владельца делегированных этому проекту Secrets последнего
+effective источника `project.secrets.delegate`. Учитываются оставшиеся direct,
+group-derived и GLOBAL bindings. При удалении bindings группы проверяются её
+собственные Secrets и Secrets её пользователей. Перед повторной попыткой нужно
+выполнить force-revoke блокирующих delegations; автоматически они не отзываются.
+
 Для операций по конкретному project id отсутствие проекта и отсутствие read-access
 оба отображаются как `404 project_not_found`; если read-access есть, но не хватает
 права на действие, возвращается `403 insufficient_permission_for_operation`.
@@ -180,6 +191,77 @@ Slug задается при создании проекта, ограничен
 `ProjectInfoDto` содержит текущую `version`. `PATCH /api/projects/{id}` принимает
 `name`, `description` и обязательный `expectedVersion` из последнего полученного
 `ProjectInfoDto`; отрицательная версия возвращает `400 validation_error`.
+`description` обрезается по краям, пустое значение сохраняется как `null`;
+максимум 1000 символов, NUL и невалидный Unicode запрещены
+(`400 invalid_project_description`).
+
+## Secrets API
+
+Secret принадлежит текущему пользователю, а не проекту. Все endpoints требуют
+access token и работают только с собственными Secrets владельца: чужой или
+несуществующий Secret возвращает `404 secret_not_found`. Values никогда не
+возвращаются.
+
+| Метод    | Endpoint                                          | Назначение                                     |
+|----------|---------------------------------------------------|------------------------------------------------|
+| `GET`    | `/api/secrets`                                    | список собственных Secrets                     |
+| `POST`   | `/api/secrets`                                    | создать Secret с initial version, `201`        |
+| `GET`    | `/api/secrets/{secretId}`                         | получить собственный Secret                    |
+| `PUT`    | `/api/secrets/{secretId}`                         | заменить `name` и `description`                |
+| `DELETE` | `/api/secrets/{secretId}`                         | удалить Secret с versions и delegations         |
+| `GET`    | `/api/secrets/{secretId}/versions`                | metadata versions, новые первыми               |
+| `POST`   | `/api/secrets/{secretId}/versions`                | rotation: новая version из `values`, `201`     |
+| `DELETE` | `/api/secrets/{secretId}/versions/{versionId}`    | физически удалить version                      |
+| `GET`    | `/api/secrets/{secretId}/usage`                   | managed services, ссылающиеся на Secret        |
+| `GET`    | `/api/secrets/{secretId}/delegations`             | проекты, которым делегирован Secret            |
+| `POST`   | `/api/secrets/{secretId}/delegate`                | делегировать Secret проекту `projectId`, `201` |
+| `DELETE` | `/api/secrets/{secretId}/delegations/{projectId}` | отозвать delegation (идемпотентно)             |
+
+`PUT` принимает `name`, `description` и обязательный `expectedVersion` из последнего
+`SecretDto`. Устаревшая версия допускается, только если Secret уже имеет запрошенные
+metadata; иначе возвращается `409 secret_metadata_version_conflict`. Имя уникально
+среди Secrets владельца (`409 secret_already_exists`).
+
+Version metadata (`SecretVersionDto`) содержит ID version (`version`), `createdAt` и
+отсортированные `keys`. Rotation возвращает такой же `SecretVersionDto` для новой
+version.
+
+Delegations (`SecretDelegationDto`) содержат `projectId`, `projectName` и `createdAt`,
+отсортированы по имени проекта.
+
+Usage (`SecretUsageDto`) — по одной записи на secret-backed environment variable:
+`projectId`, `projectName`, `serviceId`, `serviceName`, `secretId`, `key`, `envName` и
+`secretVersion` (`null` для latest). Сюда входят и references в проектах с уже
+отозванной delegation: они остаются в configuration и блокируют следующий deploy.
+
+Rotation помечает latest references `OUTDATED`, revoke — `DELEGATION_REVOKED`,
+удаление version или Secret — `DELETED`. Revoke и удаление не останавливают
+работающие containers. Отсутствующая version возвращает
+`404 secret_version_not_found`.
+
+Values хранятся зашифрованными AES-256-GCM: отдельный random nonce на каждое значение,
+ID Secret, version и key привязаны как associated data, поэтому ciphertext нельзя
+перенести в чужую ячейку БД. Расшифровка происходит только в deploy до любого Docker
+I/O; ошибка расшифровки возвращает `500 secret_decryption_failed`.
+
+Делегированные проекту Secrets доступны участникам проекта с `project.read`,
+независимо от владельца:
+
+| Метод | Endpoint                                     | Назначение                                |
+|-------|----------------------------------------------|-------------------------------------------|
+| `GET` | `/api/projects/{projectId}/secrets`          | Secrets, делегированные проекту           |
+| `GET` | `/api/projects/{projectId}/secrets/{secretId}` | один делегированный Secret              |
+| `DELETE` | `/api/projects/{projectId}/secrets/{secretId}/delegation` | force-revoke чужой delegation |
+
+`ProjectSecretDto` содержит `id`, `name`, `description`, `owner` (`PrincipalInfoDto`),
+`delegatedAt`, `versions` (новые первыми) и `usage` только внутри этого проекта.
+Нечитаемый проект возвращает `404 project_not_found`, не делегированный проекту
+Secret — `404 secret_not_found`.
+
+Force-revoke требует `project.secrets.force-revoke` (по умолчанию только у `project_admin`;
+без неё — `403 insufficient_permission_for_operation`, даже для владельца Secret). Последствия
+те же, что у owner revoke: `DELEGATION_REVOKED` warnings, references и Secret остаются,
+повторный запрос ничего не меняет.
 
 ## Managed Services API
 
@@ -227,6 +309,18 @@ start/stop. Во время Docker operation service показывает соо
 но API возвращает каноническую строку. Custom registries и digest refs пока не
 поддерживаются. JSONB-поля (`command`, `args`, `env`, `endpoints`, `volumes`)
 возвращаются типизированной структурой в `ApiResponse<ManagedServiceDto>`.
+Поле `warnings` содержит только активные предупреждения конкретного сервиса
+(`OUTDATED`, `DELETED`, `DELEGATION_REVOKED`); при их отсутствии возвращается `[]`.
+Каждое предупреждение содержит `id`, `warningType`, `secretId`, `secretKey`,
+`secretVersion`, `envName` и `createdAt`, без значений Secret.
+
+Deploy принимает query-параметр `ignoreWarnings`: без него при активных `DELETED`
+warnings возвращается `403 secret_warnings_confirmation_required`. Warnings, которые
+были активны в момент принятия deploy, закрываются только вместе с его успешным
+завершением (`FINISHED`). Неудачный или отменённый deploy оставляет их активными, и
+`DELETED` снова потребует подтверждения. Повтор того же события во время deploy
+(например, rotation) выдаёт warning новый `id`, поэтому такой warning остаётся
+активным.
 
 Имена volumes содержат от 2 до 30 символов и соответствуют Docker name rules:
 первый символ alphanumeric, оставшиеся символы — alphanumeric, `_`, `.` или `-`.
@@ -330,6 +424,9 @@ Image endpoints сейчас работают только через `GLOBAL` p
 # По шаблону имени
 ./gradlew test --tests "*JwtAuthentication*"
 
+# Docker-in-Docker tests, исключённые из обычного ./gradlew test
+./gradlew dindTest
+
 # Docker stats tests, исключённые из обычного ./gradlew test
 ./gradlew dockerStatsTest
 
@@ -342,6 +439,11 @@ Image endpoints сейчас работают только через `GLOBAL` p
 Docker/cgroup окружениях, включая GitHub-hosted runners, могут быть нестабильными.
 Если меняется Docker stats mapping или сбор Docker metrics, локально запускайте
 `./gradlew dockerStatsTest`.
+
+`dindTest` запускает Docker-in-Docker integration tests (`@Tag("dind")`) для Docker
+agent adapter. Они исключены из обычного `test`/`build`, потому что зависят от сети и
+pull images внутри nested Docker и поэтому нестабильны. Docker stats tests в
+`dindTest` не входят.
 
 > **Colima вместо Docker Desktop.** Если Docker запущен через Colima, Testcontainers
 > может не найти сокет (ошибка `Could not find a valid Docker environment`), так как

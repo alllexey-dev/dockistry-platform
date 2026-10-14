@@ -13,6 +13,7 @@ import io.dockistry.platform.projects.domain.dto.ProjectSaveRequest
 import io.dockistry.platform.projects.domain.dto.ProjectUpdateRequest
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
 import io.dockistry.platform.services.testsupport.managedService
+import io.dockistry.platform.shared.domain.ResourceDescriptionNormalizer
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
@@ -137,7 +138,7 @@ class ProjectControllerIntegrationTests {
         fixtures.grantSystemPermission(
             user.user.principal,
             fixtures.globalScope(),
-            SystemPermissionNames.PROJECT_CREATE
+            SystemPermissionNames.PROJECT_CREATE.key
         )
         fixtures.flush()
 
@@ -170,7 +171,7 @@ class ProjectControllerIntegrationTests {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update returns updated project info dto when user can update project`() {
         val context = committedUpdateContext(
-            SystemPermissionNames.PROJECT_UPDATE,
+            SystemPermissionNames.PROJECT_UPDATE.key,
             description = "Old description"
         )
 
@@ -214,7 +215,7 @@ class ProjectControllerIntegrationTests {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update rejects negative expected version`() {
-        val context = committedUpdateContext(SystemPermissionNames.PROJECT_UPDATE)
+        val context = committedUpdateContext(SystemPermissionNames.PROJECT_UPDATE.key)
 
         try {
             mockMvc.patch("/api/projects/${context.project.id}") {
@@ -249,7 +250,7 @@ class ProjectControllerIntegrationTests {
         fixtures.grantProjectPermissions(
             user.user.principal,
             project,
-            SystemPermissionNames.PROJECT_ARCHIVE
+            SystemPermissionNames.PROJECT_ARCHIVE.key
         )
         fixtures.flush()
 
@@ -273,7 +274,7 @@ class ProjectControllerIntegrationTests {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete removes project and returns ok response when user can delete project`() {
-        val context = committedDeleteContext(SystemPermissionNames.PROJECT_DELETE)
+        val context = committedDeleteContext(SystemPermissionNames.PROJECT_DELETE.key)
 
         try {
             mockMvc.delete("/api/projects/${context.projectId}") {
@@ -286,9 +287,7 @@ class ProjectControllerIntegrationTests {
                 jsonPath("$.errorCode") { value(nullValue()) }
             }
 
-            assertFalse(
-                inNewTransaction { projectRepository.existsById(context.projectId) }
-            )
+            assertFalse(projectRepository.existsById(context.projectId))
         } finally {
             cleanupCommittedProject(context.projectId)
         }
@@ -354,7 +353,7 @@ class ProjectControllerIntegrationTests {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `update returns forbidden when user cannot update project`() {
-        val context = committedUpdateContext(SystemPermissionNames.PROJECT_READ)
+        val context = committedUpdateContext(SystemPermissionNames.PROJECT_READ.key)
 
         try {
             mockMvc.patch("/api/projects/${context.project.id}") {
@@ -432,7 +431,7 @@ class ProjectControllerIntegrationTests {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete returns forbidden when user cannot delete project`() {
-        val context = committedDeleteContext(SystemPermissionNames.PROJECT_READ)
+        val context = committedDeleteContext(SystemPermissionNames.PROJECT_READ.key)
 
         try {
             mockMvc.delete("/api/projects/${context.projectId}") {
@@ -452,8 +451,8 @@ class ProjectControllerIntegrationTests {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     fun `delete returns conflict when project has managed services`() {
         val context = committedDeleteContext(
-            SystemPermissionNames.PROJECT_READ,
-            SystemPermissionNames.PROJECT_DELETE,
+            SystemPermissionNames.PROJECT_READ.key,
+            SystemPermissionNames.PROJECT_DELETE.key,
             withManagedService = true
         )
 
@@ -529,7 +528,7 @@ class ProjectControllerIntegrationTests {
         fixtures.grantSystemPermission(
             user.user.principal,
             fixtures.globalScope(),
-            SystemPermissionNames.PROJECT_CREATE
+            SystemPermissionNames.PROJECT_CREATE.key
         )
         fixtures.flush()
 
@@ -543,13 +542,79 @@ class ProjectControllerIntegrationTests {
     }
 
     @Test
+    fun `create returns invalid project description error for too long or NUL description`() {
+        val fixtures = fixtures()
+        val user = authenticatedUser(fixtures, "creator")
+        fixtures.grantSystemPermission(
+            user.user.principal,
+            fixtures.globalScope(),
+            SystemPermissionNames.PROJECT_CREATE.key
+        )
+        fixtures.flush()
+        val invalidDescriptions = listOf(
+            "a".repeat(ResourceDescriptionNormalizer.MAX_LENGTH + 1),
+            "bad\u0000description"
+        )
+
+        invalidDescriptions.forEach { description ->
+            mockMvc.post("/api/projects") {
+                bearer(user)
+                contentType = MediaType.APPLICATION_JSON
+                content = projectJson(
+                    name = "Valid Name",
+                    slug = "valid-slug",
+                    description = description
+                )
+            }.andExpect {
+                expectApiError(statusCode = 400, errorCode = "invalid_project_description")
+            }
+        }
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    fun `update accepts max length description and rejects longer one`() {
+        val context = committedUpdateContext(SystemPermissionNames.PROJECT_UPDATE.key)
+        val maxDescription = "a".repeat(ResourceDescriptionNormalizer.MAX_LENGTH)
+
+        try {
+            mockMvc.patch("/api/projects/${context.project.id}") {
+                bearer(context.user)
+                contentType = MediaType.APPLICATION_JSON
+                content = projectUpdateJson(
+                    name = context.project.name,
+                    description = maxDescription + "a",
+                    expectedVersion = context.project.version
+                )
+            }.andExpect {
+                expectApiError(statusCode = 400, errorCode = "invalid_project_description")
+            }
+
+            mockMvc.patch("/api/projects/${context.project.id}") {
+                bearer(context.user)
+                contentType = MediaType.APPLICATION_JSON
+                content = projectUpdateJson(
+                    name = context.project.name,
+                    description = "  $maxDescription\n",
+                    expectedVersion = context.project.version
+                )
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.description") { value(maxDescription) }
+            }
+        } finally {
+            cleanupCommittedProject(context.project.id)
+        }
+    }
+
+    @Test
     fun `create returns invalid project slug error for invalid slug`() {
         val fixtures = fixtures()
         val user = authenticatedUser(fixtures, "creator")
         fixtures.grantSystemPermission(
             user.user.principal,
             fixtures.globalScope(),
-            SystemPermissionNames.PROJECT_CREATE
+            SystemPermissionNames.PROJECT_CREATE.key
         )
         fixtures.flush()
 
@@ -569,7 +634,7 @@ class ProjectControllerIntegrationTests {
         fixtures.grantSystemPermission(
             user.user.principal,
             fixtures.globalScope(),
-            SystemPermissionNames.PROJECT_CREATE
+            SystemPermissionNames.PROJECT_CREATE.key
         )
         fixtures.project(name = "Existing Project", slug = "existing-project")
         fixtures.flush()
@@ -642,7 +707,7 @@ class ProjectControllerIntegrationTests {
                 user.user.principal,
                 project,
                 *permissionKeys.filterNot {
-                    it == SystemPermissionNames.PROJECT_READ
+                    it == SystemPermissionNames.PROJECT_READ.key
                 }.toTypedArray()
             )
         }
@@ -670,7 +735,7 @@ class ProjectControllerIntegrationTests {
                 user.user.principal,
                 project,
                 *permissionKeys.filterNot {
-                    it == SystemPermissionNames.PROJECT_READ
+                    it == SystemPermissionNames.PROJECT_READ.key
                 }.toTypedArray()
             )
         }
@@ -702,7 +767,7 @@ class ProjectControllerIntegrationTests {
         grantSystemPermission(
             principal,
             project.scope,
-            SystemPermissionNames.PROJECT_READ
+            SystemPermissionNames.PROJECT_READ.key
         )
     }
 
@@ -714,7 +779,7 @@ class ProjectControllerIntegrationTests {
         grantSystemPermission(
             principal,
             project.scope,
-            *(listOf(SystemPermissionNames.PROJECT_READ) + permissionKeys).toTypedArray()
+            *(listOf(SystemPermissionNames.PROJECT_READ.key) + permissionKeys).toTypedArray()
         )
     }
 

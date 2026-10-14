@@ -4,15 +4,19 @@ import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.PrincipalType
 import io.dockistry.platform.iam.domain.Scope
 import io.dockistry.platform.iam.domain.ScopeType
+import io.dockistry.platform.shared.domain.ResourceNameNormalizer
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-class ProjectNameNormalizerTests {
+class ResourceNameNormalizerTests {
     @Test
     fun `normalizes unicode and compacts whitespace`() {
-        val name = ProjectNameNormalizer.normalizeAndValidate("  Cafe\u0301\n\tDeploy  ")
+        val name = ResourceNameNormalizer.normalizeAndValidate(
+            "  Cafe\u0301\n\tDeploy  ",
+            ::InvalidProjectNameException
+        )
 
         assertEquals("Café Deploy", name)
     }
@@ -20,14 +24,20 @@ class ProjectNameNormalizerTests {
     @Test
     fun `rejects blank name after cleanup`() {
         assertFailsWith<InvalidProjectNameException> {
-            ProjectNameNormalizer.normalizeAndValidate(" \n\t ")
+            ResourceNameNormalizer.normalizeAndValidate(
+                " \n\t ",
+                ::InvalidProjectNameException
+            )
         }
     }
 
     @Test
     fun `rejects invisible formatting characters`() {
         assertFailsWith<InvalidProjectNameException> {
-            ProjectNameNormalizer.normalizeAndValidate("project\u200Bname")
+            ResourceNameNormalizer.normalizeAndValidate(
+                "project\u200Bname",
+                ::InvalidProjectNameException
+            )
         }
     }
 

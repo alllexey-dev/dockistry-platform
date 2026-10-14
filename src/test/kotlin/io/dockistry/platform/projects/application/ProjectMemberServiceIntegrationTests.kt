@@ -11,6 +11,7 @@ import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.projects.domain.ProjectMemberNotFoundException
 import io.dockistry.platform.projects.domain.ProjectRoleBindingNotFoundException
 import io.dockistry.platform.projects.domain.ProjectRoleNotAssignableException
+import io.dockistry.platform.secrets.application.SecretDelegationPermissionGuard
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
@@ -19,12 +20,19 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.dao.DataAccessException
+import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
+import java.sql.SQLException
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -38,6 +46,15 @@ class ProjectMemberServiceIntegrationTests {
 
     @Autowired
     private lateinit var roleRepository: RoleRepository
+
+    @Autowired
+    private lateinit var secretDelegationPermissionGuard: SecretDelegationPermissionGuard
+
+    @Autowired
+    private lateinit var jdbcTemplate: JdbcTemplate
+
+    @Autowired
+    private lateinit var transactionManager: PlatformTransactionManager
 
     @PersistenceContext
     private lateinit var entityManager: EntityManager
@@ -53,10 +70,10 @@ class ProjectMemberServiceIntegrationTests {
         val noReadPrincipal = fixtures.principal()
         transitiveUser.groups += group
 
-        val viewerRole = role(SystemRoleNames.PROJECT_VIEWER)
-        val operatorRole = role(SystemRoleNames.PROJECT_OPERATOR)
+        val viewerRole = role(SystemRoleNames.PROJECT_VIEWER.key)
+        val operatorRole = role(SystemRoleNames.PROJECT_OPERATOR.key)
         val updateOnlyRole = fixtures.role(
-            permissions = setOf(fixtures.systemPermission(SystemPermissionNames.PROJECT_UPDATE))
+            permissions = setOf(fixtures.systemPermission(SystemPermissionNames.PROJECT_UPDATE.key))
         )
         val firstUserBinding = fixtures.bind(directUser.principal, project.scope, viewerRole)
         val secondUserBinding = fixtures.bind(directUser.principal, project.scope, operatorRole)
@@ -65,7 +82,7 @@ class ProjectMemberServiceIntegrationTests {
         fixtures.grantSystemPermission(
             manager,
             fixtures.globalScope(),
-            SystemPermissionNames.PROJECT_READ
+            SystemPermissionNames.PROJECT_READ.key
         )
         fixtures.flushAndClear()
 
@@ -102,8 +119,8 @@ class ProjectMemberServiceIntegrationTests {
         val project = fixtures.project()
         val otherProject = fixtures.project()
         val manager = fixtures.principal()
-        val projectRead = fixtures.systemPermission(SystemPermissionNames.PROJECT_READ)
-        val projectUpdate = fixtures.systemPermission(SystemPermissionNames.PROJECT_UPDATE)
+        val projectRead = fixtures.systemPermission(SystemPermissionNames.PROJECT_READ.key)
+        val projectUpdate = fixtures.systemPermission(SystemPermissionNames.PROJECT_UPDATE.key)
         val customRole = fixtures.role(
             name = "custom-readable-${fixtures.unique()}",
             permissions = setOf(projectRead, projectUpdate),
@@ -128,14 +145,14 @@ class ProjectMemberServiceIntegrationTests {
         val roles = projectMemberService.listAvailableRoles(manager, project.id)
 
         val roleNames = roles.map { it.roleName }.toSet()
-        assertTrue(roleNames.containsAll(SystemRoleNames.allProjectRoleNames()))
+        assertTrue(roleNames.containsAll(SystemRoleNames.entries.map { it.key }))
         assertTrue(customRole.name in roleNames)
         assertFalse(otherProjectRole.name in roleNames)
         assertFalse(noReadRole.name in roleNames)
 
         val customRoleDto = assertNotNull(roles.firstOrNull { it.id == customRole.id })
         assertEquals(
-            setOf(SystemPermissionNames.PROJECT_READ, SystemPermissionNames.PROJECT_UPDATE),
+            setOf(SystemPermissionNames.PROJECT_READ.key, SystemPermissionNames.PROJECT_UPDATE.key),
             customRoleDto.permissions.map { it.key }.toSet()
         )
     }
@@ -146,7 +163,7 @@ class ProjectMemberServiceIntegrationTests {
         val project = fixtures.project()
         val manager = fixtures.principal()
         val subject = fixtures.principal()
-        val role = role(SystemRoleNames.PROJECT_VIEWER)
+        val role = role(SystemRoleNames.PROJECT_VIEWER.key)
         fixtures.grantMemberManagement(manager, project)
         fixtures.flushAndClear()
 
@@ -170,7 +187,7 @@ class ProjectMemberServiceIntegrationTests {
         val project = fixtures.project()
         val manager = fixtures.principal()
         val subject = fixtures.principal()
-        val role = role(SystemRoleNames.PROJECT_VIEWER)
+        val role = role(SystemRoleNames.PROJECT_VIEWER.key)
         fixtures.grantRead(manager, project)
         fixtures.flushAndClear()
 
@@ -191,7 +208,7 @@ class ProjectMemberServiceIntegrationTests {
         val manager = fixtures.principal()
         val subject = fixtures.principal()
         val updateOnlyRole = fixtures.role(
-            permissions = setOf(fixtures.systemPermission(SystemPermissionNames.PROJECT_UPDATE))
+            permissions = setOf(fixtures.systemPermission(SystemPermissionNames.PROJECT_UPDATE.key))
         )
         fixtures.grantMemberManagement(manager, project)
         fixtures.flushAndClear()
@@ -211,7 +228,7 @@ class ProjectMemberServiceIntegrationTests {
         val fixtures = fixtures()
         val project = fixtures.project()
         val subject = fixtures.principal()
-        val role = role(SystemRoleNames.PROJECT_VIEWER)
+        val role = role(SystemRoleNames.PROJECT_VIEWER.key)
         fixtures.bind(subject, project.scope, role)
         fixtures.flushAndClear()
 
@@ -228,8 +245,8 @@ class ProjectMemberServiceIntegrationTests {
         val project = fixtures.project()
         val manager = fixtures.principal()
         val subject = fixtures.principal()
-        val viewerRole = role(SystemRoleNames.PROJECT_VIEWER)
-        val operatorRole = role(SystemRoleNames.PROJECT_OPERATOR)
+        val viewerRole = role(SystemRoleNames.PROJECT_VIEWER.key)
+        val operatorRole = role(SystemRoleNames.PROJECT_OPERATOR.key)
         val deletedBinding = fixtures.bind(subject, project.scope, viewerRole)
         val keptBinding = fixtures.bind(subject, project.scope, operatorRole)
         fixtures.grantMemberManagement(manager, project)
@@ -245,6 +262,33 @@ class ProjectMemberServiceIntegrationTests {
 
         assertFalse(roleBindingExists(deletedBinding.id))
         assertTrue(roleBindingExists(keptBinding.id))
+        assertPrincipalLocked(subject.id)
+        attemptPrincipalLock(manager.id)
+    }
+
+    @Test
+    fun `delete group binding locks group and every member without delegations`() {
+        val fixtures = fixtures()
+        val project = fixtures.project()
+        val manager = fixtures.principal()
+        val (groupPrincipal, memberIds) = groupWithMembers(fixtures)
+        val binding = fixtures.bind(
+            groupPrincipal, project.scope, role(SystemRoleNames.PROJECT_VIEWER.key)
+        )
+        fixtures.grantMemberManagement(manager, project)
+        fixtures.flushAndClear()
+
+        projectMemberService.deleteRoleBinding(
+            managerPrincipal = manager,
+            projectId = project.id,
+            subjectPrincipalId = groupPrincipal.id,
+            roleBindingId = binding.id
+        )
+
+        assertFalse(roleBindingExists(binding.id))
+        assertPrincipalLocked(groupPrincipal.id)
+        memberIds.forEach(::assertPrincipalLocked)
+        attemptPrincipalLock(manager.id)
     }
 
     @Test
@@ -254,7 +298,7 @@ class ProjectMemberServiceIntegrationTests {
         val manager = fixtures.principal()
         val subject = fixtures.principal()
         val otherSubject = fixtures.principal()
-        val binding = fixtures.bind(otherSubject, project.scope, role(SystemRoleNames.PROJECT_VIEWER))
+        val binding = fixtures.bind(otherSubject, project.scope, role(SystemRoleNames.PROJECT_VIEWER.key))
         fixtures.grantMemberManagement(manager, project)
         fixtures.flushAndClear()
 
@@ -275,8 +319,8 @@ class ProjectMemberServiceIntegrationTests {
         val otherProject = fixtures.project()
         val manager = fixtures.principal()
         val subject = fixtures.principal()
-        val viewerRole = role(SystemRoleNames.PROJECT_VIEWER)
-        val operatorRole = role(SystemRoleNames.PROJECT_OPERATOR)
+        val viewerRole = role(SystemRoleNames.PROJECT_VIEWER.key)
+        val operatorRole = role(SystemRoleNames.PROJECT_OPERATOR.key)
         val firstProjectBinding = fixtures.bind(subject, project.scope, viewerRole)
         val secondProjectBinding = fixtures.bind(subject, project.scope, operatorRole)
         val otherProjectBinding = fixtures.bind(subject, otherProject.scope, viewerRole)
@@ -293,6 +337,32 @@ class ProjectMemberServiceIntegrationTests {
         assertFalse(roleBindingExists(firstProjectBinding.id))
         assertFalse(roleBindingExists(secondProjectBinding.id))
         assertTrue(roleBindingExists(otherProjectBinding.id))
+        assertPrincipalLocked(subject.id)
+        attemptPrincipalLock(manager.id)
+    }
+
+    @Test
+    fun `delete group member locks group and every user without delegations`() {
+        val fixtures = fixtures()
+        val project = fixtures.project()
+        val manager = fixtures.principal()
+        val (groupPrincipal, memberIds) = groupWithMembers(fixtures)
+        val binding = fixtures.bind(
+            groupPrincipal, project.scope, role(SystemRoleNames.PROJECT_VIEWER.key)
+        )
+        fixtures.grantMemberManagement(manager, project)
+        fixtures.flushAndClear()
+
+        projectMemberService.deleteMember(
+            managerPrincipal = manager,
+            projectId = project.id,
+            subjectPrincipalId = groupPrincipal.id
+        )
+
+        assertFalse(roleBindingExists(binding.id))
+        assertPrincipalLocked(groupPrincipal.id)
+        memberIds.forEach(::assertPrincipalLocked)
+        attemptPrincipalLock(manager.id)
     }
 
     @Test
@@ -320,7 +390,7 @@ class ProjectMemberServiceIntegrationTests {
         val manager = fixtures.principal()
         val subject = fixtures.principal()
         val updateOnlyRole = fixtures.role(
-            permissions = setOf(fixtures.systemPermission(SystemPermissionNames.PROJECT_UPDATE))
+            permissions = setOf(fixtures.systemPermission(SystemPermissionNames.PROJECT_UPDATE.key))
         )
         val updateOnlyBinding = fixtures.bind(subject, project.scope, updateOnlyRole)
         fixtures.grantMemberManagement(manager, project)
@@ -338,11 +408,35 @@ class ProjectMemberServiceIntegrationTests {
 
     private fun fixtures(): IamProjectFixtures = IamProjectFixtures(entityManager)
 
+    private fun groupWithMembers(fixtures: IamProjectFixtures): Pair<Principal, List<UUID>> {
+        val group = fixtures.group()
+        val members = List(2) {
+            fixtures.user().apply { groups += group }
+        }
+        return group.principal to members.map { it.id }
+    }
+
+    private fun assertPrincipalLocked(principalId: UUID) {
+        val exception = assertFailsWith<DataAccessException> {
+            attemptPrincipalLock(principalId)
+        }
+        assertEquals("55P03", assertIs<SQLException>(exception.mostSpecificCause).sqlState)
+    }
+
+    private fun attemptPrincipalLock(principalId: UUID) {
+        TransactionTemplate(transactionManager).apply {
+            propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
+        }.executeWithoutResult {
+            jdbcTemplate.execute("SET LOCAL lock_timeout = '200ms'")
+            secretDelegationPermissionGuard.lockPrincipal(principalId)
+        }
+    }
+
     private fun role(name: String): Role =
         assertNotNull(roleRepository.findByNameAndIsSystemTrue(name))
 
     private fun IamProjectFixtures.grantRead(principal: Principal, project: Project) {
-        grantSystemPermission(principal, project.scope, SystemPermissionNames.PROJECT_READ)
+        grantSystemPermission(principal, project.scope, SystemPermissionNames.PROJECT_READ.key)
     }
 
     private fun IamProjectFixtures.grantMemberManagement(
@@ -352,13 +446,10 @@ class ProjectMemberServiceIntegrationTests {
         grantSystemPermission(
             principal,
             project.scope,
-            SystemPermissionNames.PROJECT_READ,
-            SystemPermissionNames.PROJECT_MEMBERS_MANAGE
+            SystemPermissionNames.PROJECT_READ.key,
+            SystemPermissionNames.PROJECT_MEMBERS_MANAGE.key
         )
     }
-
-    private fun SystemRoleNames.allProjectRoleNames(): Set<String> =
-        setOf(PROJECT_ADMIN, PROJECT_OPERATOR, PROJECT_VIEWER)
 
     private fun roleBindingCount(
         project: Project,

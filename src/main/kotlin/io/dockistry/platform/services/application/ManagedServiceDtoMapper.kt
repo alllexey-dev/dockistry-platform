@@ -2,9 +2,11 @@ package io.dockistry.platform.services.application
 
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.services.application.dto.ManagedServiceCreateCommand
+import io.dockistry.platform.services.application.dto.ManagedServiceDetails
 import io.dockistry.platform.services.application.dto.ManagedServiceUpdateCommand
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceConfigurationDraft
+import io.dockistry.platform.services.domain.ManagedServiceSecretReference
 import io.dockistry.platform.services.domain.dto.ManagedServiceCreateRequest
 import io.dockistry.platform.services.domain.dto.ManagedServiceDto
 import io.dockistry.platform.services.domain.dto.ManagedServiceUpdateRequest
@@ -13,7 +15,8 @@ import java.util.UUID
 
 @Component
 class ManagedServiceDtoMapper {
-    fun toDto(service: ManagedService): ManagedServiceDto {
+    fun toDto(details: ManagedServiceDetails): ManagedServiceDto {
+        val service = details.service
         return ManagedServiceDto(
             id = service.id,
             projectId = service.project.id,
@@ -22,6 +25,8 @@ class ManagedServiceDtoMapper {
             command = service.command,
             args = service.args,
             env = service.env,
+            secretReferences = details.secretReferences,
+            warnings = details.warnings,
             endpoints = service.endpoints,
             volumes = service.volumes,
             restartPolicy = service.restartPolicy,
@@ -36,8 +41,8 @@ class ManagedServiceDtoMapper {
         )
     }
 
-    fun toDtos(services: List<ManagedService>): List<ManagedServiceDto> {
-        return services.map { toDto(it) }
+    fun toDtos(services: List<ManagedServiceDetails>): List<ManagedServiceDto> {
+        return services.map(::toDto)
     }
 
     fun toCreateCommand(
@@ -74,6 +79,7 @@ class ManagedServiceDtoMapper {
             command = command,
             args = args,
             env = env,
+            secretReferences = secretReferences,
             endpoints = endpoints,
             volumes = volumes,
             restartPolicy = restartPolicy,
@@ -89,6 +95,7 @@ class ManagedServiceDtoMapper {
             command = command,
             args = args,
             env = env,
+            secretReferences = secretReferences,
             endpoints = endpoints,
             volumes = volumes,
             restartPolicy = restartPolicy,
@@ -99,12 +106,13 @@ class ManagedServiceDtoMapper {
         )
 }
 
-fun ManagedService.toConfigurationDraft() =
+fun ManagedService.toConfigurationDraft(secretReferences: List<ManagedServiceSecretReference>) =
     ManagedServiceConfigurationDraft(
         imageRef = imageRef.asString(),
         command = command,
         args = args,
         env = env,
+        secretReferences = secretReferences,
         endpoints = endpoints,
         volumes = volumes,
         restartPolicy = restartPolicy,

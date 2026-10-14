@@ -10,6 +10,10 @@ class InvalidProjectNameException(
     message: String
 ) : BadRequestException(message, "invalid_project_name")
 
+class InvalidProjectDescriptionException(
+    message: String
+) : BadRequestException(message, "invalid_project_description")
+
 class ProjectNotFoundException(
     message: String
 ) : NotFoundException(message, "project_not_found")

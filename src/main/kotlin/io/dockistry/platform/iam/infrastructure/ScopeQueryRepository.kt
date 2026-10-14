@@ -4,7 +4,6 @@ import io.dockistry.platform.iam.domain.RoleBinding
 import io.dockistry.platform.iam.domain.ScopeType
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
-import org.springframework.data.repository.query.Param
 import java.util.UUID
 
 interface ScopeQueryRepository : JpaRepository<RoleBinding, UUID> {
@@ -25,13 +24,10 @@ interface ScopeQueryRepository : JpaRepository<RoleBinding, UUID> {
     """
     )
     fun effectiveScopeIds(
-        @Param("principalId")
         principalId: UUID,
 
-        @Param("permissionKey")
         permissionKey: String,
 
-        @Param("scopeType")
         scopeType: ScopeType
     ): Set<UUID>
 }

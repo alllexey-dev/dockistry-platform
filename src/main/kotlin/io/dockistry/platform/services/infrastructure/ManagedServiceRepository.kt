@@ -6,7 +6,6 @@ import io.dockistry.platform.services.domain.ManagedServiceLifecycleStatus
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
-import org.springframework.data.repository.query.Param
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 import java.util.UUID
@@ -31,7 +30,7 @@ interface ManagedServiceRepository :
             WHERE service.project.id = :projectId
         )
     """)
-    override fun existsByProjectId(@Param("projectId") projectId: UUID): Boolean
+    override fun existsByProjectId(projectId: UUID): Boolean
 
     // Checking not only by PK, but also by Project ID, so that at the same time we're
     // also checking that this service belongs to specified project
@@ -42,8 +41,8 @@ interface ManagedServiceRepository :
               AND service.id = :serviceId
     """)
     fun findByProjectIdAndId(
-        @Param("projectId") projectId: UUID,
-        @Param("serviceId") serviceId: UUID
+        projectId: UUID,
+        serviceId: UUID
     ): ManagedService?
 
     @Query(
@@ -51,12 +50,12 @@ interface ManagedServiceRepository :
             SELECT *
             FROM services
             WHERE id = :serviceId
-            FOR UPDATE NOWAIT
+            FOR NO KEY UPDATE NOWAIT
         """,
         nativeQuery = true
     )
     fun findByIdForUpdateNowait(
-        @Param("serviceId") serviceId: UUID
+        serviceId: UUID
     ): ManagedService?
 
     @Query(
@@ -65,13 +64,13 @@ interface ManagedServiceRepository :
             FROM services
             WHERE project_id = :projectId
               AND id = :serviceId
-            FOR UPDATE NOWAIT
+            FOR NO KEY UPDATE NOWAIT
         """,
         nativeQuery = true
     )
     fun findByProjectIdAndIdForUpdateNowait(
-        @Param("projectId") projectId: UUID,
-        @Param("serviceId") serviceId: UUID
+        projectId: UUID,
+        serviceId: UUID
     ): ManagedService?
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
@@ -82,8 +81,8 @@ interface ManagedServiceRepository :
               AND service.lifecycleStatus = ManagedServiceLifecycleStatus.DELETING
     """)
     fun deleteDeletingByProjectIdAndId(
-        @Param("projectId") projectId: UUID,
-        @Param("serviceId") serviceId: UUID
+        projectId: UUID,
+        serviceId: UUID
     ): Int
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
@@ -98,10 +97,10 @@ interface ManagedServiceRepository :
           AND service.lifecycleStatus = ManagedServiceLifecycleStatus.DELETING
     """)
     fun markDeletionCleanupFailedIfDeleting(
-        @Param("projectId") projectId: UUID,
-        @Param("serviceId") serviceId: UUID,
-        @Param("errorMessage") errorMessage: String?,
-        @Param("attemptedAt") attemptedAt: Instant
+        projectId: UUID,
+        serviceId: UUID,
+        errorMessage: String?,
+        attemptedAt: Instant
     ): Int
 
     @Query(
@@ -121,8 +120,8 @@ interface ManagedServiceRepository :
         nativeQuery = true
     )
     fun findStuckRuntimeOperations(
-        @Param("updatedBefore") updatedBefore: Instant,
-        @Param("batchLimit") batchLimit: Long
+        updatedBefore: Instant,
+        batchLimit: Long
     ): List<StuckManagedServiceRuntimeOperation>
 
     @Transactional
@@ -142,9 +141,9 @@ interface ManagedServiceRepository :
           )
     """)
     fun setRuntimeOperationToActiveIfVersion(
-        @Param("serviceId") serviceId: UUID,
-        @Param("expectedVersion") expectedVersion: Long,
-        @Param("updatedAt") updatedAt: Instant
+        serviceId: UUID,
+        expectedVersion: Long,
+        updatedAt: Instant
     ): Int
 
     @Query("""
@@ -157,8 +156,8 @@ interface ManagedServiceRepository :
         LIMIT :batchLimit
     """)
     fun findStuckDeletingServices(
-        @Param("updatedBefore") updatedBefore: Instant,
-        @Param("batchLimit") batchLimit: Long
+        updatedBefore: Instant,
+        batchLimit: Long
     ): List<ManagedService>
 }
 

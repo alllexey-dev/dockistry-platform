@@ -2,6 +2,7 @@ package io.dockistry.platform.services.domain
 
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicyType
 import io.dockistry.platform.shared.domain.SlugValidator
+import io.dockistry.platform.secrets.domain.SecretValidator
 
 object ManagedServiceValidator {
     const val MAX_NAME_LENGTH = 40
@@ -20,6 +21,7 @@ object ManagedServiceValidator {
             command = ensureNotBlank(draft.command, "command"),
             args = ensureNotBlank(draft.args, "args"),
             env = validateEnv(draft.env),
+            secretReferences = validateSecretReferences(draft.secretReferences, draft.env),
             endpoints = validateEndpoints(draft.endpoints),
             volumes = validateVolumes(draft.volumes),
             restartPolicy = draft.restartPolicy,
@@ -70,6 +72,29 @@ object ManagedServiceValidator {
         }
 
         return env
+    }
+
+    private fun validateSecretReferences(
+        references: List<ManagedServiceSecretReference>,
+        env: Map<String, String>
+    ): List<ManagedServiceSecretReference> {
+        references.forEach { reference ->
+            SecretValidator.validateId(reference.secretId)
+            SecretValidator.validateKey(reference.key)
+            SecretValidator.validateEnvName(reference.envName)
+            SecretValidator.validateOptionalVersion(reference.secretVersion)
+        }
+        if (references.map { it.envName }.distinct().size != references.size) {
+            throw InvalidManagedServiceConfigException(
+                "Managed service secret references must not reuse envName"
+            )
+        }
+        if (references.any { it.envName in env }) {
+            throw InvalidManagedServiceConfigException(
+                "Managed service environment name cannot be both literal and secret-backed"
+            )
+        }
+        return references
     }
 
     fun validateEndpoints(endpoints: List<ServiceEndpoint>): List<ServiceEndpoint> {
@@ -204,6 +229,7 @@ internal data class ValidatedManagedServiceConfiguration(
     val command: List<String>?,
     val args: List<String>?,
     val env: Map<String, String>,
+    val secretReferences: List<ManagedServiceSecretReference>,
     val endpoints: List<ServiceEndpoint>,
     val volumes: List<ServiceVolumeMount>,
     val restartPolicy: DockerRestartPolicyType,

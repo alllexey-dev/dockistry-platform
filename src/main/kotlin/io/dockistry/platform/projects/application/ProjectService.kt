@@ -1,95 +1,59 @@
 package io.dockistry.platform.projects.application
 
 import io.dockistry.platform.iam.application.PermissionCheckService
-import io.dockistry.platform.iam.domain.InsufficientPermissionException
 import io.dockistry.platform.iam.domain.Principal
-import io.dockistry.platform.iam.domain.RoleBinding
-import io.dockistry.platform.iam.domain.Scope
 import io.dockistry.platform.iam.domain.ScopeType
 import io.dockistry.platform.iam.domain.SystemPermissionNames
-import io.dockistry.platform.iam.domain.SystemRoleNames
 import io.dockistry.platform.iam.domain.User
-import io.dockistry.platform.iam.infrastructure.PrincipalRepository
-import io.dockistry.platform.iam.infrastructure.RoleBindingRepository
-import io.dockistry.platform.iam.infrastructure.RoleRepository
 import io.dockistry.platform.iam.infrastructure.ScopeQueryRepository
 import io.dockistry.platform.projects.application.ports.ProjectManagedServicesExistencePort
 import io.dockistry.platform.projects.application.ports.ProjectNetworkRemovalPort
-import io.dockistry.platform.projects.domain.InvalidProjectSlugException
 import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.projects.domain.ProjectAlreadyExistsException
 import io.dockistry.platform.projects.domain.ProjectDeletionBlockedByManagedServicesException
 import io.dockistry.platform.projects.domain.ProjectNotFoundException
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
+import io.dockistry.platform.shared.domain.ResourceNameNormalizer
 import io.dockistry.platform.shared.exception.InternalDataIntegrityException
-import jakarta.validation.ConstraintViolationException
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.time.Clock
 import java.util.UUID
 
 @Service
 class ProjectService(
-    private val clock: Clock,
     private val projectRepository: ProjectRepository,
     private val projectAccessService: ProjectAccessService,
     private val projectAccessGuard: ProjectAccessGuard,
-    private val roleRepository: RoleRepository,
-    private val principalRepository: PrincipalRepository,
     private val permissionCheckService: PermissionCheckService,
     private val scopeQueryRepository: ScopeQueryRepository,
-    private val roleBindingRepository: RoleBindingRepository,
     private val projectManagedServicesExistencePort: ProjectManagedServicesExistencePort,
     private val projectNetworkRemovalPort: ProjectNetworkRemovalPort,
     private val projectDeleteExecutor: ProjectDeleteExecutor,
-    private val projectUpdateExecutor: ProjectUpdateExecutor
+    private val projectUpdateExecutor: ProjectUpdateExecutor,
+    private val projectCreateExecutor: ProjectCreateExecutor
 ) {
-    @Transactional
     fun create(
         name: String,
         slug: String,
         description: String? = null,
         ownerPrincipalId: UUID,
     ): Project {
-        val ownerPrincipal = principalRepository.findPrincipalById(ownerPrincipalId)
-            ?: throw InternalDataIntegrityException(
-                "Principal $ownerPrincipalId was passed for project creation, " +
-                    "but it couldn't be found in the DB"
+        return try {
+            projectCreateExecutor.execute(
+                name = name,
+                slug = slug,
+                description = description,
+                ownerPrincipalId = ownerPrincipalId
             )
+        } catch (exception: DataIntegrityViolationException) {
+            if (projectRepository.existsByNameOrSlug(ResourceNameNormalizer.normalize(name), slug)) {
+                throw ProjectAlreadyExistsException("Project with such name/slug already exists")
+            }
 
-        val scope = Scope(ScopeType.PROJECT)
-
-        if (!projectAccessService.hasCreatePermission(ownerPrincipal)) {
-            throw InsufficientPermissionException("This principal is not allowed to create projects")
+            throw exception
         }
-
-        val project = Project(
-            name = name,
-            slug = slug,
-            description = description,
-            ownerPrincipal = ownerPrincipal,
-            createdAt = clock.instant(),
-            scope = scope
-        )
-
-        val systemAdminRole = roleRepository.findByNameAndIsSystemTrue(SystemRoleNames.PROJECT_ADMIN)
-            ?: throw InternalDataIntegrityException("Basic system role project_admin couldn't be found")
-
-        val savedProject = try {
-            projectRepository.saveAndFlush(project)
-        } catch (_: ConstraintViolationException) {
-            throw InvalidProjectSlugException("Project slug '$slug' is invalid")
-        } catch (_: DataIntegrityViolationException) {
-            throw ProjectAlreadyExistsException("Project with such name/slug already exists")
-        }
-
-        roleBindingRepository.saveAndFlush(
-            RoleBinding(ownerPrincipal, savedProject.scope, systemAdminRole)
-        )
-
-        return savedProject
     }
 
     fun update(
@@ -113,6 +77,17 @@ class ProjectService(
                 name = name,
                 description = description
             )
+        } catch (exception: DataIntegrityViolationException) {
+            if (
+                projectRepository.existsByNameAndIdNot(
+                    ResourceNameNormalizer.normalize(name),
+                    projectId
+                )
+            ) {
+                throw ProjectAlreadyExistsException("Project with such name already exists")
+            }
+
+            throw exception
         }
     }
 
@@ -193,20 +168,19 @@ class ProjectService(
     fun list(
         principal: Principal
     ): List<Project> {
-        if (permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_READ, principal.id)) {
+        if (permissionCheckService.hasGlobalPermission(SystemPermissionNames.PROJECT_READ.key, principal.id)) {
             return projectRepository.findAll()
         }
 
         return projectRepository.findAllByScopeIdIn(
             scopeQueryRepository.effectiveScopeIds(
                 principal.id,
-                SystemPermissionNames.PROJECT_READ,
+                SystemPermissionNames.PROJECT_READ.key,
                 ScopeType.PROJECT
             )
         )
     }
 
-    @Transactional
     fun createForUser(
         name: String,
         slug: String,

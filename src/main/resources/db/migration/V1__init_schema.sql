@@ -43,7 +43,7 @@ CREATE TABLE projects
     id                 UUID                        NOT NULL,
     name               VARCHAR(255)                NOT NULL,
     slug               VARCHAR(30)                 NOT NULL,
-    description        VARCHAR(255),
+    description        VARCHAR(1000),
     owner_principal_id UUID                        NOT NULL,
     status             VARCHAR(255)                NOT NULL,
     created_at         TIMESTAMP WITHOUT TIME ZONE NOT NULL,

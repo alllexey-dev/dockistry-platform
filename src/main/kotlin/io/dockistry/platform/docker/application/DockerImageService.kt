@@ -37,7 +37,7 @@ class DockerImageService(
 
     private fun requireReadPermission(principal: Principal) {
         requireGlobalPermission(
-            permission = SystemPermissionNames.DOCKER_IMAGES_READ,
+            permission = SystemPermissionNames.DOCKER_IMAGES_READ.key,
             principal = principal,
             operation = "view Docker images"
         )
@@ -45,7 +45,7 @@ class DockerImageService(
 
     private fun requireManagePermission(principal: Principal) {
         requireGlobalPermission(
-            permission = SystemPermissionNames.DOCKER_IMAGES_MANAGE,
+            permission = SystemPermissionNames.DOCKER_IMAGES_MANAGE.key,
             principal = principal,
             operation = "manage Docker images"
         )

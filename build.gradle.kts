@@ -88,8 +88,26 @@ allOpen {
 
 tasks.test {
 	useJUnitPlatform {
-		excludeTags("benchmark", "docker-stats")
+		excludeTags("benchmark", "docker-stats", "dind")
 	}
+}
+
+tasks.register<Test>("dindTest") {
+	description = "Runs Docker-in-Docker integration tests"
+	group = "verification"
+	testClassesDirs = sourceSets.test.get().output.classesDirs
+	classpath = sourceSets.test.get().runtimeClasspath
+
+	useJUnitPlatform {
+		includeTags("dind")
+		excludeTags("docker-stats")
+	}
+
+	testLogging {
+		events("passed", "skipped", "failed")
+	}
+
+	outputs.upToDateWhen { false }
 }
 
 tasks.register<Test>("dockerStatsTest") {

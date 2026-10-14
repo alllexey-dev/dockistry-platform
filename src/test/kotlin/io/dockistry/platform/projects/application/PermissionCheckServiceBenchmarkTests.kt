@@ -150,7 +150,7 @@ class PermissionCheckServiceBenchmarkTests {
         principal: Principal,
         scope: Scope,
         vararg permissionKeys: String = arrayOf(
-            SystemPermissionNames.PROJECT_READ
+            SystemPermissionNames.PROJECT_READ.key
         )
     ): RoleBinding {
         return fixtures.grant(principal, scope, *permissionKeys)

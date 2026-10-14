@@ -1,5 +1,10 @@
 package io.dockistry.platform.services.application
 
+import io.dockistry.platform.iam.domain.Principal
+import io.dockistry.platform.secrets.application.ManagedServiceSecretReferenceService
+import io.dockistry.platform.secrets.application.SecretWarningService
+import io.dockistry.platform.secrets.domain.SecretWarningType
+import io.dockistry.platform.secrets.domain.SecretWarningsConfirmationRequiredException
 import io.dockistry.platform.services.application.dto.ManagedServiceDeploymentPlan
 import io.dockistry.platform.services.domain.DeploymentNotFoundException
 import io.dockistry.platform.services.domain.ManagedService
@@ -19,15 +24,54 @@ import java.util.UUID
 class ManagedServiceDeploymentLifecycleService(
     private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard,
     private val deploymentRepository: ManagedServiceDeploymentRepository,
-    private val clock: Clock
+    private val clock: Clock,
+    private val referenceService: ManagedServiceSecretReferenceService,
+    private val secretUsageGuard: ManagedServiceSecretUsageGuard,
+    private val secretWarningService: SecretWarningService
 ) {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    fun begin(serviceId: UUID): ManagedServiceDeploymentPlan {
+    fun begin(
+        serviceId: UUID,
+        principal: Principal,
+        ignoreWarnings: Boolean
+    ): ManagedServiceDeploymentPlan {
         val service = managedServiceLifecycleGuard
             .requireActiveForMutationWithWait(serviceId)
 
+        val references = referenceService.getReferences(service.id)
+        secretUsageGuard.requireSecretsUsable(
+            project = service.project,
+            principal = principal,
+            resultingReferences = references,
+        )
+
+        referenceService.lockSecretsAndCheckDelegation(
+            service = service,
+            references = references
+        )
+
+        /* Read after delegation locks: version/Secret deletion and revoke create their
+        warnings under these locks, so a deletion committed while begin waited still requires
+        confirmation. Read before resolving latest versions: rotation takes no delegation
+        locks, and a rotation committed after this read gets a warning outside the accepted
+        set, so it stays open even if this deploy used the new version. */
+        val acceptedWarnings = secretWarningService.getActiveWarningEntities(serviceId)
+
+        val payload = referenceService.validateAndFetchPayload(references)
+
+        val deletedWarnings = acceptedWarnings.filter {
+            it.warningType == SecretWarningType.DELETED
+        }
+        if (deletedWarnings.isNotEmpty() && !ignoreWarnings) {
+            throw SecretWarningsConfirmationRequiredException(
+                "Confirmation required for deploy service with following secrets DELETED warnings:" +
+                        deletedWarnings.joinToString(separator = ", ") { it.envName })
+        }
+
         val snapshot = ManagedServiceConfiguration.validated(
-            service.toConfigurationDraft()
+            service.toConfigurationDraft(
+                secretReferences = references
+            )
         )
         val deployment = saveDeployment(service, snapshot)
 
@@ -39,14 +83,22 @@ class ManagedServiceDeploymentLifecycleService(
             projectId = service.project.id,
             projectSlug = service.project.slug,
             serviceName = service.name,
-            snapshot = snapshot
+            snapshot = snapshot,
+            secretPayloads = payload,
+            acceptedWarningIds = acceptedWarnings.map { it.id }
         )
     }
 
+    /**
+     * Warnings accepted in [begin] are resolved only here, together with `FINISHED`: until the
+     * container actually runs the new configuration, the old runtime may still use the value
+     * the warning is about. A failed or canceled deploy leaves them open.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun finish(
         deploymentId: UUID,
-        containerId: String
+        containerId: String,
+        acceptedWarningIds: List<UUID>
     ): ManagedServiceDeploymentFinalizationResult {
         val updatedRows = deploymentRepository.markFinishedIfInProcess(
             deploymentId = deploymentId,
@@ -54,12 +106,16 @@ class ManagedServiceDeploymentLifecycleService(
             updatedAt = clock.instant()
         )
 
-        return resolveFinalization(
+        val result = resolveFinalization(
             deploymentId = deploymentId,
             operation = "finish",
             updatedRows = updatedRows,
             containerId = containerId
         )
+        if (result == ManagedServiceDeploymentFinalizationResult.APPLIED) {
+            secretWarningService.resolveAccepted(acceptedWarningIds)
+        }
+        return result
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

@@ -13,6 +13,8 @@ import io.dockistry.platform.docker.domain.model.DockerPortBinding
 import io.dockistry.platform.docker.domain.model.DockerPortProtocol
 import io.dockistry.platform.docker.domain.model.DockerRestartPolicy
 import io.dockistry.platform.docker.domain.model.DockerVolumeBinding
+import io.dockistry.platform.iam.domain.Principal
+import io.dockistry.platform.secrets.application.ports.SecretEncryptor
 import io.dockistry.platform.services.application.dto.ManagedServiceDeploymentPlan
 import io.dockistry.platform.services.domain.ContainerNameConflictSupportRequiredException
 import io.dockistry.platform.services.domain.DeployAlreadyInProcessException
@@ -38,7 +40,8 @@ class ManagedServiceDeployExecutor(
     private val containerService: ContainerService,
     private val deploymentOperationGate: ManagedServiceDeploymentOperationGate,
     private val projectOperationGate: ProjectOperationGate,
-    private val deploymentRepository: ManagedServiceDeploymentRepository
+    private val deploymentRepository: ManagedServiceDeploymentRepository,
+    private val secretEncryptor: SecretEncryptor
 ) {
 
     companion object {
@@ -49,7 +52,7 @@ class ManagedServiceDeployExecutor(
             "dockistry_${projectSlug}_$serviceName"
     }
 
-    fun deploy(serviceId: UUID): String {
+    fun deploy(serviceId: UUID, principal: Principal, ignoreWarnings: Boolean): String {
         if (deploymentRepository.hasActiveDeployments(serviceId)) {
             throw DeployAlreadyInProcessException(
                 "Deploy for this service is already in process"
@@ -57,7 +60,7 @@ class ManagedServiceDeployExecutor(
         }
 
         val plan = try {
-            deploymentLifecycleService.begin(serviceId)
+            deploymentLifecycleService.begin(serviceId, principal, ignoreWarnings)
         } catch (exception: DataIntegrityViolationException) {
             if (deploymentRepository.hasActiveDeployments(serviceId)) {
                 throw DeployAlreadyInProcessException(
@@ -85,7 +88,8 @@ class ManagedServiceDeployExecutor(
                     when (
                         deploymentLifecycleService.finish(
                             deploymentId = plan.deploymentId,
-                            containerId = containerId
+                            containerId = containerId,
+                            acceptedWarningIds = plan.acceptedWarningIds
                         )
                     ) {
                         ManagedServiceDeploymentFinalizationResult.APPLIED ->
@@ -209,6 +213,11 @@ class ManagedServiceDeployExecutor(
     private fun createCommand(
         plan: ManagedServiceDeploymentPlan
     ): DockerContainerCreateCommand {
+        // Decrypt failure must stop the deploy before it creates any Docker resource.
+        val secretBackedEnv = plan.secretPayloads.associate {
+            it.envName to secretEncryptor.decrypt(it.encryptedPayload, it.context)
+        }
+
         val networkName = projectOperationGate.withLock(plan.projectId) {
             throwIfDeploymentCanceled(plan)
             ensureNetworkAndGetName(plan)
@@ -226,7 +235,7 @@ class ManagedServiceDeployExecutor(
         return DockerContainerCreateCommand(
             name = containerName(plan),
             image = imageRef,
-            env = plan.snapshot.env,
+            env = plan.snapshot.env + secretBackedEnv,
             labels = DockerLabels.forDeployment(
                 projectId = plan.projectId,
                 serviceId = plan.serviceId,

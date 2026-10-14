@@ -31,7 +31,7 @@ class ProjectMemberRepository(
 
         val params = mapOf(
             "projectId" to projectId,
-            "projectReadPermissionKey" to SystemPermissionNames.PROJECT_READ
+            "projectReadPermissionKey" to SystemPermissionNames.PROJECT_READ.key
         )
 
         return jdbc.query(sql, params) { rs, _ ->
@@ -67,7 +67,7 @@ class ProjectMemberRepository(
 
         val params = mapOf(
             "projectId" to projectId,
-            "projectReadPermissionKey" to SystemPermissionNames.PROJECT_READ
+            "projectReadPermissionKey" to SystemPermissionNames.PROJECT_READ.key
         )
 
         val roleNames = mutableMapOf<UUID, String>()
@@ -112,7 +112,7 @@ class ProjectMemberRepository(
             "projectId" to projectId,
             "roleId" to roleId,
             "isSystemRole" to true,
-            "projectReadPermissionKey" to SystemPermissionNames.PROJECT_READ
+            "projectReadPermissionKey" to SystemPermissionNames.PROJECT_READ.key
         )
 
         return jdbc.queryForObject(sql, params, Boolean::class.java) ?: false
@@ -135,7 +135,7 @@ class ProjectMemberRepository(
         val params = mapOf(
             "projectId" to projectId,
             "principalId" to principalId,
-            "projectReadPermissionKey" to SystemPermissionNames.PROJECT_READ
+            "projectReadPermissionKey" to SystemPermissionNames.PROJECT_READ.key
         )
 
         return jdbc.queryForObject(sql, params, Boolean::class.java) ?: false

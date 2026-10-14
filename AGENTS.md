@@ -93,6 +93,12 @@ Runtime/config:
   / `app.docker-agent.image-pull-timeout` в миллисекундах;
 - production profile защищен от дефолтного `jwt.secret=secret` через
   `ProductionSecretDefaultsGuard`.
+- Secret values шифруются `AesGcmSecretEncryptor` (AES-256-GCM, random nonce на
+  value, `SecretValueContext` secret/version/key как associated data). Ключ —
+  `SECRETS_ENCRYPTION_KEY` / `app.secrets.encryption.key` (base64, 32 байта);
+  development key отклоняется при `prod` profile. Dummy encryptor нет: тесты
+  используют реальный encryptor с ключом из test properties. Ротация master key
+  пока не поддерживается.
 
 CI:
 
@@ -108,7 +114,7 @@ CI:
 Корень репозитория:
 
 - `build.gradle.kts` — Gradle build, зависимости, Kotlin/JPA настройки,
-  `test` и `benchmarkTest` tasks;
+  `test`, `benchmarkTest`, `dindTest` и `dockerStatsTest` tasks;
 - `settings.gradle.kts` — имя root project и Foojay toolchain resolver;
 - `compose.yaml` — локальный PostgreSQL;
 - `README.md` — быстрый старт, команды запуска и тестирования;
@@ -187,7 +193,7 @@ CI:
   `ProjectService.kt`, `JwtAuthenticationFilter.kt`,
   `EmailVerificationFlowService.kt`.
 - Для DTO используй `data class`.
-- Для stateless utility допустим `object`, как `ProjectNameNormalizer` или
+- Для stateless utility допустим `object`, как `ResourceNameNormalizer` или
   `VerificationCodeGenerator`.
 - Constructor injection обязателен для Spring beans.
 - Не используй field injection в main-коде.
@@ -306,6 +312,29 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - `RoleBinding` связывает subject principal, scope и role.
 - Permission checks должны учитывать direct user bindings и group-derived
   bindings. Для этого используй `PermissionCheckService`, не обходи его вручную.
+- Удаление project role binding/member сериализуется через
+  `SecretDelegationPermissionGuard` в транзакции `ProjectMemberService`: сначала
+  lock subject principal, для `GROUP` затем чтение member IDs через
+  `GroupRepository.findMemberIdsByPrincipalId` и locks всех пользователей по порядку
+  UUID. Grant через `assignRole` не требует этого mutex: добавление источника
+  permission не нарушает delegation invariant.
+- `deleteMember` фиксирует IDs удаляемых bindings под principal locks, исключает
+  именно их из effective permission check и удаляет тот же набор одним batch
+  DELETE. Не заменяй это удалением всех bindings по principal/project после
+  проверки: concurrent grant может стать оставшимся источником permission и
+  затем попасть под такое удаление.
+- `ProjectMemberService.requirePermissionRevocationAllowed` проверяет наличие
+  собственных Secret delegations в проекте и сохранение effective
+  `project.secrets.delegate` после исключения удаляемых bindings. `USER` и `GROUP`
+  проходят один путь: batch-поиск owner IDs с delegations среди subject и
+  пользователей группы (для `USER` список пользователей пуст), затем batch
+  permission check через `PermissionCheckService`. Отдельной single-principal
+  версии правила нет. Состав группы переиспользуется из locking flow;
+  per-member queries запрещены.
+  Потеря последнего источника permission возвращает HTTP 409
+  `secret_delegation_active` с требованием force-revoke. Batch permission check
+  отдельно проверяет существование всех входных principals одним запросом:
+  отсутствующий principal является internal data integrity violation.
 - Project permission predicates должны идти через `ProjectAccessService` и
   называться как `has*Permission`, потому что они проверяют только наличие
   permission, а не полный action-level доступ.
@@ -335,6 +364,39 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `SystemSettingKeys.INITIAL_ADMIN_BOOTSTRAP_EXECUTED`: insert marker'а
   выполняется первым шагом той же транзакции и полагается на primary key в
   таблице `system_settings`.
+
+### Group membership и GLOBAL permission writers
+
+- При добавлении flows изменения group membership или GLOBAL role bindings
+  согласуй их concurrency protocol с существующими project binding writers и
+  созданием Secret delegations. Все эти flows используют PostgreSQL
+  transaction-level advisory locks с ключом только по `principalId` в общем
+  namespace; project ID в ключ не входит. Это обеспечивает координацию изменений
+  effective permissions сразу в нескольких проектах.
+- PostgreSQL advisory lock защищает только участвующие в общем протоколе flows.
+  Он не блокирует изменение `group_members` автоматически. Чтение состава группы
+  для group binding revoke и все membership writers должны использовать общий
+  principal-based mutex группы с одним и тем же ключом по её `principalId`.
+- Membership writer и group binding writer должны также сериализоваться с
+  direct permission writers и delegation пользователя. Получение locks,
+  чтение актуального membership/effective permissions, проверка инвариантов и
+  изменение выполняются в одной транзакции. Для нескольких principals соблюдай
+  общий стабильный порядок locks, исключающий deadlocks: сначала берутся GROUP
+  locks по возрастанию principal IDs, затем USER locks в том же порядке.
+- Исключение пользователя из группы и отзыв GLOBAL binding не должны удалять
+  последний effective источник `project.secrets.delegate` в любом проекте,
+  которому делегированы собственные Secrets затронутого owner. Учитывай оставшиеся
+  direct, group-derived и GLOBAL источники. При нарушении возвращай атомарный
+  отказ `secret_delegation_active` с требованием force-revoke; частичные изменения
+  membership/bindings запрещены.
+- При изменении bindings группы под lock её principal прочитай актуальный состав
+  и возьми principal-based locks всех её пользователей, включая пользователей
+  без delegations. Создание delegation использует тот же lock owner principal.
+  Это закрывает гонку с первой delegation в любом проекте; membership writers
+  используют общий lock группы и сохраняют её состав во время проверки.
+- Добавление этих flows требует concurrency tests на membership removal и GLOBAL
+  revoke одновременно с созданием первой delegation, а также на group binding
+  revoke одновременно с membership change и direct user binding revoke.
 
 ### Email verification и email jobs
 
@@ -462,9 +524,13 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   resolution, runtime lifecycle transitions и начало удаления сериализуются через
   `ManagedServiceLifecycleGuard`:
   guard работает внутри уже открытой транзакции (`Propagation.MANDATORY`) и предоставляет
-  две явные политики mutex acquisition — fail-fast через `SELECT ... FOR UPDATE NOWAIT`
+  две явные политики mutex acquisition — fail-fast через
+  `SELECT ... FOR NO KEY UPDATE NOWAIT`
   и bounded wait через transaction-local PostgreSQL `lock_timeout` с обычным
-  `SELECT ... FOR UPDATE`. Короткие production lifecycle transitions используют bounded
+  `SELECT ... FOR NO KEY UPDATE`. Этот lock сохраняет взаимное исключение lifecycle
+  writers, но совместим с FK `KEY SHARE` при создании Secret warnings и не создаёт
+  цикл ожидания service/delegation между deploy или update и revoke.
+  Короткие production lifecycle transitions используют bounded
   wait с default timeout из companion object guard; timeout и несовместимый durable
   lifecycle status возвращают typed conflict. Fail-fast API сохраняется для use cases,
   которым требуется немедленный отказ.
@@ -541,6 +607,21 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Number verification code: ровно 6 digits.
 - Email fields используют `@field:NotBlank` и `@field:Email`.
 - Validation errors должны сохранять custom messages в response body.
+- Исключение для Secrets: request DTO не получают Jakarta annotations и `@Valid`.
+  Вся валидация доменная, через `SecretValidator` и shared normalizers, потому что
+  Secret flows вызываются не только из HTTP. Annotations не дублируют доменные
+  правила, чтобы не получить два расходящихся набора правил.
+- Resource descriptions (`Project`, `Secret`) проходят через
+  `ResourceDescriptionNormalizer`: trim, NFC, сохранение переносов строк,
+  blank -> `null`, максимум 1000 символов, запрет NUL и непарных surrogates.
+  Новые description-поля подключай к нему же.
+- Текст, который хранится в PostgreSQL text/jsonb или передаётся в container env,
+  проверяй через `StorableText`: NUL и непарные surrogates там непредставимы.
+  Размеры в байтах считай через `StorableText.utf8Length`, не через
+  `String.toByteArray`, который молча заменяет непарный surrogate на `?`.
+- Secret version values: не больше 100 keys, значение не больше 64 KiB в UTF-8
+  (ниже Linux `MAX_ARG_STRLEN` = 128 KiB для строки `NAME=value`), keys и values
+  вместе не больше 256 KiB. Ошибка — `invalid_secret_values`.
 
 ### Tests
 
@@ -554,6 +635,12 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   nested Docker-in-Docker stats counters нестабильны на GitHub-hosted runners.
   Если меняешь Docker stats mapping или сбор Docker metrics, локально запускай
   `./gradlew dockerStatsTest`.
+- Docker-in-Docker integration tests помечаются `@Tag("dind")`, исключены из
+  обычного `test`/`build` и запускаются отдельно через `./gradlew dindTest`:
+  они нестабильны из-за сети и pull images внутри nested Docker. Для проверки
+  изменений не запускай их в full suite; новые DinD-тесты всегда помечай этим
+  тегом. Если меняешь Docker agent adapter или docker-java mapping, локально
+  запускай `./gradlew dindTest`.
 - Для конкретного теста:
   `./gradlew test --tests "io.dockistry.platform.SomeTest"`.
 - Интеграционные тесты используют:
@@ -568,6 +655,15 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   `MutableClock`.
 - Для auth setup в API tests переиспользуй `AuthTestClient`, когда подходит.
 - Для IAM/project fixtures используй `IamProjectFixtures`.
+- Все concurrency tests используют `testsupport/concurrency/ConcurrencyTestSupport`;
+  API и примеры описаны в `src/test/kotlin/io/dockistry/platform/testsupport/concurrency/README.md`.
+  В сценариях оставляй service calls, именованные checkpoints, порядок событий и
+  business assertions. Executors, latches, PIDs, polling и cleanup держи в testsupport.
+  `@Primary` test adapters делегируют реальные production calls и вызывают
+  checkpoints в существующих точках; production hooks ради тестов не добавляй.
+  `assertBlocked` проверяет ожидание конкретных PostgreSQL sessions, `run` всегда
+  освобождает pauses и завершает workers. Проверяй итоговое состояние после
+  commit/rollback. Сценарии одного shared helper выполняются последовательно.
 - Если меняешь contract:
   - добавляй positive tests для happy path;
   - добавляй negative tests для validation, permissions и error codes;
@@ -582,6 +678,14 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Держи изменения узкими: не смешивай feature, refactor, formatting и docs без
   причины.
 - Не трогай unrelated файлы.
+- Явные и важные баги, найденные по ходу работы, исправляй сразу отдельным
+  коммитом и сообщай о них. Объёмные проблемы вне scope задачи, на которые до MVP
+  не стоит тратить время и которыми пока можно пренебречь, не исправляй попутно:
+  заводи на них GitHub issue (или PR) в `alllexey-dev/dockistry-platform` с
+  причиной, местом в коде и предлагаемым решением и добавляй его на доску
+  `https://github.com/users/alllexey-dev/projects/2` в статус `Backlog`
+  (`gh issue create`, `gh project item-add`, `gh project item-edit`; токену нужен
+  scope `project`).
 - Обновляй `AGENTS.md`, если новые
   решения меняют архитектуру, workflow, правила разработки, тестирования,
   инфраструктуру, модульные границы или важные проектные соглашения.
@@ -590,10 +694,11 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
   documented behavior.
 - Если `AGENTS.md` и `README.md` не нужно менять, осознанно проверь это
   перед финальным ответом.
-- Раздел `## 6. Текущий статус / Что делаем сейчас` может временно содержать
-  текущую задачу пользователя для локального контекста сессии. Такие записи не
-  коммить: дефолтное состояние раздела в репозитории — только placeholder
-  `[Здесь я буду описывать текущий фокус разработки перед новой сессией.]`.
+- Раздел #6 в данном файле может содержать локальный durable product contract
+  текущей задачи и не должен превращаться в session notes, implementation status
+  или roadmap. Изменения самого раздела #6 не коммить: его committed state —
+  placeholder `## 6. Durable product contract текущей задачи`. При изменении
+  согласованных инвариантов синхронизируй локальный раздел и публичное issue.
 - Перед commit полезно проверять `git diff --check`.
 - Если есть staged subset и грязный worktree, используй
   `scripts/check-staged-independent.sh -- ./gradlew test`, чтобы убедиться, что
@@ -637,6 +742,6 @@ Prettier, ESLint, Ruff или Black. Стиль поддерживается в�
 - Если проверку не удалось запустить из-за окружения, Docker, Gradle lock или
   sandbox permissions, явно скажи об этом и укажи точную причину.
 
-## 6. Текущий статус / Что делаем сейчас (Current State & Roadmap)
+## 6. Durable product contract текущей задачи
 
 [Здесь я буду описывать текущий фокус разработки перед новой сессией.]

@@ -1,12 +1,18 @@
 package io.dockistry.platform.iam.infrastructure
 
 import io.dockistry.platform.iam.domain.RoleBinding
+import io.dockistry.platform.iam.domain.Scope
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import java.util.UUID
 
 interface RoleBindingRepository : JpaRepository<RoleBinding, UUID> {
+    fun findByScopeAndSubjectPrincipalId(
+        scope: Scope,
+        subjectPrincipalId: UUID
+    ): List<RoleBinding>
+
     @Query(
         """
         SELECT EXISTS(
@@ -59,6 +65,7 @@ interface RoleBindingRepository : JpaRepository<RoleBinding, UUID> {
         """
         DELETE FROM RoleBinding rb
         WHERE rb.subjectPrincipal.id = :principalId
+            AND rb.id IN (:roleBindingIds)
             AND rb.scope.id IN (
                 SELECT p.scope.id
                 FROM Project p
@@ -66,5 +73,9 @@ interface RoleBindingRepository : JpaRepository<RoleBinding, UUID> {
             )
         """
     )
-    fun deleteAllByProjectAndPrincipal(projectId: UUID, principalId: UUID): Int
+    fun deleteBindingsInProject(
+        projectId: UUID,
+        principalId: UUID,
+        roleBindingIds: Collection<UUID>
+    ): Int
 }

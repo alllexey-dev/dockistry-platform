@@ -41,7 +41,7 @@ class InitialAdminRepository(
             """.trimIndent(),
 
             mapOf(
-                "projectAdminRoleName" to SystemRoleNames.PROJECT_ADMIN,
+                "projectAdminRoleName" to SystemRoleNames.PROJECT_ADMIN.key,
                 "globalScopeName" to ScopeType.GLOBAL.name,
                 "principalUserType" to PrincipalType.USER.name,
                 "principalGroupType" to PrincipalType.GROUP.name

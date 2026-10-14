@@ -1,20 +1,19 @@
 package io.dockistry.platform.service
 
+import io.dockistry.platform.TestcontainersConfig
+import io.dockistry.platform.auth.domain.RefreshToken
+import io.dockistry.platform.auth.infrastructure.RefreshTokenRepository
 import io.dockistry.platform.iam.domain.Principal
 import io.dockistry.platform.iam.domain.PrincipalType
-import io.dockistry.platform.auth.domain.RefreshToken
 import io.dockistry.platform.iam.domain.User
-import io.dockistry.platform.auth.infrastructure.RefreshTokenRepository
 import io.dockistry.platform.iam.infrastructure.UserRepository
-import io.dockistry.platform.TestcontainersConfig
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyTestConfiguration
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyTestSupport
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.dao.OptimisticLockingFailureException
-import org.springframework.transaction.PlatformTransactionManager
-import org.springframework.transaction.TransactionDefinition
-import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.time.Instant
 import java.util.UUID
@@ -23,7 +22,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 
 @SpringBootTest
-@Import(TestcontainersConfig::class)
+@Import(TestcontainersConfig::class, ConcurrencyTestConfiguration::class)
 @Testcontainers
 class RefreshTokenOptimisticLockingTests {
 
@@ -34,34 +33,32 @@ class RefreshTokenOptimisticLockingTests {
     private lateinit var userRepository: UserRepository
 
     @Autowired
-    private lateinit var transactionManager: PlatformTransactionManager
+    private lateinit var concurrency: ConcurrencyTestSupport
 
     @Test
     fun `stale refresh token revocation fails with optimistic locking`() {
         val tokenId = createRefreshToken()
 
-        val firstCopy = inNewTransaction {
+        val firstCopy = concurrency.inNewTransaction {
             refreshTokenRepository.findRefreshTokenById(tokenId)!!
         }
-        val staleSecondCopy = inNewTransaction {
+        val staleSecondCopy = concurrency.inNewTransaction {
             refreshTokenRepository.findRefreshTokenById(tokenId)!!
         }
 
-        inNewTransaction {
+        concurrency.inNewTransaction {
             firstCopy.revokedAt = Instant.now()
             refreshTokenRepository.saveAndFlush(firstCopy)
         }
 
         assertFailsWith<OptimisticLockingFailureException> {
-            inNewTransaction {
+            concurrency.inNewTransaction {
                 staleSecondCopy.revokedAt = Instant.now()
                 refreshTokenRepository.saveAndFlush(staleSecondCopy)
             }
         }
 
-        val savedToken = inNewTransaction {
-            refreshTokenRepository.findRefreshTokenById(tokenId)!!
-        }
+        val savedToken = refreshTokenRepository.findRefreshTokenById(tokenId)!!
         assertNotNull(savedToken.revokedAt)
         assertEquals(1, savedToken.version)
     }
@@ -70,7 +67,7 @@ class RefreshTokenOptimisticLockingTests {
         val suffix = UUID.randomUUID().toString().take(8)
         val tokenId = UUID.randomUUID()
 
-        inNewTransaction {
+        concurrency.inNewTransaction {
             val user = userRepository.save(
                 User(
                     username = "refresh-lock-$suffix",
@@ -93,13 +90,5 @@ class RefreshTokenOptimisticLockingTests {
         }
 
         return tokenId
-    }
-
-    private fun <T> inNewTransaction(action: () -> T): T {
-        val transactionTemplate = TransactionTemplate(transactionManager).apply {
-            propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
-        }
-
-        return transactionTemplate.execute { action() }!!
     }
 }

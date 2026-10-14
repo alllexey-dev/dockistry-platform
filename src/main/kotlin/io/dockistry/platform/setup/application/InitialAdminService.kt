@@ -53,8 +53,8 @@ class InitialAdminService(
                 subjectPrincipal = user.principal,
                 scope = scopeRepository.findByScopeType(ScopeType.GLOBAL).singleOrNull()
                     ?: throw InternalDataIntegrityException("There must be exactly one Scope with GLOBAL type"),
-                role = roleRepository.findByNameAndIsSystemTrue(SystemRoleNames.PROJECT_ADMIN)
-                    ?: throw InternalDataIntegrityException("System role ${SystemRoleNames.PROJECT_ADMIN} doesn't exist")
+                role = roleRepository.findByNameAndIsSystemTrue(SystemRoleNames.PROJECT_ADMIN.key)
+                    ?: throw InternalDataIntegrityException("System role ${SystemRoleNames.PROJECT_ADMIN.key} doesn't exist")
             )
         )
 

@@ -1,6 +1,7 @@
 package io.dockistry.platform.services.application
 
 import io.dockistry.platform.projects.application.ProjectAccessGuard
+import io.dockistry.platform.secrets.application.ManagedServiceSecretReferenceService
 import io.dockistry.platform.services.application.dto.ManagedServiceUpdateCommand
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.domain.ManagedServiceVersionConflictException
@@ -15,7 +16,9 @@ class ManagedServiceUpdateExecutor(
     private val projectAccessGuard: ProjectAccessGuard,
     private val commandValidator: ManagedServiceCommandValidator,
     private val managedServiceLifecycleGuard: ManagedServiceLifecycleGuard,
-    private val managedServiceRepository: ManagedServiceRepository
+    private val managedServiceSecretReferenceService: ManagedServiceSecretReferenceService,
+    private val managedServiceRepository: ManagedServiceRepository,
+    private val managedServiceSecretUsageGuard: ManagedServiceSecretUsageGuard
 ) {
     @Transactional
     fun execute(command: ManagedServiceUpdateCommand): ManagedService {
@@ -27,20 +30,32 @@ class ManagedServiceUpdateExecutor(
             projectId = project.id,
             serviceId = command.serviceId
         )
+
+        val currentReferences =
+            managedServiceSecretReferenceService.getReferences(service.id)
+
+        managedServiceSecretUsageGuard.requireSecretsUsable(
+            project = project,
+            principal = command.principal,
+            resultingReferences = command.configuration.secretReferences,
+            currentReferences = currentReferences
+        )
+
         val configuration = commandValidator.validate(command)
 
         if (service.version != command.expectedVersion) {
-            if (service.matches(configuration)) {
+            if (service.matches(configuration, currentReferences)) {
                 return service
             }
 
             throw versionConflict(service)
         }
 
-        if (service.matches(configuration)) {
+        if (service.matches(configuration, currentReferences)) {
             return service
         }
 
+        managedServiceSecretReferenceService.replace(service, configuration)
         service.updateConfiguration(configuration, clock.instant())
         return managedServiceRepository.saveAndFlush(service)
     }
@@ -55,9 +70,16 @@ class ManagedServiceUpdateExecutor(
             projectId = project.id,
             serviceId = command.serviceId
         )
+        val currentReferences = managedServiceSecretReferenceService.getReferences(service.id)
+        managedServiceSecretUsageGuard.requireSecretsUsable(
+            project = project,
+            principal = command.principal,
+            resultingReferences = command.configuration.secretReferences,
+            currentReferences = currentReferences
+        )
         val configuration = commandValidator.validate(command)
 
-        if (service.matches(configuration)) {
+        if (service.matches(configuration, currentReferences)) {
             return service
         }
 
