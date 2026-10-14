@@ -38,12 +38,6 @@ class ManagedServiceDeploymentLifecycleService(
         val service = managedServiceLifecycleGuard
             .requireActiveForMutationWithWait(serviceId)
 
-        /* Read before resolving latest versions: a rotation committed after this read gets
-        a warning outside the accepted set, so it stays open even if this deploy used the
-        new version. Reading after resolution could close a warning about a version this
-        deploy never saw. */
-        val acceptedWarnings = secretWarningService.getActiveWarningEntities(serviceId)
-
         val references = referenceService.getReferences(service.id)
         secretUsageGuard.requireSecretsUsable(
             project = service.project,
@@ -55,6 +49,13 @@ class ManagedServiceDeploymentLifecycleService(
             service = service,
             references = references
         )
+
+        /* Read after delegation locks: version/Secret deletion and revoke create their
+        warnings under these locks, so a deletion committed while begin waited still requires
+        confirmation. Read before resolving latest versions: rotation takes no delegation
+        locks, and a rotation committed after this read gets a warning outside the accepted
+        set, so it stays open even if this deploy used the new version. */
+        val acceptedWarnings = secretWarningService.getActiveWarningEntities(serviceId)
 
         val payload = referenceService.validateAndFetchPayload(references)
 

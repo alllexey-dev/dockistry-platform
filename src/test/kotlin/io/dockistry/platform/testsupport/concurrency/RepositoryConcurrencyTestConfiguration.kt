@@ -7,14 +7,18 @@ import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.projects.infrastructure.ProjectRepository
 import io.dockistry.platform.secrets.domain.ProjectSecretDelegation
 import io.dockistry.platform.secrets.domain.Secret
+import io.dockistry.platform.secrets.domain.ServiceSecretWarning
 import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.secrets.infrastructure.SecretDelegationLock
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
+import io.dockistry.platform.secrets.infrastructure.ServiceSecretWarningRepository
 import io.dockistry.platform.services.domain.ManagedService
 import io.dockistry.platform.services.infrastructure.ManagedServiceRepository
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_ACTIVE_WARNINGS_READ
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_BINDING_SNAPSHOT
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_REFERENCE_FLUSH
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_SECRET_DELEGATIONS_LOCK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_SECRET_NAME_CHECK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_BINDING_DELETE
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_DELEGATION_ROW_LOCK
@@ -82,6 +86,13 @@ class RepositoryConcurrencyTestConfiguration {
 
     @Bean
     @Primary
+    fun coordinatedWarningRepository(
+        delegate: ServiceSecretWarningRepository,
+        concurrency: ConcurrencyTestSupport
+    ): ServiceSecretWarningRepository = CoordinatedWarningRepository(delegate, concurrency)
+
+    @Bean
+    @Primary
     fun coordinatedServiceRepository(
         delegate: ManagedServiceRepository,
         concurrency: ConcurrencyTestSupport
@@ -142,6 +153,7 @@ private open class CoordinatedDelegationRepository(
     override fun findBySecretIdForNoKeyUpdate(secretId: String): List<ProjectSecretDelegation> {
         concurrency.checkpoint(BEFORE_SECRET_DELEGATIONS_LOCK, secretId)
         return delegate.findBySecretIdForNoKeyUpdate(secretId)
+            .also { concurrency.checkpoint(AFTER_SECRET_DELEGATIONS_LOCK, secretId) }
     }
 }
 
@@ -196,6 +208,16 @@ private open class CoordinatedRoleBindingRepository(
         concurrency.checkpoint(AFTER_BINDING_SNAPSHOT, subjectPrincipalId)
         return snapshot
     }
+}
+
+private open class CoordinatedWarningRepository(
+    private val delegate: ServiceSecretWarningRepository,
+    private val concurrency: ConcurrencyTestSupport
+) : ServiceSecretWarningRepository by delegate {
+    override fun findActiveByServiceIds(serviceIds: List<UUID>): List<ServiceSecretWarning> =
+        delegate.findActiveByServiceIds(serviceIds).also {
+            serviceIds.forEach { concurrency.checkpoint(AFTER_ACTIVE_WARNINGS_READ, it) }
+        }
 }
 
 private open class CoordinatedServiceRepository(

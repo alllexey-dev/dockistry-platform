@@ -9,6 +9,7 @@ import io.dockistry.platform.projects.domain.Project
 import io.dockistry.platform.secrets.domain.SecretAlreadyExistsException
 import io.dockistry.platform.secrets.domain.SecretNotFoundException
 import io.dockistry.platform.secrets.domain.SecretWarningType
+import io.dockistry.platform.secrets.domain.SecretWarningsConfirmationRequiredException
 import io.dockistry.platform.secrets.infrastructure.ManagedServiceSecretReferenceRepository
 import io.dockistry.platform.secrets.infrastructure.ProjectSecretDelegationRepository
 import io.dockistry.platform.secrets.infrastructure.SecretRepository
@@ -24,7 +25,9 @@ import io.dockistry.platform.services.domain.ManagedServiceSecretReference
 import io.dockistry.platform.testsupport.IamProjectFixtures
 import io.dockistry.platform.testsupport.MutableClock
 import io.dockistry.platform.testsupport.SecretDelegationFixtures
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_ACTIVE_WARNINGS_READ
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_REFERENCE_FLUSH
+import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_SECRET_DELEGATIONS_LOCK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.AFTER_SECRET_NAME_CHECK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_DELEGATION_ROW_LOCK
 import io.dockistry.platform.testsupport.concurrency.ConcurrencyPoint.BEFORE_DELEGATION_SAVE
@@ -286,19 +289,19 @@ class SecretServiceConcurrencyTests @Autowired constructor(
         val acceptedWarning = activeWarnings(service).single()
 
         val (plan, rotatedVersionId) = concurrency.run {
-            // Begin has already read the warnings it accepts, but not the latest version.
-            val beforeDelegationLock = pauseAt(BEFORE_DELEGATION_ROW_LOCK, matching = data.project.id)
+            // Begin holds delegation locks and has read accepted warnings, but not latest version.
+            val afterWarningsRead = pauseAt(AFTER_ACTIVE_WARNINGS_READ, matching = service.id)
             val begin = start("deploy begin") {
                 deploymentLifecycleService.begin(service.id, data.owner, false)
             }
-            beforeDelegationLock.awaitReached()
+            afterWarningsRead.awaitReached()
 
             // Rotation does not take delegation locks and commits while begin is paused.
             val rotatedVersionId = start("rotate") {
                 secretService.rotate(data.secretId, mapOf(data.secretKey to "third"), data.owner)
             }.await().version
 
-            beforeDelegationLock.release()
+            afterWarningsRead.release()
             begin.await() to rotatedVersionId
         }
         deploymentLifecycleService.finish(plan.deploymentId, "fake-container", plan.acceptedWarningIds)
@@ -308,6 +311,41 @@ class SecretServiceConcurrencyTests @Autowired constructor(
         val remaining = activeWarnings(service).single()
         assertEquals(SecretWarningType.OUTDATED, remaining.warningType)
         assertNotEquals(acceptedWarning.id, remaining.id)
+    }
+
+    @Test
+    fun `deploy begin waits for latest version deletion and requires confirmation`() {
+        val data = prepareTestData()
+        val service = createService(data, secretVersion = null)
+        // Versions created at one instant would make latest depend on the ID tie-breaker.
+        clock.set(clock.instant().plusSeconds(1))
+        val deletedVersionId = secretService.rotate(
+            data.secretId, mapOf(data.secretKey to "second"), data.owner
+        ).version
+        // Accept the rotation warning so only the deletion can block this deploy.
+        val accepted = deploymentLifecycleService.begin(service.id, data.owner, false)
+        deploymentLifecycleService.finish(accepted.deploymentId, "fake-container", accepted.acceptedWarningIds)
+        assertEquals(emptyList(), activeWarnings(service))
+
+        val error = concurrency.run {
+            val deletionLocks = pauseAt(AFTER_SECRET_DELEGATIONS_LOCK, matching = data.secretId)
+            val deletion = start("delete latest version") {
+                secretService.deleteVersion(data.secretId, deletedVersionId, data.owner)
+            }
+            deletionLocks.awaitReached()
+            val delegationLock = observeNext(BEFORE_DELEGATION_ROW_LOCK)
+            val begin = start("deploy begin") {
+                deploymentLifecycleService.begin(service.id, data.owner, false)
+            }
+            assertBlocked(delegationLock, by = deletionLocks)
+            deletionLocks.release()
+            deletion.await()
+            begin.failure()
+        }
+
+        val confirmation = assertIs<SecretWarningsConfirmationRequiredException>(error)
+        assertEquals("secret_warnings_confirmation_required", confirmation.code)
+        assertEquals(SecretWarningType.DELETED, activeWarnings(service).single().warningType)
     }
 
     @Test

@@ -81,12 +81,12 @@ production-границами. `await()` возвращает значение �
 | Точка | Значение для matching |
 | --- | --- |
 | `BEFORE_SECRET_SAVE`, `AFTER_SECRET_NAME_CHECK` | Secret name |
-| `BEFORE_SECRET_ROW_LOCK`, `BEFORE_SECRET_DELEGATIONS_LOCK` | Secret ID |
+| `BEFORE_SECRET_ROW_LOCK`, `BEFORE_SECRET_DELEGATIONS_LOCK`, `AFTER_SECRET_DELEGATIONS_LOCK` | Secret ID |
 | `BEFORE_PROJECT_SAVE` | Owner principal ID |
 | `BEFORE_DELEGATION_SAVE` | Secret ID |
 | `BEFORE_DELEGATION_ROW_LOCK` | Project ID |
 | `BEFORE_BINDING_DELETE` | Role binding ID, включая batch delete |
 | `AFTER_BINDING_SNAPSHOT` | Subject principal ID |
-| `BEFORE_SERVICE_ROW_LOCK` | Service ID |
+| `BEFORE_SERVICE_ROW_LOCK`, `AFTER_ACTIVE_WARNINGS_READ` | Service ID |
 | `BEFORE_PRINCIPAL_LOCK`, `BEFORE_EXECUTION_GATE_LOCK` | Advisory lock key |
 | Clock, reference flush, Docker points | Без значения; используются без matching |
